@@ -1,0 +1,20 @@
+[package]
+name = "claude-tauri"
+version = "0.1.0"
+description = "A Tauri shell around the Claude Agent SDK with git worktree support"
+edition = "2021"
+
+[lib]
+# The desktop entrypoint calls into this lib. Name is referenced from main.rs.
+name = "claude_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# tauri-plugin-shell pins tauri ^2.10, so resolve tauri to a compatible 2.x.
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
