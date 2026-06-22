@@ -11,7 +11,7 @@
 
   // setModel is a streaming-mode control request, so the session must be live.
   const status = $derived($selectedWorktree ? $sessionStatus[$selectedWorktree] : undefined);
-  const alive = $derived(status === "running" || status === "working");
+  const alive = $derived(status === "ready" || status === "busy");
   const disabled = $derived(!$selectedWorktree || !alive || $availableModels.length === 0);
 
   const label = $derived(

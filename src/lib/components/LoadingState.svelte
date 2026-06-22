@@ -9,7 +9,7 @@
   });
 
   const status = $derived($selectedWorktree ? $sessionStatus[$selectedWorktree] : undefined);
-  const working = $derived(status === "working");
+  const working = $derived(status === "busy");
   const elapsed = $derived(
     $activeActivity ? Math.max(0, Math.floor((now - $activeActivity.startedAt) / 1000)) : 0,
   );

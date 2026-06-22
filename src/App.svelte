@@ -71,7 +71,7 @@
           if (m.type !== "system" && m.type !== "result") appendMessage(worktree, m);
           // A `result` message ends the turn — the agent is idle again.
           if (m.type === "result") {
-            setStatus(worktree, "running");
+            setStatus(worktree, "ready");
             clearActivity(worktree);
           }
         } else if (evt.kind === "permission_request") {
@@ -82,7 +82,7 @@
         } else if (evt.kind === "error") {
           appendMessage(worktree, { type: "error", error: evt.error });
         } else if (evt.kind === "ready") {
-          setStatus(worktree, "running");
+          setStatus(worktree, "ready");
         } else if (evt.kind === "models") {
           availableModels.set(evt.models);
           // Each sidecar starts on the default model. If this worktree has a
@@ -137,10 +137,10 @@
           // Resume the persisted selection's session on launch (idempotent) so
           // the chat — and its model switcher — are usable without re-selecting.
           // Pass the persisted session id so the agent's context resumes too.
-          // The `ready`/`models` events flip status to running and fill the catalog.
+          // The `ready`/`models` events flip status to ready and fill the catalog.
           try {
             await startSession(sel, get(sessionByWorktree)[sel]);
-            setStatus(sel, "running");
+            setStatus(sel, "ready");
           } catch {
             // a real spawn failure surfaces via the agent-event error path
           }

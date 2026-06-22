@@ -7,7 +7,11 @@ export interface PermissionReq {
   input: unknown;
 }
 
-export type SessionStatus = "running" | "working" | "stopped";
+/** A worktree's agent session lifecycle:
+ *  - `ready`   — sidecar is alive and idle, awaiting input
+ *  - `busy`    — a turn is in flight (set on send, cleared on the `result` message)
+ *  - `stopped` — no live sidecar (never started, terminated, or errored) */
+export type SessionStatus = "ready" | "busy" | "stopped";
 
 const hasLS = typeof localStorage !== "undefined";
 
@@ -318,6 +322,26 @@ export const pendingPermission = writable<Record<string, PermissionReq | null>>(
 // ---- Derived views for the currently selected worktree ----
 export const activeMessages = derived([transcripts, selectedWorktree], ([$t, $sel]) =>
   $sel ? ($t[$sel] ?? []) : [],
+);
+
+// ---- Transcript windowing (bound the DOM) ----
+// A transcript only grows (except on resetTranscript), and naive full-mount tops
+// out at ~hundreds of messages (see CLAUDE.md PERFORMANCE). Chat mounts only the
+// newest RENDER_WINDOW messages; older ones stay in the persisted transcript but
+// out of the DOM. Identity-keyed `{#each}` means windowing just drops the top
+// node and adds a bottom one per append. Measure before raising this.
+export const RENDER_WINDOW = 300;
+
+/** The newest `RENDER_WINDOW` messages of the selected transcript — what Chat
+ *  actually mounts. Same object identities as `activeMessages` (a tail slice),
+ *  so `__key` keying stays stable. */
+export const renderedMessages = derived(activeMessages, ($m) =>
+  $m.length > RENDER_WINDOW ? $m.slice(-RENDER_WINDOW) : $m,
+);
+
+/** How many older messages sit above the render window (0 when nothing hidden). */
+export const hiddenMessageCount = derived(activeMessages, ($m) =>
+  Math.max(0, $m.length - RENDER_WINDOW),
 );
 export const activePending = derived([pendingPermission, selectedWorktree], ([$p, $sel]) =>
   $sel ? ($p[$sel] ?? null) : null,
