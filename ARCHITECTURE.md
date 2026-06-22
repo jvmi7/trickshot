@@ -34,9 +34,9 @@ End-to-end map of the MVP. Three processes, one event stream.
 5. **User turn** → `sendUserTurn(worktree, text)` → `send_to_session` writes a `{kind:"user_turn"}` JSON line to that worktree's sidecar stdin → pushed into its streaming `prompt` iterable.
 6. **Tool use** → `core.ts` runs `permissionMode: "bypassPermissions"`, so the SDK runs tools automatically and never calls `canUseTool` — no `permission_request` is emitted and the Allow/Deny modal stays dormant. The `permission_request`/`permission_reply` plumbing (`PermissionModal.svelte`, `replyPermission`, the `pendingPermissions` map in `core.ts`) is retained for when bypass is disabled: set `permissionMode: "default"` and restore the `canUseTool` callback in `core.ts` to re-enable the round-trip.
 
-## The sidecar protocol (`src/lib/types.ts` ↔ `sidecar/core.ts`)
+## The sidecar protocol (`shared/protocol.ts`, imported by `src/lib/types.ts` + `sidecar/core.ts`)
 
-Newline-delimited JSON, both directions.
+Newline-delimited JSON, both directions. The wire unions (`Inbound`/`Outbound`/`ModelInfo`) live in one shared module so the webview and sidecar can't drift; only the Rust `AgentEvent` envelope (`agent.rs`) and this table are mirrored by hand. See CLAUDE.md → SYNC RULE.
 
 | Direction | `kind` | Payload |
 |---|---|---|

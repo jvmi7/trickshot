@@ -19,50 +19,14 @@
     clearActivity,
   } from "./lib/stores";
 
+  import { contentBlocks, toolLabel, toolDetail } from "./lib/sdkMessage";
+  import type { SDKMessageLike } from "./lib/types";
+
   // ---- Verbose loading state: turn each streamed message into a human-readable
   // "what's happening now" for the chat's loading footer. ----
-  const basename = (p: unknown) => String(p ?? "").split("/").pop() || String(p ?? "");
-  const trunc = (s: unknown, n = 64) => {
-    const t = String(s ?? "").replace(/\s+/g, " ").trim();
-    return t.length > n ? t.slice(0, n) + "…" : t;
-  };
-  function toolLabel(name: string): string {
-    switch (name) {
-      case "Bash": return "Running command";
-      case "Read": return "Reading";
-      case "Write": return "Writing file";
-      case "Edit":
-      case "MultiEdit": return "Editing";
-      case "NotebookEdit": return "Editing notebook";
-      case "Glob": return "Finding files";
-      case "Grep": return "Searching";
-      case "Task": return "Delegating";
-      case "WebFetch": return "Fetching";
-      case "WebSearch": return "Searching the web";
-      case "TodoWrite": return "Updating plan";
-      default: return "Running " + name.replace(/^mcp__/, "").replace(/_/g, " ");
-    }
-  }
-  function toolDetail(name: string, input: Record<string, unknown> = {}): string {
-    switch (name) {
-      case "Bash": return trunc(input.command);
-      case "Read":
-      case "Write":
-      case "Edit":
-      case "MultiEdit": return basename(input.file_path);
-      case "NotebookEdit": return basename(input.notebook_path);
-      case "Glob":
-      case "Grep": return trunc(input.pattern);
-      case "Task": return trunc(input.description);
-      case "WebFetch": return trunc(input.url);
-      case "WebSearch": return trunc(input.query);
-      default: return "";
-    }
-  }
-  function updateActivity(worktree: string, m: { type: string; [k: string]: unknown }) {
+  function updateActivity(worktree: string, m: SDKMessageLike) {
     if (m.type === "assistant") {
-      const content = (m as { message?: { content?: unknown } }).message?.content;
-      const blocks = Array.isArray(content) ? (content as Array<Record<string, unknown>>) : [];
+      const blocks = contentBlocks(m);
       const tool = blocks.find((b) => b && b.type === "tool_use");
       if (tool) {
         setActivity(worktree, toolLabel(String(tool.name)), toolDetail(String(tool.name), tool.input as Record<string, unknown>), true);

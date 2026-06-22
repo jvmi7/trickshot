@@ -15,7 +15,7 @@
 <div class="chat">
   <div class="messages-viewport" use:customScroll>
     <div class="messages" data-scroll-inner>
-      {#each $activeMessages as m, i (m.__key ?? i)}
+      {#each $activeMessages as m (m.__key)}
         <Message {m} />
       {/each}
       {#if $activeMessages.length === 0}

@@ -21,13 +21,14 @@ Svelte webview (Vite)
 
 ## Cross-process contract + SYNC RULE (most important)
 
-The line-delimited JSON protocol (`Inbound` / `Outbound` `kind` unions) plus the worktree-tagged event envelope are **hand-mirrored across places** with no compiler link:
-- `src/lib/types.ts` — the protocol truth for the UI side: `Inbound`/`Outbound`, plus `Worktree`, `Repo`, and `AgentEnvelope` (which mirrors the Rust `AgentEvent` struct field-for-field).
-- `sidecar/core.ts` — its own local `Outbound` union + by-hand `cmd.kind` parsing.
-- `src-tauri/src/agent.rs` — the `AgentEvent { worktree, kind, data }` struct emitted on `agent-event`.
+The line-delimited JSON protocol (`Inbound` / `Outbound` `kind` unions) plus the worktree-tagged event envelope are **hand-mirrored across places**. The two TypeScript ends now share ONE source of truth; only the link to Rust is hand-mirrored:
+- `shared/protocol.ts` — the **single** TS source of truth for the wire unions (`Inbound`/`Outbound`/`ModelInfo`). Imported by BOTH ends so the two TS mirrors can't drift:
+  - `src/lib/types.ts` re-exports them (binding `Outbound`'s message to the loose `SDKMessageLike`) and adds the app-only `Worktree`/`Repo`/`AgentEnvelope` (the last mirrors the Rust `AgentEvent` struct field-for-field).
+  - `sidecar/core.ts` imports them (binding `Outbound`'s message to the SDK's own `SDKMessage`) + does by-hand `cmd.kind` parsing.
+- `src-tauri/src/agent.rs` — the `AgentEvent { worktree, kind, data }` struct emitted on `agent-event`. **No compiler link to the TS side — still hand-mirrored.**
 - `ARCHITECTURE.md` — the human-readable protocol + command tables.
 
-**When you add or change a `kind`, payload, or the event envelope, edit all of these in the SAME commit.** A one-sided edit is silently ignored: `core.ts`'s switch has no erroring default and `api.ts` swallows unparseable stdout lines, so nothing throws — it just breaks.
+**When you add or change a `kind`, payload, or the event envelope, edit `shared/protocol.ts`, the Rust struct (if the envelope changes), and `ARCHITECTURE.md` in the SAME commit.** A one-sided edit toward Rust is silently ignored: `core.ts`'s switch has no erroring default and `api.ts` swallows unparseable stdout lines, so nothing throws — it just breaks. CI runs the sidecar compile + `svelte-check`, which catch a broken TS mirror; the Rust ↔ TS match is on you.
 
 Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 - Command **args are camelCase** (`repoPath`, `worktree`, `worktreePath`, `baseRef`, `payload`); Rust commands declare them snake_case and Tauri maps automatically.
@@ -38,10 +39,12 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Concern | File |
 |---|---|
 | IPC surface (the only one) | `src/lib/api.ts` |
-| Protocol + Worktree types (UI side) | `src/lib/types.ts` |
+| Wire protocol unions (shared by webview + sidecar) | `shared/protocol.ts` |
+| Protocol re-export + app-side types (`Worktree`/`Repo`/`AgentEnvelope`) | `src/lib/types.ts` |
 | Per-worktree state: persisted repos, worktrees, selection, session status, per-worktree transcripts (`appendMessage` batching) | `src/lib/stores.ts` |
 | UI components (one per concern) | `src/lib/components/*.svelte` |
-| ALL SDK-message parsing | `src/lib/components/Message.svelte` |
+| Shared SDK-message readers (block extraction, tool labels) | `src/lib/sdkMessage.ts` |
+| SDK-message rendering (branches on `type`) | `src/lib/components/Message.svelte` |
 | Large-text truncation | `src/lib/components/Collapsible.svelte` |
 | Global header (slots: `title`/`left`/`actions` + sidebar toggle) | `src/lib/components/Header.svelte` |
 | shadcn-svelte primitives (the UI building blocks) | `src/lib/components/ui/` |
@@ -91,7 +94,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 - DO route every IPC call through `api.ts` with a generic-typed `invoke<T>()`; DON'T scatter raw `invoke("...")` / `listen()` in components.
 - DO type every boundary explicitly (the `Inbound`/`Outbound` unions, `Worktree`); DON'T return bare `any` or untyped objects across IPC.
 - DO confine each unavoidable cast to one line with a WHY comment (e.g. `(q as any).interrupt`); DON'T sprinkle untracked casts. Keep control flow explicit and greppable — prefer a named helper over an inline trick.
-- DO parse SDK message internals ONLY in `Message.svelte`. `SDKMessageLike` is intentionally `{ type: string; [key: string]: unknown }` — read defensively, branch on `m.type` (`system`/`assistant`/`user`/`result`), guard nested content with `Array.isArray`, render only known block types (`text`, `tool_use`, `tool_result`), and keep `??` fallbacks (`m.result ?? 'done'`, `w.branch ?? '(detached)'`). An unknown type or missing field must render nothing, never throw.
+- DO read SDK message internals through the shared defensive helpers in `src/lib/sdkMessage.ts` (block extraction `contentBlocks`, tool-label helpers) — used by `Message.svelte` (rendering) and `App.svelte` (loading footer). `SDKMessageLike` is intentionally `{ type: string; [key: string]: unknown }` — read defensively, branch on `m.type` (`system`/`assistant`/`user`/`result`), guard nested content with `Array.isArray`, render only known block types (`text`, `tool_use`, `tool_result`), and keep `??` fallbacks (`m.result ?? 'done'`, `w.branch ?? '(detached)'`). An unknown type or missing field must render nothing, never throw.
 - DO write comments that explain WHY (the non-obvious invariant); DON'T add WHAT comments restating the code.
 
 ## Conventions — Svelte (v5)
@@ -118,7 +121,7 @@ The hot path is bursty, data-dependent streaming (big tool results). Preserve th
 - **Batch transcript appends.** All appends go through `appendMessage(worktree, msg)`, which buffers per worktree and coalesces a burst into ONE `transcripts` store write per 16ms via `setTimeout` (across all concurrent worktrees). DON'T write the `transcripts` map per message from `onAgentEvent` — a 200-line tool-result burst must be one render, not 200. `setTimeout` (not `requestAnimationFrame`) is deliberate so backgrounded windows still flush.
 - **Keep `{#each $activeMessages as m (m.__key)}` keyed by `__key`.** Chat renders the selected worktree's transcript via the derived `activeMessages`. Messages are appended immutably, so identity keying lets Svelte reconcile only new nodes. Never switch to index keying or drop the key — it forces a full-transcript re-diff per append.
 - **Per-flush array copy (known tradeoff).** `flush()` rebuilds the `transcripts` map and `concat`s each touched worktree's batch — O(total transcript) per flush. Acceptable at the ~hundreds-of-messages ceiling; if you raise it, switch to in-place push + reassign (or windowing) FIRST.
-- **Work in markup (known tradeoff).** `Message.svelte` currently defines `function blocks(): any[]` and calls `{#each blocks() as b}` in markup, and stringifies inline with `JSON.stringify(b.input, null, 2)` — both re-run on every reactive pass. Acceptable now; if profiling shows it hot, hoist to a `$: blocks = ...` reactive derived from `m` and pre-stringify tool inputs there.
+- **Work in markup (known tradeoff).** `Message.svelte` hoists block extraction to `$: blocks = contentBlocks(m)` (reactive, recomputed only when `m` changes) but still stringifies inline with `JSON.stringify(b.input, null, 2)` per reactive pass. Acceptable now; if profiling shows it hot, pre-stringify tool inputs into the derived value too.
 - **Bound the DOM.** Always send large tool I/O through `Collapsible` so the truncated slice (not the multi-KB blob) hits the DOM. Plan to window/virtualize the transcript once sessions exceed a few hundred messages; treat ~hundreds as the ceiling for naive full-mount. A transcript only grows except on `resetTranscript` — cap or window for long sessions.
 - **Rust relay does ZERO work per chunk.** In `agent.rs`, each `CommandEvent::Stdout` becomes one `agent-event` emit tagged `{ worktree, kind: "stdout", data: line }` — no JSON parse, no per-message transform, no clones beyond the unavoidable `String::from_utf8_lossy`. Parsing belongs in `api.ts` (which routes by `worktree`). Each worktree has its own reader task; heavy work there throttles that session's stream.
 - **Serialize each payload once.** Sidecar `send()` stringifies one compact object per line (`JSON.stringify(o) + "\n"`) — never pretty-print (no `null, 2`) on the wire, never split one logical message across writes (the newline is the only framing). Rust relays the string verbatim; `api.ts` parses once. Don't add a parse-then-restringify layer anywhere.
@@ -133,7 +136,11 @@ bun run build:sidecar  # REQUIRED after ANY sidecar/*.ts edit — compiles to sr
 bun run dev            # tauri dev (frontend hot-reloads; sidecar does NOT)
 bun run build          # release
 bun run check          # svelte-check typecheck
+bun run lint           # Biome lint + format check (TS/JS/JSON; `.svelte` is covered by svelte-check, not Biome)
+bun run format         # Biome autofix + format
 ```
+
+CI (`.github/workflows/ci.yml`) runs `lint` + `check` + `build:sidecar` (frontend job) and `cargo fmt --check` + `cargo clippy` (rust job) on every push/PR — the safety net for the hand-mirrored protocol and the Rust core. Keep `cargo fmt`-clean (run `cargo fmt` in `src-tauri`) and Biome-clean before pushing. Biome's `noExplicitAny`/`noAssignInExpressions`/`noNonNullAssertion` are intentionally **off** (`biome.json`) because the codebase uses those idioms deliberately — don't re-enable without auditing the call sites.
 
 ## Gotchas
 

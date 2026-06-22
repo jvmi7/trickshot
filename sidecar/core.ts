@@ -6,21 +6,17 @@
 //   stdin  (app -> sidecar):  Inbound  { kind: "user_turn" | "permission_reply" | "interrupt", ... }
 //   stdout (sidecar -> app):  Outbound { kind: "ready" | "message" | "permission_request" | "error", ... }
 
-import { query, type SDKUserMessage, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createInterface } from "node:readline";
+import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+// Shared wire protocol (also re-exported by the webview's src/lib/types.ts) so
+// the two TS mirrors can't drift. The sidecar binds Outbound's message to the
+// SDK's own SDKMessage. See the SYNC RULE in CLAUDE.md.
+import type { ModelInfo, Outbound as OutboundOf } from "../shared/protocol";
 
 // The default model a fresh session starts on (the UI can switch it per chat).
 const DEFAULT_MODEL = "claude-opus-4-8";
 
-/** A model the user can switch to (a trimmed SDK ModelInfo). */
-type ModelLite = { value: string; displayName: string; description?: string };
-
-type Outbound =
-  | { kind: "ready" }
-  | { kind: "message"; message: SDKMessage }
-  | { kind: "permission_request"; id: string; tool: string; input: unknown }
-  | { kind: "models"; models: ModelLite[]; current: string }
-  | { kind: "error"; error: string };
+type Outbound = OutboundOf<SDKMessage>;
 
 function send(o: Outbound) {
   process.stdout.write(JSON.stringify(o) + "\n");
@@ -56,7 +52,7 @@ export function run(cliPath: string) {
   // The model this session is currently using, and the catalog of switchable
   // models (fetched once on ready, cached so set_model can re-publish cheaply).
   let currentModel = DEFAULT_MODEL;
-  let modelCatalog: ModelLite[] = [];
+  let modelCatalog: ModelInfo[] = [];
 
   const q = query({
     prompt: turns,

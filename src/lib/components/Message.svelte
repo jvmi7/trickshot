@@ -1,14 +1,13 @@
 <script lang="ts">
   import type { SDKMessageLike } from "../types";
+  import { contentBlocks } from "../sdkMessage";
   import Collapsible from "./Collapsible.svelte";
 
   export let m: SDKMessageLike;
 
-  // The Agent SDK nests Anthropic message content under `message.content`.
-  function blocks(): any[] {
-    const content = (m as any)?.message?.content;
-    return Array.isArray(content) ? content : [];
-  }
+  // The Agent SDK nests Anthropic content blocks under `message.content`
+  // (shared reader in sdkMessage.ts).
+  $: blocks = contentBlocks(m);
 </script>
 
 {#if m.type === "user_local"}
@@ -20,7 +19,7 @@
   <div class="msg assistant">
     <div class="role">claude</div>
     <div class="body">
-      {#each blocks() as b}
+      {#each blocks as b}
         {#if b.type === "text"}
           <p class="text">{b.text}</p>
         {:else if b.type === "tool_use"}
@@ -33,7 +32,7 @@
     </div>
   </div>
 {:else if m.type === "user"}
-  {#each blocks() as b}
+  {#each blocks as b}
     {#if b.type === "tool_result"}
       <div class="msg tool-result">
         <div class="role">result</div>
