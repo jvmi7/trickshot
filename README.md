@@ -7,7 +7,7 @@ A Tauri v2 desktop shell around the **Claude Agent SDK**, with **one-click git w
 - **Rust** (stable) + the Tauri v2 system deps for your OS — https://v2.tauri.app/start/prerequisites/
 - **Bun** ≥ 1.2.4 — https://bun.sh
 - **git** on `PATH` (used for worktree commands)
-- An **`ANTHROPIC_API_KEY`** in your environment (or a cloud provider via `CLAUDE_CODE_USE_BEDROCK` / `_VERTEX` / `_FOUNDRY`). Subscription (claude.ai) login is not permitted for third-party SDK apps without Anthropic pre-approval.
+- A **logged-in Claude Code CLI**. This app has **no API-key plumbing** — the sidecar embeds the native `claude` binary, which uses your existing Claude Code authentication. Sign in once (e.g. `claude` / `claude login`) and the app reuses it. See `CLAUDE.md` → Gotchas (Auth).
 
 ## First-time setup
 
@@ -21,17 +21,18 @@ bunx @tauri-apps/cli icon path/to/icon-1024.png   # writes src-tauri/icons/*
 # Build the sidecar for your host platform (re-run after editing sidecar/*.ts):
 bun run build:sidecar            # -> src-tauri/binaries/agent-<target-triple>
 
-export ANTHROPIC_API_KEY=sk-ant-...
-bun run dev                      # launches the Tauri app
+bun run dev                      # launches the Tauri app (uses your Claude Code login)
 ```
 
 > ⚠️ Don't install with `--omit=optional` / `--no-optional`. The SDK ships the Claude Code CLI as per-platform **optional** dependencies; the sidecar embeds the matching one. Skipping them breaks the build with `Native CLI binary for <platform> not found`.
 
 ## Using it
 
-1. **Choose folder…** (or paste a path) to select a git repo.
-2. Type a branch name and hit **Create + Start** — this creates a worktree at `../.<repo>-worktrees/<branch>` *and* starts an agent session scoped to it (the one-click flow). Or **Start in main repo** / **Start** on an existing worktree.
-3. Chat. When the agent wants to use a tool that needs permission, an **Allow/Deny** modal appears.
+1. **+ Add repository** (bottom of the sidebar) opens a native folder picker; choose a git repo. Its worktrees populate from `git worktree list` (git is the source of truth).
+2. **+** on a repo row creates a worktree: type a branch name and press **Enter** → `git worktree add` under `../.<repo>-worktrees/<branch>`, then the new worktree is selected. Or click any existing worktree row to select it.
+3. **Selecting a worktree activates its agent session** (no manual start/stop) — each selected worktree runs its own sidecar concurrently, so you can switch between live chats. Type in the composer to chat.
+
+> Tools run automatically: the sidecar uses `permissionMode: "bypassPermissions"`, so the agent never pauses for approval and the Allow/Deny modal stays dormant. The permission plumbing is retained for when bypass is disabled — see `ARCHITECTURE.md` → conversation flow.
 
 ## Release / cross-compilation
 
@@ -50,6 +51,17 @@ Then `bun run build`. On macOS the Bun binary must be codesigned with JIT entitl
 - **`src/lib/api.ts`** — the typed command + event surface. Import from here; don't call `invoke`/`listen` directly.
 - **`src/lib/stores.ts`** — Svelte stores for session/worktree state.
 - **`src/lib/components/`** — minimal components to replace/extend.
-- **`src/lib/types.ts`** — the sidecar JSON protocol + `Worktree` shape.
+- **`shared/protocol.ts`** — the line-delimited JSON wire unions (`Inbound`/`Outbound`/`ModelInfo`), imported by **both** the webview (`src/lib/types.ts`) and the sidecar (`sidecar/core.ts`).
+- **`src/lib/types.ts`** — the app-side protocol surface (`Worktree`, `Repo`, `AgentEnvelope`) + the re-exported wire types.
+
+## Checks
+
+```bash
+bun run check     # svelte-check typecheck
+bun run lint      # Biome lint + format check (TS/JS/JSON)
+bun run format    # Biome autofix + format
+```
+
+CI (`.github/workflows/ci.yml`) runs these plus `bun run build:sidecar`, `cargo fmt --check`, and `cargo clippy` on every push/PR — the safety net for the hand-mirrored protocol (see `CLAUDE.md` → SYNC RULE).
 
 See `ARCHITECTURE.md` for the full end-to-end map and the Rust command reference.

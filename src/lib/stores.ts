@@ -1,4 +1,4 @@
-import { writable, derived } from "svelte/store";
+import { derived, writable } from "svelte/store";
 import type { ModelInfo, Repo, SDKMessageLike, Worktree } from "./types";
 
 export interface PermissionReq {
@@ -316,22 +316,18 @@ export function resetTranscript(worktree: string) {
 export const pendingPermission = writable<Record<string, PermissionReq | null>>({});
 
 // ---- Derived views for the currently selected worktree ----
-export const activeMessages = derived(
-  [transcripts, selectedWorktree],
-  ([$t, $sel]) => ($sel ? ($t[$sel] ?? []) : []),
+export const activeMessages = derived([transcripts, selectedWorktree], ([$t, $sel]) =>
+  $sel ? ($t[$sel] ?? []) : [],
 );
-export const activePending = derived(
-  [pendingPermission, selectedWorktree],
-  ([$p, $sel]) => ($sel ? ($p[$sel] ?? null) : null),
+export const activePending = derived([pendingPermission, selectedWorktree], ([$p, $sel]) =>
+  $sel ? ($p[$sel] ?? null) : null,
 );
 /** The current model of the selected worktree's chat (null until its session
  *  reports a `models` event). */
-export const activeModel = derived(
-  [modelByWorktree, selectedWorktree],
-  ([$m, $sel]) => ($sel ? ($m[$sel] ?? null) : null),
+export const activeModel = derived([modelByWorktree, selectedWorktree], ([$m, $sel]) =>
+  $sel ? ($m[$sel] ?? null) : null,
 );
 /** The selected worktree's current agent activity (null when idle). */
-export const activeActivity = derived(
-  [worktreeActivity, selectedWorktree],
-  ([$a, $sel]) => ($sel ? ($a[$sel] ?? null) : null),
+export const activeActivity = derived([worktreeActivity, selectedWorktree], ([$a, $sel]) =>
+  $sel ? ($a[$sel] ?? null) : null,
 );

@@ -100,7 +100,11 @@ pub fn start_session(
         }
         let _ = handle.emit(
             "agent-event",
-            AgentEvent { worktree: key, kind: "terminated".into(), data: exit_code },
+            AgentEvent {
+                worktree: key,
+                kind: "terminated".into(),
+                data: exit_code,
+            },
         );
     });
 

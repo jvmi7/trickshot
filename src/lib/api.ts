@@ -59,8 +59,7 @@ export const setModel = (worktree: string, model: string) =>
 
 /** Ask a session to (re-)emit its `models` event. Used to fetch the catalog
  *  on demand, since the one-shot broadcast at `ready` can race the listener. */
-export const requestModels = (worktree: string) =>
-  send(worktree, { kind: "get_models" });
+export const requestModels = (worktree: string) => send(worktree, { kind: "get_models" });
 
 // ---- Event stream --------------------------------------------------------
 
