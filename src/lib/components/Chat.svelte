@@ -13,14 +13,6 @@
 </script>
 
 <div class="chat">
-  <header class="chat-header">
-    {#if $selectedWorktree}
-      <span class="dim">workspace:</span> <span class="path">{$selectedWorktree}</span>
-    {:else}
-      <span class="dim">select or create a worktree on the left</span>
-    {/if}
-  </header>
-
   <div class="messages-viewport" use:customScroll>
     <div class="messages" data-scroll-inner>
       {#each $activeMessages as m, i (m.__key ?? i)}

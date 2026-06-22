@@ -11,6 +11,8 @@
   import { Button } from "$lib/components/ui/button";
   import { Textarea } from "$lib/components/ui/textarea";
   import ModelSelector from "./ModelSelector.svelte";
+  import Pause from "@lucide/svelte/icons/pause";
+  import ArrowUp from "@lucide/svelte/icons/arrow-up";
 
   let text = "";
   let focused = false;
@@ -66,11 +68,11 @@
     <ModelSelector />
     {#if working}
       <Button size="icon" class="size-9 shrink-0 rounded-full" title="Stop" aria-label="Stop" onclick={stop}>
-        <i class="lni lni-pause text-base leading-none"></i>
+        <Pause class="size-4" />
       </Button>
     {:else}
       <Button size="icon" class="size-9 shrink-0 rounded-full" title="Send" aria-label="Send" onclick={send} disabled={!canSend}>
-        <i class="lni lni-arrow-upward text-lg leading-none"></i>
+        <ArrowUp class="size-5" />
       </Button>
     {/if}
   </div>

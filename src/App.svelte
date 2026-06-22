@@ -77,10 +77,12 @@
     }
   }
   import Header from "./lib/components/Header.svelte";
+  import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import Chat from "./lib/components/Chat.svelte";
-  import ThemeSelector from "./lib/components/ThemeSelector.svelte";
-  import FontSelector from "./lib/components/FontSelector.svelte";
+  import Settings from "./lib/components/Settings.svelte";
+  import * as Tooltip from "./lib/components/ui/tooltip";
+  import PanelLeft from "@lucide/svelte/icons/panel-left";
 
   const toggleSidebar = () => sidebarOpen.update((v) => !v);
 
@@ -189,37 +191,44 @@
   });
 </script>
 
+<Tooltip.Provider delayDuration={300}>
 <div class="layout">
-  <Header>
-    <button
-      slot="left"
-      class="menu-btn"
-      onclick={toggleSidebar}
-      title={$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-      aria-label="Toggle sidebar"
-    >
-      <svg
-        viewBox="0 0 24 24"
-        width="17"
-        height="17"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <line x1="9" y1="4" x2="9" y2="20" />
-      </svg>
-    </button>
-    <div slot="actions" class="flex items-center gap-1 self-start mt-1">
-      <FontSelector />
-      <ThemeSelector />
-    </div>
-  </Header>
-  <div class="app-body">
-    <aside class="sidebar" class:collapsed={!$sidebarOpen}><Worktrees /></aside>
-    <main class="content"><Chat /></main>
-  </div>
+  <!-- Sidebar toggle floats over the top-left (just past the traffic lights) so
+       it stays put when the sidebar slides away and can always reopen it. -->
+  <Tooltip.Root>
+    <Tooltip.Trigger>
+      {#snippet child({ props })}
+        <HeaderIconButton side="left" {...props} onclick={toggleSidebar} aria-label="Toggle sidebar">
+          <PanelLeft />
+        </HeaderIconButton>
+      {/snippet}
+    </Tooltip.Trigger>
+    <Tooltip.Content>{$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}</Tooltip.Content>
+  </Tooltip.Root>
+
+  <!-- Settings (gear) floats top-right, in line with the sidebar toggle. -->
+  <Settings />
+
+  <aside class="sidebar" class:collapsed={!$sidebarOpen}>
+    <!-- empty strip aligning the worktree list's top with the content's top bar
+         and clearing the traffic lights + floating toggle; the sidebar's right
+         border runs full-height as the only column divider. -->
+    <div class="sidebar-head" data-tauri-drag-region></div>
+    <div class="sidebar-list"><Worktrees /></div>
+  </aside>
+
+  <main class="main">
+    <!-- top bar: the workspace path sits inline in the header band. -->
+    <Header>
+      <div slot="left" class="workspace-label">
+        {#if $selectedWorktree}
+          <span class="path">{$selectedWorktree}</span>
+        {:else}
+          <span class="dim">select or create a worktree on the left</span>
+        {/if}
+      </div>
+    </Header>
+    <div class="content"><Chat /></div>
+  </main>
 </div>
+</Tooltip.Provider>

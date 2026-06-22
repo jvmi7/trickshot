@@ -14,6 +14,7 @@
   import type { Worktree } from "../types";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
+  import House from "@lucide/svelte/icons/house";
 
   let creatingFor: string | null = null; // repo path the inline create field is open for
   let newBranch = "";
@@ -176,7 +177,7 @@
               class:busy={$sessionStatus[wt.path] === "working"}
             ></span>
             {#if wt.is_main}
-              <i class="lni lni-home-2 wt-home"></i>
+              <House class="wt-home" />
             {/if}
             <span class="wt-name">{wt.branch ?? "(detached)"}</span>
             {#if !wt.is_main}

@@ -71,6 +71,14 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 - **Animations: the `data-open`/`data-closed` variant fix is load-bearing.** Generated `ui/*` components animate via `data-open:`/`data-closed:` utilities, but the installed bits-ui (2.18.1, latest) stamps `data-state="open"/"closed"` — a naming mismatch that makes open/close animations silently no-op. `app.css` defines `@custom-variant data-open`/`data-closed` mapping BOTH spellings, so animations work. Keep those variants when editing `app.css`; if a newly added component still won't animate, that mapping is the first thing to check.
 - `ui/*` are Svelte 5 + `tailwind-variants` + `bits-ui`. Don't hand-edit them cosmetically (`add -o` overwrites them); theme via tokens, not per-component edits. Setup lives in `components.json` + `$lib/utils.ts`.
 
+## Icons — Lucide ONLY (hard rule)
+
+**Every icon comes from [Lucide](https://lucide.dev/icons/) (`@lucide/svelte`), the same set shadcn-svelte ships with.** Import per-icon and render as a component: `import House from "@lucide/svelte/icons/house";` then `<House class="size-4" />`. They're SVGs — size with `size-*` (or width/height); they inherit `currentColor`. Icon names are kebab-case (e.g. `panel-left`, `chevron-down`, `arrow-up`); some are renamed (`home` → `house`). Browse at lucide.dev or `ls node_modules/@lucide/svelte/dist/icons/`.
+
+- **NO other icon library, ever** (no `lineicons`, `@phosphor-icons/*`, etc.) and **no hand-rolled inline `<svg>` icons** in app components — find the closest Lucide glyph instead. Both were removed deliberately; don't reintroduce them.
+- This is the icon set shadcn registry components already use, so newly `add`ed `ui/*` components need no icon rewrite. Currently used: dialog close (`x`), select (`check`, `chevron-down/up`), sidebar toggle (`panel-left`), settings (`settings`), composer (`pause`, `arrow-up`), worktree home (`house`).
+- Floating titlebar icon buttons (sidebar toggle, settings) share one primitive — `HeaderIconButton.svelte` (`.header-icon-btn`, which sizes its `svg`); reuse it so they stay uniform rather than restyling per-button.
+
 ## Styling (Tailwind v4)
 
 - **The interactive UI is shadcn primitives.** Buttons, inputs, textarea, dialog, collapsible are `ui/` components (Button/Input/Textarea/Dialog/Collapsible). Only app-specific layout that has no shadcn counterpart — sidebar rows, repo headers, chat message bubbles — is hand-styled in `app.css`.
