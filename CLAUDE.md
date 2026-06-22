@@ -4,6 +4,18 @@ Desktop GUI for the Claude Agent SDK. Tauri 2 (Rust core) + Svelte 5 / TypeScrip
 
 Goals for any change here, in priority order: (1) clean, consistent code; (2) organized so an LLM can locate and reason about any concern from one file; (3) **performance is first-class** — see the dedicated section.
 
+## Consistency & cohesion (the prime directive)
+
+Goal #1 means: **one pattern per concern, applied predictably.** A *second* way to do something the codebase already does is the main source of bugs here — don't introduce one. Before writing code:
+
+1. **Find the concern's home** in *Where things live* and put the code there. Never create a parallel location — a second IPC entry point, a second SDK-parsing site, a stray `localStorage` key, a one-off error toast.
+2. **Reuse the existing primitive/helper; extend, don't fork.** shadcn `ui/*` for UI, `api.ts` for IPC, `sdkMessage.ts` for SDK reads, `Collapsible` for big text, store mutators for state. If one *almost* fits, widen it — don't add a near-duplicate beside it.
+3. **Match the file you're editing** — same syntax mode (runes vs legacy), same error path, same naming. Don't leave two patterns side-by-side in one file.
+4. **Copy the established shape** when adding to a known category (a new IPC command, a persisted store, a protocol `kind`, a themed token) — replicate the existing template in that section *including its guards* (try/catch, `??` fallbacks, the SYNC RULE), not a fresh variant.
+5. **Prefer the boring, explicit, greppable option** — a named helper over an inline trick. No clever one-offs.
+
+If a genuinely new pattern is unavoidable, say so explicitly in your reasoning and apply it to **every** instance of that concern — never half-migrate, leaving two patterns where there was one.
+
 ## Architecture (3 processes, one stream)
 
 ```
@@ -99,7 +111,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 
 ## Conventions — Svelte (v5)
 
-- DO write NEW components with runes (`$state`, `$derived`, `$props`, `$effect`) and snippets. Existing components are still Svelte 4 syntax (`export let`, `$:`, `<slot>`) running in legacy mode — fine to leave, migrate opportunistically when you touch one. DON'T mix runes and legacy syntax within ONE component.
+- DO write **every NEW** component with runes (`$state`, `$derived`, `$props`, `$effect`) + snippets — never template a new component off a legacy one. Legacy syntax (`export let`, `$:`, `<slot>`) is **debt, not an equal option**: the target is 100% runes. When you edit a legacy file, convert the whole file to runes in that pass if it's small; otherwise match its existing mode for a minimal edit. NEVER mix runes and legacy in ONE component. Track progress in the migration list below.
 - **Migration tracker** (so you don't have to re-derive each component's mode). Migrate a file when you're already editing it; don't churn the others just to convert.
   - ✅ **Runes** (don't regress to legacy): `Settings`, `ModelSelector`, `LoadingState`, `PermissionModal`, `ScrollIndicator`, `HeaderIconButton`, and all `ui/*`.
   - ⏳ **Legacy, to migrate**: `Header` (uses `<slot>` → convert to snippet props; this is the load-bearing one since `App.svelte` consumes it via `slot="left"`), `Worktrees`, `Composer`, `Chat`, `Message`, `Collapsible`.
@@ -107,7 +119,9 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 - DO route all transcript writes through `stores.appendMessage(worktree, msg)` / `resetTranscript(worktree)` (they assign the stable `__key` and batch per worktree). DON'T mutate the `transcripts` map directly — `resetTranscript` also drops the un-flushed buffer so a recreated worktree can't inherit stale messages.
 - DO render the user's own turn optimistically with `appendMessage(wt, { type: 'user_local', text })` before/alongside `api.sendUserTurn(wt, t)`. DON'T invent a new echo type — `user_local` is the UI-only "you" bubble, distinct from the SDK's own tool-result `user` messages.
 - DO render any large/unbounded text (tool inputs, tool results, file reads) through `Collapsible.svelte` (truncates to `max`, default 2000 chars, with a reveal toggle). DON'T dump raw `<pre>{text}</pre>`.
-- DO surface command errors via try/catch into a local `error` state (Worktrees pattern); surface sidecar `error` events via `appendMessage({ type: 'error', error })` (App.svelte pattern). Rust commands reject with a `String`; sidecar runtime errors arrive as an `{kind:'error'}` Outbound.
+- **State location is fixed by lifetime — don't improvise.** Cross-component or persisted state lives in `stores.ts` as a `writable` + **named mutator functions**; components call the mutators (`setStatus`, `setWorktreeModel`, …), not `.set()/.update()` inline. (The inline `.update()`s in `Worktrees` are legacy — add a mutator for new state.) Ephemeral single-component UI state (input text, open/closed flags) stays local (`$state`/`let`). Don't promote ephemeral state into a store or drill shared state through props.
+- **Persisted state follows ONE template** (every `trickshot.*` store in `stores.ts`): a `load()` that JSON-parses with a shape guard and falls back on error → `writable(load())` → a `.subscribe()` that writes back inside `try/catch` (swallow quota errors) under a `trickshot.<name>` key. Copy it exactly; never ship a persisted store that skips the validation or the quota guard.
+- **Two error paths, one rule each — never cross them.** (a) An IPC **command** rejection (Rust returns `Err(String)`) → catch it and set a **local `error` state** in that component (the Worktrees pattern). (b) An **agent/sidecar stream** error (an `{kind:'error'}` Outbound, or a session `terminated`/`error`) → `appendMessage(wt, { type:'error', error })` so it lands in the transcript (the App.svelte pattern). The path is chosen by the error's *source*, not by convenience — don't push a command error into the transcript or swallow a stream error into local state.
 - **NO TypeScript casts in markup expressions.** `as any` / `as Foo` belong only inside `<script>`. Never write a cast inside a `{...}` template expression — compute it in a `$derived` (or legacy `$:`) value or a `<script>` const first. This is a hard compile error: the Svelte template parser is not TypeScript.
 
 ## Conventions — Rust
