@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "claude-tauri",
+  "productName": "trickshot",
   "version": "0.1.0",
-  "identifier": "com.example.claudetauri",
+  "identifier": "com.example.trickshot",
   "build": {
     "beforeDevCommand": "bun run dev:vite",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "claude-tauri",
+        "title": "trickshot",
         "width": 1100,
         "height": 760
       }

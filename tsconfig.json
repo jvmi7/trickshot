@@ -8,6 +8,11 @@
     "checkJs": false,
     "isolatedModules": true,
     "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "$lib": ["./src/lib"],
+      "$lib/*": ["./src/lib/*"]
+    },
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,

@@ -1,12 +1,12 @@
 [package]
-name = "claude-tauri"
+name = "trickshot"
 version = "0.1.0"
 description = "A Tauri shell around the Claude Agent SDK with git worktree support"
 edition = "2021"
 
 [lib]
 # The desktop entrypoint calls into this lib. Name is referenced from main.rs.
-name = "claude_tauri_lib"
+name = "trickshot_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -5,19 +5,20 @@ End-to-end map of the MVP. Three processes, one event stream.
 ```
 ┌─ Webview (Svelte) ───────────────────────────────────────────────┐
 │  components/  ──uses──>  lib/api.ts  ──>  invoke()      listen()   │
-│       │                       (commands)        ▲ (agent-stdout)   │
+│       │                       (commands)        ▲ (agent-event)    │
 └───────┼───────────────────────────────────────┼──────────────────┘
         │ Tauri IPC                              │ Tauri events
 ┌───────▼───────────────────────────────────────┴──────────────────┐
 │  Rust core (src-tauri/src)                                        │
-│   agent.rs    start_agent / send_to_agent / stop_agent            │
+│   agent.rs    start_session / send_to_session / stop_session      │
+│               (Sessions: HashMap of worktree -> sidecar)          │
 │   worktree.rs pick_directory / list / create / remove_worktree    │
 │   lib.rs      registers plugins (shell, dialog) + commands         │
 └───────┬──────────────────────────────▲───────────────────────────┘
  stdin  │ (JSON lines)         stdout   │ (JSON lines, line-buffered)
 ┌───────▼──────────────────────────────┴───────────────────────────┐
-│  Sidecar (Bun-compiled, sidecar/core.ts)                          │
-│   query({ prompt: <stream>, options.canUseTool })                 │
+│  One Bun sidecar PER WORKTREE (sidecar/core.ts)                   │
+│   query({ prompt: <stream>, bypassPermissions })                  │
 │   embeds + extracts the native Claude Code CLI (extractFromBunfs) │
 └───────┬───────────────────────────────────────────────────────────┘
         │ spawns
@@ -26,12 +27,12 @@ End-to-end map of the MVP. Three processes, one event stream.
 
 ## The conversation flow
 
-1. **Pick a repo** → `pick_directory` (native dialog) or a manual path field sets `repoPath`.
-2. **One-click worktree** → `create_worktree(repo, branch)` runs `git worktree add` under `../.<repo>-worktrees/<branch>` and returns the path; the UI immediately calls `start_agent(path)`.
-3. **`start_agent`** spawns the sidecar with `PROJECT_DIR=<path>` (→ the agent's `cwd`), and pumps the sidecar's stdout: each line is emitted as a Tauri `agent-stdout` event.
-4. **`api.onAgentEvent`** parses each line into an `Outbound` and updates stores → components re-render.
-5. **User turn** → `sendUserTurn(text)` → `send_to_agent` writes a `{kind:"user_turn"}` JSON line to the sidecar's stdin → pushed into the streaming `prompt` iterable → the SDK processes it.
-6. **Tool permission** → the SDK's `canUseTool` emits `{kind:"permission_request"}`; the UI shows the modal; `replyPermission` writes `{kind:"permission_reply"}` back; the sidecar resolves the pending promise.
+1. **Add a repo** → `pick_directory` (native dialog) adds it to the persisted `repos` list; `list_worktrees` populates its worktrees (git is the source of truth).
+2. **Spin up a worktree** → `create_worktree(repo, branch)` runs `git worktree add` under `../.<repo>-worktrees/<branch>`; the UI selects the new worktree.
+3. **Selecting a worktree = activating its session** (no manual start/stop). `start_session(worktree)` spawns a sidecar with `PROJECT_DIR=<worktree>` if one isn't already running (idempotent). Worktrees run **concurrently** — each keeps its own sidecar; switching only changes the view.
+4. **Events** → each sidecar's stdout line is emitted as one `agent-event` tagged `{ worktree, kind, data }`. `api.onAgentEvent` parses it and routes to that worktree's transcript → the selected transcript re-renders.
+5. **User turn** → `sendUserTurn(worktree, text)` → `send_to_session` writes a `{kind:"user_turn"}` JSON line to that worktree's sidecar stdin → pushed into its streaming `prompt` iterable.
+6. **Tool use** → `core.ts` runs `permissionMode: "bypassPermissions"`, so the SDK runs tools automatically and never calls `canUseTool` — no `permission_request` is emitted and the Allow/Deny modal stays dormant. The `permission_request`/`permission_reply` plumbing (`PermissionModal.svelte`, `replyPermission`, the `pendingPermissions` map in `core.ts`) is retained for when bypass is disabled: set `permissionMode: "default"` and restore the `canUseTool` callback in `core.ts` to re-enable the round-trip.
 
 ## The sidecar protocol (`src/lib/types.ts` ↔ `sidecar/core.ts`)
 
@@ -40,11 +41,11 @@ Newline-delimited JSON, both directions.
 | Direction | `kind` | Payload |
 |---|---|---|
 | app → sidecar | `user_turn` | `{ text }` |
-| app → sidecar | `permission_reply` | `{ id, behavior, message? }` |
+| app → sidecar | `permission_reply` | `{ id, behavior, message? }` — dormant (only when `canUseTool` is enabled) |
 | app → sidecar | `interrupt` | — |
 | sidecar → app | `ready` | — |
 | sidecar → app | `message` | `{ message: SDKMessage }` (pass-through) |
-| sidecar → app | `permission_request` | `{ id, tool, input }` |
+| sidecar → app | `permission_request` | `{ id, tool, input }` — dormant under `bypassPermissions` |
 | sidecar → app | `error` | `{ error }` |
 
 `SDKMessage.type` is one of `system` (init), `assistant`, `user` (tool results), `result`, plus internal types the UI ignores. `Message.svelte` branches on it.
@@ -57,15 +58,15 @@ Newline-delimited JSON, both directions.
 | `list_worktrees` | `repoPath` | `Worktree[]` | First entry is main |
 | `create_worktree` | `repoPath, branch, baseRef?` | `Worktree` | Creates branch if new; one-click primitive |
 | `remove_worktree` | `repoPath, worktreePath, force` | `void` | Branch left intact |
-| `start_agent` | `projectDir` | `void` | Spawns sidecar; replaces any running one |
-| `send_to_agent` | `payload` (JSON string) | `void` | Writes a line to sidecar stdin |
-| `stop_agent` | — | `void` | Kills the sidecar |
+| `start_session` | `worktree` | `void` | Spawns a sidecar for that worktree; idempotent (no-op if already running) |
+| `send_to_session` | `worktree, payload` (JSON string) | `void` | Writes a line to that worktree's sidecar stdin |
+| `stop_session` | `worktree` | `void` | Kills that worktree's sidecar |
 
-Events: `agent-stdout` (protocol lines), `agent-stderr`, `agent-error`, `agent-terminated` (exit code).
+Events: a single `agent-event` carrying `{ worktree, kind, data }`, where `kind` is `stdout` (a protocol line) | `stderr` | `error` | `terminated`. The frontend routes by `worktree`.
 
 ## Why a Bun sidecar (and the one real gotcha)
 
-The Agent SDK doesn't run in-process — it spawns a native Claude Code binary (shipped as per-platform optional npm deps). `bun build --compile` bundles your JS but **not** that child binary; at runtime `require.resolve` fails inside Bun's `$bunfs` virtual filesystem. The fix (SDK ≥ 0.3.144), in each `sidecar/agent.<platform>.ts`: `import binPath … with { type: "file" }` to embed it, `extractFromBunfs(binPath)` to self-extract at startup, and pass the result to `options.pathToClaudeCodeExecutable`. So the `claude` binary rides *inside* the sidecar — no second Tauri sidecar needed.
+The Agent SDK doesn't run in-process — it spawns a native Claude Code binary (shipped as per-platform optional npm deps). `bun build --compile` bundles your JS but **not** that child binary; at runtime `require.resolve` fails inside Bun's `$bunfs` virtual filesystem. The fix (SDK ≥ 0.3.144), in each `sidecar/agent.<platform>.ts`: `import binPath … with { type: "file" }` to embed it, `extractFromBunfs(binPath)` to self-extract at startup, and pass the result to `options.pathToClaudeCodeExecutable`. So the `claude` binary rides *inside* the sidecar — no second Tauri sidecar needed. There is one such sidecar **per active worktree**, running concurrently (each ~279MB resident).
 
 ## Packaging notes
 
@@ -75,8 +76,8 @@ The Agent SDK doesn't run in-process — it spawns a native Claude Code binary (
 
 ## MVP boundaries (what's intentionally not here)
 
-- No session persistence/history across app restarts (transcript lives in a store).
+- Repos + selected worktree persist (localStorage); **transcripts are in-memory only** (not persisted across restarts). Worktree lists are repopulated from git on launch.
 - No streaming token-by-token rendering (messages arrive per SDK message; add `partial_assistant` handling for finer granularity).
-- No multi-session tabs (one active sidecar at a time).
+- No cap on concurrent sessions — each open worktree is its own ~279MB sidecar; add an LRU if that's too heavy.
 - No `git` branch deletion on worktree removal, no dirty-state guards.
 - Worktree dir layout is fixed (`../.<repo>-worktrees/<branch>`); make it configurable as needed.

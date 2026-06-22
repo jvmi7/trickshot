@@ -1,4 +1,4 @@
-# claude-tauri
+# trickshot
 
 A Tauri v2 desktop shell around the **Claude Agent SDK**, with **one-click git worktree** support. The Rust backend spawns a Bun-compiled sidecar that runs the agent; the Svelte frontend renders the conversation and approves tool use. This is an **MVP scaffold** — the plumbing is complete and the UI is intentionally minimal so you can build on top of it.
 
@@ -12,7 +12,7 @@ A Tauri v2 desktop shell around the **Claude Agent SDK**, with **one-click git w
 ## First-time setup
 
 ```bash
-cd claude-tauri
+cd trickshot
 bun install                      # installs deps incl. the SDK's per-platform native CLI (optional deps)
 
 # Generate app icons (Tauri requires these to exist). Provide any square PNG:

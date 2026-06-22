@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Inbound, Outbound, Worktree } from "./types";
+import type { AgentEnvelope, Inbound, Outbound, Worktree } from "./types";
 
 // ---- Repository / worktree commands -------------------------------------
 
@@ -15,8 +15,7 @@ export const pickDirectory = () => invoke<string | null>("pick_directory");
 export const listWorktrees = (repoPath: string) =>
   invoke<Worktree[]>("list_worktrees", { repoPath });
 
-/** Create a new worktree (and branch, if it doesn't exist) off `baseRef` (default HEAD).
- *  Returns the created worktree. This is the "one-click new worktree" primitive. */
+/** Create a new worktree (and branch, if it doesn't exist) off `baseRef` (default HEAD). */
 export const createWorktree = (repoPath: string, branch: string, baseRef?: string) =>
   invoke<Worktree>("create_worktree", { repoPath, branch, baseRef: baseRef ?? null });
 
@@ -24,53 +23,56 @@ export const createWorktree = (repoPath: string, branch: string, baseRef?: strin
 export const removeWorktree = (repoPath: string, worktreePath: string, force = false) =>
   invoke<void>("remove_worktree", { repoPath, worktreePath, force });
 
-// ---- Agent session commands ---------------------------------------------
+// ---- Per-worktree agent sessions ----------------------------------------
+// Each worktree runs its own sidecar concurrently, keyed by its path.
 
-/** Spawn the sidecar with cwd = `projectDir` (a repo or worktree path). Replaces
- *  any running session. */
-export const startAgent = (projectDir: string) =>
-  invoke<void>("start_agent", { projectDir });
+/** Start (or no-op if already running) the agent session for a worktree. */
+export const startSession = (worktree: string) => invoke<void>("start_session", { worktree });
 
-/** Kill the current sidecar process. */
-export const stopAgent = () => invoke<void>("stop_agent");
+/** Kill a worktree's agent session. */
+export const stopSession = (worktree: string) => invoke<void>("stop_session", { worktree });
 
-const send = (msg: Inbound) => invoke<void>("send_to_agent", { payload: JSON.stringify(msg) });
+const send = (worktree: string, msg: Inbound) =>
+  invoke<void>("send_to_session", { worktree, payload: JSON.stringify(msg) });
 
-/** Send a user message to the agent. */
-export const sendUserTurn = (text: string) => send({ kind: "user_turn", text });
+/** Send a user message to a worktree's agent. */
+export const sendUserTurn = (worktree: string, text: string) =>
+  send(worktree, { kind: "user_turn", text });
 
-/** Answer a pending tool-permission request. */
-export const replyPermission = (id: string, behavior: "allow" | "deny", message?: string) =>
-  send({ kind: "permission_reply", id, behavior, message });
+/** Answer a pending tool-permission request (dormant under bypassPermissions). */
+export const replyPermission = (
+  worktree: string,
+  id: string,
+  behavior: "allow" | "deny",
+  message?: string,
+) => send(worktree, { kind: "permission_reply", id, behavior, message });
 
-/** Interrupt the agent mid-task. */
-export const interruptAgent = () => send({ kind: "interrupt" });
+/** Interrupt a worktree's agent mid-task. */
+export const interruptAgent = (worktree: string) => send(worktree, { kind: "interrupt" });
 
 // ---- Event stream --------------------------------------------------------
 
-/** Subscribe to agent output. The callback receives one parsed `Outbound` per
- *  line. Returns an unlisten function. */
-export async function onAgentEvent(cb: (e: Outbound) => void): Promise<UnlistenFn> {
-  return listen<string>("agent-stdout", (ev) => {
-    for (const line of ev.payload.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        cb(JSON.parse(trimmed) as Outbound);
-      } catch {
-        // ignore non-JSON noise on stdout
+/** Subscribe to agent output across ALL worktrees. `onMessage` fires per parsed
+ *  protocol message (tagged with its worktree); `onStatus` fires on session
+ *  lifecycle (terminated/error). Returns an unlisten function. */
+export async function onAgentEvent(
+  onMessage: (worktree: string, evt: Outbound) => void,
+  onStatus?: (worktree: string, kind: "terminated" | "error", data: string | null) => void,
+): Promise<UnlistenFn> {
+  return listen<AgentEnvelope>("agent-event", (e) => {
+    const { worktree, kind, data } = e.payload;
+    if (kind === "stdout" && data) {
+      for (const line of data.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          onMessage(worktree, JSON.parse(trimmed) as Outbound);
+        } catch {
+          // ignore non-JSON noise on stdout
+        }
       }
+    } else if (kind === "terminated" || kind === "error") {
+      onStatus?.(worktree, kind, data);
     }
   });
-}
-
-/** Subscribe to raw stderr / lifecycle diagnostics (optional). */
-export async function onAgentDiagnostic(
-  cb: (kind: "stderr" | "error" | "terminated", data: unknown) => void,
-): Promise<UnlistenFn[]> {
-  return Promise.all([
-    listen<string>("agent-stderr", (e) => cb("stderr", e.payload)),
-    listen<string>("agent-error", (e) => cb("error", e.payload)),
-    listen<number | null>("agent-terminated", (e) => cb("terminated", e.payload)),
-  ]);
 }

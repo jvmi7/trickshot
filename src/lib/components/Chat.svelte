@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { messages, activeProjectDir } from "../stores";
+  import { activeMessages, selectedWorktree } from "../stores";
   import Message from "./Message.svelte";
   import Composer from "./Composer.svelte";
   import PermissionModal from "./PermissionModal.svelte";
@@ -7,19 +7,19 @@
 
 <div class="chat">
   <header class="chat-header">
-    {#if $activeProjectDir}
-      <span class="dim">session:</span> <span class="path">{$activeProjectDir}</span>
+    {#if $selectedWorktree}
+      <span class="dim">workspace:</span> <span class="path">{$selectedWorktree}</span>
     {:else}
-      <span class="dim">no active session — create or start a worktree on the left</span>
+      <span class="dim">select or create a worktree on the left</span>
     {/if}
   </header>
 
   <div class="messages">
-    {#each $messages as m, i (i)}
+    {#each $activeMessages as m, i (m.__key ?? i)}
       <Message {m} />
     {/each}
-    {#if $messages.length === 0}
-      <div class="empty">No messages yet.</div>
+    {#if $activeMessages.length === 0}
+      <div class="empty">{$selectedWorktree ? "No messages yet." : "No workspace selected."}</div>
     {/if}
   </div>
 

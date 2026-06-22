@@ -45,7 +45,6 @@ function makeQueue<T>() {
 export function run(cliPath: string) {
   const turns = makeQueue<SDKUserMessage>();
   const pendingPermissions = new Map<string, (reply: any) => void>();
-  let permSeq = 0;
 
   const q = query({
     prompt: turns,
@@ -56,16 +55,9 @@ export function run(cliPath: string) {
       pathToClaudeCodeExecutable: cliPath,
       // Opt into Claude Code's system prompt (the SDK defaults to empty post-rename).
       systemPrompt: { type: "preset", preset: "claude_code" },
-      permissionMode: "default",
-      // Route every tool that needs permission through the app's UI.
-      canUseTool: async (toolName, input) => {
-        const id = String(++permSeq);
-        send({ kind: "permission_request", id, tool: toolName, input });
-        const reply = await new Promise<any>((resolve) => pendingPermissions.set(id, resolve));
-        return reply.behavior === "allow"
-          ? { behavior: "allow", updatedInput: input }
-          : { behavior: "deny", message: reply.message ?? "Denied by user" };
-      },
+      // Skip all permission prompts. In bypassPermissions mode the SDK never
+      // invokes canUseTool, so no tool is routed through the app's UI.
+      permissionMode: "bypassPermissions",
     },
   });
 

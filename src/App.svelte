@@ -1,7 +1,17 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { onAgentEvent } from "./lib/api";
-  import { messages, pendingPermission } from "./lib/stores";
+  import { get } from "svelte/store";
+  import { onAgentEvent, listWorktrees } from "./lib/api";
+  import {
+    repos,
+    worktreesByRepo,
+    selectedWorktree,
+    appendMessage,
+    pendingPermission,
+    setStatus,
+    sidebarOpen,
+  } from "./lib/stores";
+  import Header from "./lib/components/Header.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import Chat from "./lib/components/Chat.svelte";
 
@@ -9,20 +19,59 @@
     let unlisten: (() => void) | undefined;
     let cancelled = false;
 
-    onAgentEvent((e) => {
-      if (e.kind === "message") {
-        messages.update((m) => [...m, e.message]);
-      } else if (e.kind === "permission_request") {
-        pendingPermission.set({ id: e.id, tool: e.tool, input: e.input });
-      } else if (e.kind === "error") {
-        messages.update((m) => [...m, { type: "error", error: e.error }]);
+    onAgentEvent(
+      (worktree, evt) => {
+        if (evt.kind === "message") {
+          appendMessage(worktree, evt.message);
+          // A `result` message ends the turn — the agent is idle again.
+          if (evt.message.type === "result") setStatus(worktree, "running");
+        } else if (evt.kind === "permission_request") {
+          pendingPermission.update((p) => ({
+            ...p,
+            [worktree]: { id: evt.id, tool: evt.tool, input: evt.input },
+          }));
+        } else if (evt.kind === "error") {
+          appendMessage(worktree, { type: "error", error: evt.error });
+        } else if (evt.kind === "ready") {
+          setStatus(worktree, "running");
+        }
+      },
+      (worktree, kind, data) => {
+        // OS-level session lifecycle: a terminate OR a spawn/IO error stops it.
+        setStatus(worktree, "stopped");
+        if (kind === "error") {
+          appendMessage(worktree, {
+            type: "error",
+            error: data ? `session error: ${data}` : "session error",
+          });
+        }
+      },
+    )
+      .then((u) => {
+        if (cancelled) u();
+        else unlisten = u;
+      })
+      .catch(() => {});
+
+    // Rehydrate worktrees for persisted repos (git is the source of truth),
+    // then drop a stale persisted selection that no longer exists on disk.
+    (async () => {
+      for (const repo of get(repos)) {
+        try {
+          const wts = await listWorktrees(repo.path);
+          worktreesByRepo.update((m) => ({ ...m, [repo.path]: wts }));
+        } catch {
+          // repo moved/deleted — leave it empty in the sidebar
+        }
       }
-      // "ready" is ignored for now.
-    }).then((u) => {
-      // If the component unmounted before registration resolved, tear down now.
-      if (cancelled) u();
-      else unlisten = u;
-    });
+      const sel = get(selectedWorktree);
+      if (sel) {
+        const exists = Object.values(get(worktreesByRepo)).some((list) =>
+          list.some((w) => w.path === sel),
+        );
+        if (!exists) selectedWorktree.set(null);
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -31,11 +80,12 @@
   });
 </script>
 
-<main class="layout">
-  <aside class="sidebar">
-    <Worktrees />
-  </aside>
-  <section class="content">
-    <Chat />
-  </section>
-</main>
+<div class="layout">
+  <Header title="trickshot" />
+  <div class="app-body">
+    {#if $sidebarOpen}
+      <aside class="sidebar"><Worktrees /></aside>
+    {/if}
+    <main class="content"><Chat /></main>
+  </div>
+</div>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { SDKMessageLike } from "../types";
+  import Collapsible from "./Collapsible.svelte";
 
   export let m: SDKMessageLike;
 
@@ -25,7 +26,7 @@
         {:else if b.type === "tool_use"}
           <div class="tool-use">
             <span class="tool-name">🔧 {b.name}</span>
-            <pre>{JSON.stringify(b.input, null, 2)}</pre>
+            <Collapsible text={JSON.stringify(b.input, null, 2)} />
           </div>
         {/if}
       {/each}
@@ -36,13 +37,13 @@
     {#if b.type === "tool_result"}
       <div class="msg tool-result">
         <div class="role">result</div>
-        <pre>{typeof b.content === "string" ? b.content : JSON.stringify(b.content, null, 2)}</pre>
+        <Collapsible text={typeof b.content === "string" ? b.content : JSON.stringify(b.content, null, 2)} />
       </div>
     {/if}
   {/each}
 {:else if m.type === "result"}
   <div class="msg result">✓ {m.result ?? "done"}</div>
-{:else if m.type === "system"}
+{:else if m.type === "system" && m.subtype === "init"}
   <div class="msg system">
     session started{m.model ? ` · ${m.model}` : ""}
   </div>

@@ -1,134 +1,183 @@
 <script lang="ts">
-  import { repoPath, worktrees, activeProjectDir, sessionActive, messages } from "../stores";
+  import { tick } from "svelte";
+  import { repos, worktreesByRepo, selectedWorktree, sessionStatus, resetTranscript } from "../stores";
   import * as api from "../api";
+  import type { Worktree } from "../types";
+  import { Button } from "$lib/components/ui/button";
+  import { Input } from "$lib/components/ui/input";
 
-  let branch = "";
-  let manualPath = "";
-  let busy = false;
+  let creatingFor: string | null = null; // repo path the inline create field is open for
+  let newBranch = "";
+  let creating = false;
   let error = "";
+  let branchInput: HTMLInputElement | undefined;
 
-  async function pickRepo() {
+  function repoName(path: string): string {
+    return path.replace(/[\/\\]+$/, "").split(/[\/\\]/).pop() || path;
+  }
+
+  function pruneStatus(paths: string[]) {
+    sessionStatus.update((s) => {
+      const next = { ...s };
+      for (const p of paths) delete next[p];
+      return next;
+    });
+  }
+
+  async function addRepo() {
     error = "";
     try {
       const p = await api.pickDirectory();
-      if (p) {
-        repoPath.set(p);
-        await refresh();
-      }
+      if (!p) return;
+      repos.update((rs) => (rs.some((r) => r.path === p) ? rs : [...rs, { path: p, name: repoName(p) }]));
+      await refresh(p);
     } catch (e) {
       error = String(e);
     }
   }
 
-  function useManual() {
-    const p = manualPath.trim();
-    if (p) {
-      repoPath.set(p);
-      refresh();
-    }
-  }
-
-  async function refresh() {
-    const rp = $repoPath;
-    if (!rp) return;
+  async function refresh(repoPath: string) {
     try {
-      worktrees.set(await api.listWorktrees(rp));
-      error = "";
+      const wts = await api.listWorktrees(repoPath);
+      worktreesByRepo.update((m) => ({ ...m, [repoPath]: wts }));
     } catch (e) {
       error = String(e);
     }
   }
 
-  // One click: create a new worktree (+ branch) and immediately start a session in it.
-  async function createAndLaunch() {
-    const rp = $repoPath;
-    if (!rp || !branch.trim()) return;
-    busy = true;
+  async function removeRepo(repoPath: string) {
+    const wts = $worktreesByRepo[repoPath] ?? [];
+    for (const wt of wts) {
+      try {
+        await api.stopSession(wt.path);
+      } catch {
+        /* ignore */
+      }
+      resetTranscript(wt.path);
+    }
+    const paths = wts.map((w) => w.path);
+    if ($selectedWorktree && paths.includes($selectedWorktree)) selectedWorktree.set(null);
+    pruneStatus(paths);
+    repos.update((rs) => rs.filter((r) => r.path !== repoPath));
+    worktreesByRepo.update((m) => {
+      const next = { ...m };
+      delete next[repoPath];
+      return next;
+    });
+  }
+
+  // Selecting a worktree = activating its session (no manual start/stop).
+  async function select(wt: Worktree) {
+    selectedWorktree.set(wt.path);
+    try {
+      await api.startSession(wt.path);
+      sessionStatus.update((s) => ({ ...s, [wt.path]: "running" }));
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  async function startCreate(repoPath: string) {
+    creatingFor = repoPath;
+    newBranch = "";
+    await tick();
+    branchInput?.focus();
+  }
+
+  async function create(repoPath: string) {
+    const branch = newBranch.trim();
+    if (!branch || creating) return;
+    creating = true;
     error = "";
     try {
-      const wt = await api.createWorktree(rp, branch.trim());
-      worktrees.update((w) => [...w, wt]);
-      branch = "";
-      await launch(wt.path);
+      const wt = await api.createWorktree(repoPath, branch);
+      worktreesByRepo.update((m) => ({ ...m, [repoPath]: [...(m[repoPath] ?? []), wt] }));
+      creatingFor = null;
+      newBranch = "";
+      await select(wt);
     } catch (e) {
       error = String(e);
     } finally {
-      busy = false;
+      creating = false;
     }
   }
 
-  async function launch(dir: string) {
+  async function remove(repoPath: string, wt: Worktree, e: Event) {
+    e.stopPropagation();
     error = "";
     try {
-      await api.startAgent(dir);
-      activeProjectDir.set(dir);
-      sessionActive.set(true);
-      messages.set([]);
-    } catch (e) {
-      error = String(e);
-    }
-  }
-
-  async function remove(path: string) {
-    const rp = $repoPath;
-    if (!rp) return;
-    error = "";
-    try {
-      await api.removeWorktree(rp, path, true);
-      await refresh();
-    } catch (e) {
-      error = String(e);
+      await api.stopSession(wt.path);
+      await api.removeWorktree(repoPath, wt.path, true);
+      resetTranscript(wt.path);
+      pruneStatus([wt.path]);
+      worktreesByRepo.update((m) => ({
+        ...m,
+        [repoPath]: (m[repoPath] ?? []).filter((w) => w.path !== wt.path),
+      }));
+      if ($selectedWorktree === wt.path) selectedWorktree.set(null);
+    } catch (err) {
+      error = String(err);
     }
   }
 </script>
 
 <div class="wt">
-  <h2>Repository</h2>
-  {#if $repoPath}
-    <div class="repo" title={$repoPath}>{$repoPath}</div>
-    <div class="row">
-      <button on:click={refresh}>Refresh</button>
-      <button on:click={() => { if ($repoPath) launch($repoPath); }}>Start in main repo</button>
-    </div>
-  {:else}
-    <button class="primary block" on:click={pickRepo}>Choose folder…</button>
-    <div class="manual">
-      <input placeholder="/path/to/repo" bind:value={manualPath} on:keydown={(e) => e.key === "Enter" && useManual()} />
-      <button on:click={useManual}>Use</button>
-    </div>
-  {/if}
+  {#each $repos as repo (repo.path)}
+    <div class="repo-group">
+      <div class="repo-head">
+        <span class="repo-name" title={repo.path}>{repo.name}</span>
+        <div class="repo-actions">
+          <Button variant="ghost" size="icon-sm" title="New worktree" onclick={() => startCreate(repo.path)}>+</Button>
+          <Button variant="ghost" size="icon-sm" title="Remove repository from sidebar" onclick={() => removeRepo(repo.path)}>−</Button>
+        </div>
+      </div>
 
-  {#if $repoPath}
-    <h2>New worktree</h2>
-    <div class="create">
-      <input
-        placeholder="branch name (e.g. feature/login)"
-        bind:value={branch}
-        on:keydown={(e) => e.key === "Enter" && createAndLaunch()}
-      />
-      <button class="primary" disabled={busy || !branch.trim()} on:click={createAndLaunch}>
-        Create + Start
-      </button>
-    </div>
+      {#if creatingFor === repo.path}
+        <Input
+          class="my-1"
+          placeholder="branch name…  (Enter)"
+          bind:value={newBranch}
+          bind:ref={branchInput}
+          onkeydown={(e: KeyboardEvent) => {
+            if (e.key === "Enter") create(repo.path);
+            else if (e.key === "Escape") creatingFor = null;
+          }}
+          onblur={() => (creatingFor = null)}
+        />
+      {/if}
 
-    <h2>Worktrees</h2>
-    <ul class="list">
-      {#each $worktrees as w (w.path)}
-        <li class:active={$activeProjectDir === w.path}>
-          <div class="wt-branch">{w.branch ?? "(detached)"}{w.is_main ? " · main" : ""}</div>
-          <div class="wt-path" title={w.path}>{w.path}</div>
-          <div class="row">
-            <button on:click={() => launch(w.path)}>Start</button>
-            {#if !w.is_main}
-              <button on:click={() => remove(w.path)}>Remove</button>
+      <div class="wt-rows">
+        {#each $worktreesByRepo[repo.path] ?? [] as wt (wt.path)}
+          <div
+            class="wt-row group/row"
+            class:active={$selectedWorktree === wt.path}
+            role="button"
+            tabindex="0"
+            on:click={() => select(wt)}
+            on:keydown={(e) => (e.key === "Enter" || e.key === " ") && select(wt)}
+          >
+            <span
+              class="dot"
+              class:on={$sessionStatus[wt.path] === "running" || $sessionStatus[wt.path] === "working"}
+              class:busy={$sessionStatus[wt.path] === "working"}
+            ></span>
+            <span class="wt-name">{wt.branch ?? "(detached)"}{wt.is_main ? " · main" : ""}</span>
+            {#if !wt.is_main}
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                class="opacity-0 transition-opacity group-hover/row:opacity-100"
+                title="Remove worktree"
+                onclick={(e: Event) => remove(repo.path, wt, e)}
+              >×</Button>
             {/if}
           </div>
-        </li>
-      {/each}
-    </ul>
-  {/if}
+        {/each}
+      </div>
+    </div>
+  {/each}
 
-  {#if error}
-    <div class="error-box">{error}</div>
-  {/if}
+  <Button variant="outline" class="mt-1 w-full" onclick={addRepo}>+ Add repository</Button>
+
+  {#if error}<div class="error-box">{error}</div>{/if}
 </div>
