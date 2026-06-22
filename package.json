@@ -10,6 +10,8 @@
     "build:vite": "vite build",
     "build:sidecar": "bash scripts/build-sidecar.sh",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "lint": "biome check",
+    "format": "biome check --write",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -24,6 +26,7 @@
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.93.0",
+    "@biomejs/biome": "^2.5.0",
     "@internationalized/date": "^3.12.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@sveltejs/vite-plugin-svelte": "^4",

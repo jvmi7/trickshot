@@ -19,8 +19,8 @@
 
   $: wt = $selectedWorktree;
   $: status = wt ? $sessionStatus[wt] : undefined;
-  $: alive = status === "running" || status === "working";
-  $: working = status === "working";
+  $: alive = status === "ready" || status === "busy";
+  $: working = status === "busy";
   $: canSend = alive && !working && text.trim().length > 0;
 
   function send() {
@@ -30,7 +30,7 @@
     // the turn's `result` message arrives (App.svelte flips it back to running).
     appendMessage(wt, { type: "user_local", text: t });
     api.sendUserTurn(wt, t);
-    setStatus(wt, "working");
+    setStatus(wt, "busy");
     startActivity(wt);
     text = "";
   }
@@ -38,7 +38,7 @@
   function stop() {
     if (!wt) return;
     api.interruptAgent(wt);
-    setStatus(wt, "running");
+    setStatus(wt, "ready");
     clearActivity(wt);
   }
 

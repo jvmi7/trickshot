@@ -27,9 +27,10 @@ export const removeWorktree = (repoPath: string, worktreePath: string, force = f
 // Each worktree runs its own sidecar concurrently, keyed by its path.
 
 /** Start (or no-op if already running) the agent session for a worktree.
- *  Pass `resume` (a prior session id) to restore that session's context. */
-export const startSession = (worktree: string, resume?: string) =>
-  invoke<void>("start_session", { worktree, resume: resume ?? null });
+ *  Pass `resume` (a prior session id) to restore that session's context, and
+ *  `provider` to pick a model-provider adapter (defaults to "claude"). */
+export const startSession = (worktree: string, resume?: string, provider?: string) =>
+  invoke<void>("start_session", { worktree, resume: resume ?? null, provider: provider ?? null });
 
 /** Kill a worktree's agent session. */
 export const stopSession = (worktree: string) => invoke<void>("stop_session", { worktree });
@@ -59,8 +60,7 @@ export const setModel = (worktree: string, model: string) =>
 
 /** Ask a session to (re-)emit its `models` event. Used to fetch the catalog
  *  on demand, since the one-shot broadcast at `ready` can race the listener. */
-export const requestModels = (worktree: string) =>
-  send(worktree, { kind: "get_models" });
+export const requestModels = (worktree: string) => send(worktree, { kind: "get_models" });
 
 // ---- Event stream --------------------------------------------------------
 

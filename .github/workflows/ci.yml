@@ -1,0 +1,75 @@
+name: CI
+
+# Guards the invariants that have no compiler link across the three processes:
+# the typed IPC/protocol surface, the Rust core, and the Bun sidecar compile.
+# See the SYNC RULE in CLAUDE.md — a one-sided protocol edit won't throw at
+# runtime, so these checks are the safety net.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: frontend (lint · typecheck · sidecar)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      # No --omit=optional: the SDK ships the native Claude CLI as per-platform
+      # optional deps that the sidecar embeds (see README).
+      - run: bun install --frozen-lockfile
+      - name: Lint + format (Biome)
+        run: bunx biome ci
+      - name: Typecheck (svelte-check)
+        run: bun run check
+      # Compiles sidecar/core.ts (+ the shared protocol module) and embeds the
+      # native CLI — catches a broken sidecar before it ships as a stale binary.
+      - name: Build sidecar
+        run: bun run build:sidecar
+
+  rust:
+    name: rust (fmt · clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Tauri v2 system dependencies (Ubuntu 24.04).
+      - name: Install Tauri system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            libayatana-appindicator3-dev \
+            patchelf \
+            build-essential \
+            libssl-dev \
+            libxdo-dev \
+            file
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      # tauri-build validates that the `externalBin` sidecar exists for the host
+      # triple. The real binary is gitignored and built in the frontend job; clippy
+      # only needs the crate to compile, so a stub file satisfies the resource check.
+      - name: Stub sidecar binary (for the externalBin resource check)
+        run: |
+          mkdir -p src-tauri/binaries
+          touch src-tauri/binaries/agent-x86_64-unknown-linux-gnu
+          chmod +x src-tauri/binaries/agent-x86_64-unknown-linux-gnu
+      - name: Format check
+        run: cargo fmt --check
+        working-directory: src-tauri
+      - name: Clippy
+        run: cargo clippy --all-targets
+        working-directory: src-tauri

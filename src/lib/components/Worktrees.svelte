@@ -85,7 +85,7 @@
     try {
       // Resume this worktree's prior session (context) if we have one persisted.
       await api.startSession(wt.path, get(sessionByWorktree)[wt.path]);
-      sessionStatus.update((s) => ({ ...s, [wt.path]: "running" }));
+      sessionStatus.update((s) => ({ ...s, [wt.path]: "ready" }));
     } catch (e) {
       error = String(e);
     }
@@ -173,8 +173,8 @@
           >
             <span
               class="dot"
-              class:on={$sessionStatus[wt.path] === "running" || $sessionStatus[wt.path] === "working"}
-              class:busy={$sessionStatus[wt.path] === "working"}
+              class:on={$sessionStatus[wt.path] === "ready" || $sessionStatus[wt.path] === "busy"}
+              class:busy={$sessionStatus[wt.path] === "busy"}
             ></span>
             {#if wt.is_main}
               <House class="wt-home" />

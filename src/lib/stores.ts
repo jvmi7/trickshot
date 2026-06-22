@@ -1,5 +1,5 @@
-import { writable, derived } from "svelte/store";
-import type { ModelInfo, Repo, SDKMessageLike, Worktree } from "./types";
+import { derived, writable } from "svelte/store";
+import type { ModelInfo, Repo, TranscriptMessage, Worktree } from "./types";
 
 export interface PermissionReq {
   id: string;
@@ -7,7 +7,11 @@ export interface PermissionReq {
   input: unknown;
 }
 
-export type SessionStatus = "running" | "working" | "stopped";
+/** A worktree's agent session lifecycle:
+ *  - `ready`   — sidecar is alive and idle, awaiting input
+ *  - `busy`    — a turn is in flight (set on send, cleared on the `result` message)
+ *  - `stopped` — no live sidecar (never started, terminated, or errored) */
+export type SessionStatus = "ready" | "busy" | "stopped";
 
 const hasLS = typeof localStorage !== "undefined";
 
@@ -240,8 +244,11 @@ export function forgetWorktreeSession(worktree: string) {
 // worktrees. Each message gets a stable `__key` for identity-keyed {#each}.
 // Transcripts persist to localStorage so chat history survives restarts (resume
 // restores agent context but not the rendered messages — see above).
-const TRANSCRIPTS_KEY = "trickshot.transcripts";
-function loadTranscripts(): Record<string, SDKMessageLike[]> {
+// `.v2` because the persisted message shape changed (raw SDK messages -> the
+// neutral AgentMessage schema). Bumping the key drops pre-v2 transcripts on
+// upgrade rather than rendering them blank; resume still restores agent context.
+const TRANSCRIPTS_KEY = "trickshot.transcripts.v2";
+function loadTranscripts(): Record<string, TranscriptMessage[]> {
   if (!hasLS) return {};
   try {
     const v = JSON.parse(localStorage.getItem(TRANSCRIPTS_KEY) ?? "{}");
@@ -251,7 +258,7 @@ function loadTranscripts(): Record<string, SDKMessageLike[]> {
   }
 }
 const _loaded = loadTranscripts();
-export const transcripts = writable<Record<string, SDKMessageLike[]>>(_loaded);
+export const transcripts = writable<Record<string, TranscriptMessage[]>>(_loaded);
 
 // Continue keys above any rehydrated __key so identity-keyed {#each} stays unique
 // (the counter resets to 0 on reload, which would otherwise collide).
@@ -282,7 +289,7 @@ if (hasLS) {
   });
 }
 
-const _buffers: Record<string, SDKMessageLike[]> = {};
+const _buffers: Record<string, TranscriptMessage[]> = {};
 let _flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 function flush() {
@@ -300,7 +307,7 @@ function flush() {
 }
 
 /** Append a message to a worktree's transcript (stable key + batched write). */
-export function appendMessage(worktree: string, msg: SDKMessageLike) {
+export function appendMessage(worktree: string, msg: TranscriptMessage) {
   (msg as { __key?: number }).__key = _key++;
   (_buffers[worktree] ??= []).push(msg);
   if (_flushTimer === null) _flushTimer = setTimeout(flush, 16);
@@ -316,22 +323,38 @@ export function resetTranscript(worktree: string) {
 export const pendingPermission = writable<Record<string, PermissionReq | null>>({});
 
 // ---- Derived views for the currently selected worktree ----
-export const activeMessages = derived(
-  [transcripts, selectedWorktree],
-  ([$t, $sel]) => ($sel ? ($t[$sel] ?? []) : []),
+export const activeMessages = derived([transcripts, selectedWorktree], ([$t, $sel]) =>
+  $sel ? ($t[$sel] ?? []) : [],
 );
-export const activePending = derived(
-  [pendingPermission, selectedWorktree],
-  ([$p, $sel]) => ($sel ? ($p[$sel] ?? null) : null),
+
+// ---- Transcript windowing (bound the DOM) ----
+// A transcript only grows (except on resetTranscript), and naive full-mount tops
+// out at ~hundreds of messages (see CLAUDE.md PERFORMANCE). Chat mounts only the
+// newest RENDER_WINDOW messages; older ones stay in the persisted transcript but
+// out of the DOM. Identity-keyed `{#each}` means windowing just drops the top
+// node and adds a bottom one per append. Measure before raising this.
+export const RENDER_WINDOW = 300;
+
+/** The newest `RENDER_WINDOW` messages of the selected transcript — what Chat
+ *  actually mounts. Same object identities as `activeMessages` (a tail slice),
+ *  so `__key` keying stays stable. */
+export const renderedMessages = derived(activeMessages, ($m) =>
+  $m.length > RENDER_WINDOW ? $m.slice(-RENDER_WINDOW) : $m,
+);
+
+/** How many older messages sit above the render window (0 when nothing hidden). */
+export const hiddenMessageCount = derived(activeMessages, ($m) =>
+  Math.max(0, $m.length - RENDER_WINDOW),
+);
+export const activePending = derived([pendingPermission, selectedWorktree], ([$p, $sel]) =>
+  $sel ? ($p[$sel] ?? null) : null,
 );
 /** The current model of the selected worktree's chat (null until its session
  *  reports a `models` event). */
-export const activeModel = derived(
-  [modelByWorktree, selectedWorktree],
-  ([$m, $sel]) => ($sel ? ($m[$sel] ?? null) : null),
+export const activeModel = derived([modelByWorktree, selectedWorktree], ([$m, $sel]) =>
+  $sel ? ($m[$sel] ?? null) : null,
 );
 /** The selected worktree's current agent activity (null when idle). */
-export const activeActivity = derived(
-  [worktreeActivity, selectedWorktree],
-  ([$a, $sel]) => ($sel ? ($a[$sel] ?? null) : null),
+export const activeActivity = derived([worktreeActivity, selectedWorktree], ([$a, $sel]) =>
+  $sel ? ($a[$sel] ?? null) : null,
 );

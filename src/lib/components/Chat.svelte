@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { activeMessages, selectedWorktree, scrollCursor } from "../stores";
+  import {
+    renderedMessages,
+    hiddenMessageCount,
+    selectedWorktree,
+    scrollCursor,
+  } from "../stores";
   import { customScroll } from "../customScroll";
   import Message from "./Message.svelte";
   import Composer from "./Composer.svelte";
@@ -15,10 +20,13 @@
 <div class="chat">
   <div class="messages-viewport" use:customScroll>
     <div class="messages" data-scroll-inner>
-      {#each $activeMessages as m, i (m.__key ?? i)}
+      {#if $hiddenMessageCount > 0}
+        <div class="empty">{$hiddenMessageCount} earlier message{$hiddenMessageCount === 1 ? "" : "s"} hidden</div>
+      {/if}
+      {#each $renderedMessages as m (m.__key)}
         <Message {m} />
       {/each}
-      {#if $activeMessages.length === 0}
+      {#if $renderedMessages.length === 0}
         <div class="empty">{$selectedWorktree ? "No messages yet." : "No workspace selected."}</div>
       {/if}
     </div>

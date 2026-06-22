@@ -1,14 +1,11 @@
 <script lang="ts">
-  import type { SDKMessageLike } from "../types";
+  import type { TranscriptMessage } from "../types";
   import Collapsible from "./Collapsible.svelte";
 
-  export let m: SDKMessageLike;
-
-  // The Agent SDK nests Anthropic message content under `message.content`.
-  function blocks(): any[] {
-    const content = (m as any)?.message?.content;
-    return Array.isArray(content) ? content : [];
-  }
+  // Renders ONE provider-neutral transcript entry (see AgentMessage in
+  // shared/protocol.ts) plus the two UI-only bubbles (user_local / error).
+  // Branch on `type`; an unknown type renders nothing.
+  export let m: TranscriptMessage;
 </script>
 
 {#if m.type === "user_local"}
@@ -18,33 +15,25 @@
   </div>
 {:else if m.type === "assistant"}
   <div class="msg assistant">
-    <div class="role">claude</div>
+    <div class="role">assistant</div>
+    <div class="body"><p class="text">{m.text}</p></div>
+  </div>
+{:else if m.type === "tool_call"}
+  <div class="msg assistant">
     <div class="body">
-      {#each blocks() as b}
-        {#if b.type === "text"}
-          <p class="text">{b.text}</p>
-        {:else if b.type === "tool_use"}
-          <div class="tool-use">
-            <span class="tool-name">🔧 {b.name}</span>
-            <Collapsible text={JSON.stringify(b.input, null, 2)} />
-          </div>
-        {/if}
-      {/each}
+      <div class="tool-use">
+        <span class="tool-name">🔧 {m.name}</span>
+        <Collapsible text={JSON.stringify(m.input, null, 2)} />
+      </div>
     </div>
   </div>
-{:else if m.type === "user"}
-  {#each blocks() as b}
-    {#if b.type === "tool_result"}
-      <div class="msg tool-result">
-        <div class="role">result</div>
-        <Collapsible text={typeof b.content === "string" ? b.content : JSON.stringify(b.content, null, 2)} />
-      </div>
-    {/if}
-  {/each}
-{:else if m.type === "system" && m.subtype === "init"}
-  <div class="msg system">
-    session started{m.model ? ` · ${m.model}` : ""}
+{:else if m.type === "tool_result"}
+  <div class="msg tool-result">
+    <div class="role">result</div>
+    <Collapsible text={m.content} />
   </div>
+{:else if m.type === "system"}
+  <div class="msg system">{m.text}</div>
 {:else if m.type === "error"}
   <div class="msg error">⚠ {m.error}</div>
 {/if}

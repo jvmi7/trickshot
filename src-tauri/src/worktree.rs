@@ -96,26 +96,26 @@ pub fn create_worktree(
     }
 
     let repo = Path::new(&repo_path);
-    let repo_name = repo
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("repo");
+    let repo_name = repo.file_name().and_then(|s| s.to_str()).unwrap_or("repo");
     let parent = repo
         .parent()
         .ok_or("repository path has no parent directory")?;
 
     // Preserve slashes as nested directories (avoids feature/foo vs feature-foo
     // collisions); `git worktree add` creates intermediate parent dirs.
-    let wt_dir = parent
-        .join(format!(".{repo_name}-worktrees"))
-        .join(&branch);
+    let wt_dir = parent.join(format!(".{repo_name}-worktrees")).join(&branch);
     let wt_path = wt_dir.to_string_lossy().to_string();
 
     // Does the branch already exist?
     let branch_exists = Command::new("git")
         .arg("-C")
         .arg(&repo_path)
-        .args(["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")])
+        .args([
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ])
         .status()
         .map_err(|e| format!("failed to run git: {e}"))?
         .success();
@@ -129,7 +129,10 @@ pub fn create_worktree(
         git(&repo_path, &["worktree", "add", &wt_path, &branch])?;
     } else {
         let base = base_ref.unwrap_or_else(|| "HEAD".to_string());
-        git(&repo_path, &["worktree", "add", "-b", &branch, &wt_path, &base])?;
+        git(
+            &repo_path,
+            &["worktree", "add", "-b", &branch, &wt_path, &base],
+        )?;
     }
 
     // Read HEAD from the new worktree (not the main repo) so it reflects `base_ref`.

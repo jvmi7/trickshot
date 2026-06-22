@@ -19,60 +19,20 @@
     clearActivity,
   } from "./lib/stores";
 
-  // ---- Verbose loading state: turn each streamed message into a human-readable
+  import { toolLabel, toolDetail } from "./lib/agentMessage";
+  import type { AgentMessage } from "./lib/types";
+
+  // ---- Verbose loading state: turn each neutral message into a human-readable
   // "what's happening now" for the chat's loading footer. ----
-  const basename = (p: unknown) => String(p ?? "").split("/").pop() || String(p ?? "");
-  const trunc = (s: unknown, n = 64) => {
-    const t = String(s ?? "").replace(/\s+/g, " ").trim();
-    return t.length > n ? t.slice(0, n) + "…" : t;
-  };
-  function toolLabel(name: string): string {
-    switch (name) {
-      case "Bash": return "Running command";
-      case "Read": return "Reading";
-      case "Write": return "Writing file";
-      case "Edit":
-      case "MultiEdit": return "Editing";
-      case "NotebookEdit": return "Editing notebook";
-      case "Glob": return "Finding files";
-      case "Grep": return "Searching";
-      case "Task": return "Delegating";
-      case "WebFetch": return "Fetching";
-      case "WebSearch": return "Searching the web";
-      case "TodoWrite": return "Updating plan";
-      default: return "Running " + name.replace(/^mcp__/, "").replace(/_/g, " ");
-    }
-  }
-  function toolDetail(name: string, input: Record<string, unknown> = {}): string {
-    switch (name) {
-      case "Bash": return trunc(input.command);
-      case "Read":
-      case "Write":
-      case "Edit":
-      case "MultiEdit": return basename(input.file_path);
-      case "NotebookEdit": return basename(input.notebook_path);
-      case "Glob":
-      case "Grep": return trunc(input.pattern);
-      case "Task": return trunc(input.description);
-      case "WebFetch": return trunc(input.url);
-      case "WebSearch": return trunc(input.query);
-      default: return "";
-    }
-  }
-  function updateActivity(worktree: string, m: { type: string; [k: string]: unknown }) {
-    if (m.type === "assistant") {
-      const content = (m as { message?: { content?: unknown } }).message?.content;
-      const blocks = Array.isArray(content) ? (content as Array<Record<string, unknown>>) : [];
-      const tool = blocks.find((b) => b && b.type === "tool_use");
-      if (tool) {
-        setActivity(worktree, toolLabel(String(tool.name)), toolDetail(String(tool.name), tool.input as Record<string, unknown>), true);
-      } else if (blocks.some((b) => b && b.type === "text" && String(b.text ?? "").trim())) {
-        setActivity(worktree, "Writing response", "");
-      }
-    } else if (m.type === "user") {
+  function updateActivity(worktree: string, m: AgentMessage) {
+    if (m.type === "tool_call") {
+      setActivity(worktree, toolLabel(m.name), toolDetail(m.name, m.input), true);
+    } else if (m.type === "assistant") {
+      setActivity(worktree, "Writing response", "");
+    } else if (m.type === "tool_result") {
       // a tool result came back — the agent is reasoning again
       setActivity(worktree, "Thinking", "");
-    } else if (m.type === "system" && (m as { subtype?: string }).subtype === "init") {
+    } else if (m.type === "system") {
       setActivity(worktree, "Connecting", "");
     }
   }
@@ -94,22 +54,20 @@
       (worktree, evt) => {
         if (evt.kind === "message") {
           const m = evt.message;
-          // Persist the latest session id so we can resume this worktree's
-          // context after a restart (the id rides on every SDK message).
-          const sid = (m as { session_id?: unknown }).session_id;
-          if (typeof sid === "string" && sid) setWorktreeSession(worktree, sid);
-          // `system` (init) messages are session-lifecycle noise that would
-          // pile up in the persisted transcript on every resume — capture their
-          // id above, but don't render them.
           updateActivity(worktree, m);
-          // Skip lifecycle messages: `system` (init/hooks) and `result` (a turn-end
-          // marker whose text just duplicates the final assistant message).
-          if (m.type !== "system" && m.type !== "result") appendMessage(worktree, m);
-          // A `result` message ends the turn — the agent is idle again.
-          if (m.type === "result") {
-            setStatus(worktree, "running");
+          // `turn_end` ends the turn — the agent is idle again (not rendered).
+          // `system` is a session notice we don't render. Everything else is a
+          // transcript bubble.
+          if (m.type === "turn_end") {
+            setStatus(worktree, "ready");
             clearActivity(worktree);
+          } else if (m.type !== "system") {
+            appendMessage(worktree, m);
           }
+        } else if (evt.kind === "session") {
+          // Persist the resumable session id so this worktree's agent *context*
+          // can be restored after a restart (the provider reports it once known).
+          setWorktreeSession(worktree, evt.id);
         } else if (evt.kind === "permission_request") {
           pendingPermission.update((p) => ({
             ...p,
@@ -118,7 +76,7 @@
         } else if (evt.kind === "error") {
           appendMessage(worktree, { type: "error", error: evt.error });
         } else if (evt.kind === "ready") {
-          setStatus(worktree, "running");
+          setStatus(worktree, "ready");
         } else if (evt.kind === "models") {
           availableModels.set(evt.models);
           // Each sidecar starts on the default model. If this worktree has a
@@ -173,10 +131,10 @@
           // Resume the persisted selection's session on launch (idempotent) so
           // the chat — and its model switcher — are usable without re-selecting.
           // Pass the persisted session id so the agent's context resumes too.
-          // The `ready`/`models` events flip status to running and fill the catalog.
+          // The `ready`/`models` events flip status to ready and fill the catalog.
           try {
             await startSession(sel, get(sessionByWorktree)[sel]);
-            setStatus(sel, "running");
+            setStatus(sel, "ready");
           } catch {
             // a real spawn failure surfaces via the agent-event error path
           }
