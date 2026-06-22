@@ -63,9 +63,10 @@ export function run(cliPath: string) {
     options: {
       model: DEFAULT_MODEL,
       // Resume a prior session (id set by Rust from the per-worktree persisted
-      // value) so chat history + agent context survive app restarts. The SDK
-      // replays the prior messages on the stream when resuming. Absent on a
-      // first run, where the SDK mints a fresh id we then capture and persist.
+      // value) so the agent's *context* survives app restarts. The SDK does NOT
+      // replay prior messages on resume, so the visible transcript is restored
+      // separately (persisted in the app — see CLAUDE.md Persistence). Absent on
+      // a first run, where the SDK mints a fresh id we then capture and persist.
       resume: process.env.RESUME_SESSION || undefined,
       cwd: process.env.PROJECT_DIR ?? process.cwd(),
       // The extracted native CLI binary (see platform entrypoints).

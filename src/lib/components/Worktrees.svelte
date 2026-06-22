@@ -19,7 +19,9 @@
   let newBranch = "";
   let creating = false;
   let error = "";
-  let branchInput: HTMLInputElement | undefined;
+  // null (not undefined): Input's `ref` is $bindable(null); Svelte throws on
+  // bind:ref={undefined} when the bindable has a fallback value.
+  let branchInput: HTMLInputElement | null = null;
 
   function repoName(path: string): string {
     return path.replace(/[\/\\]+$/, "").split(/[\/\\]/).pop() || path;

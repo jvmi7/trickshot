@@ -1,5 +1,12 @@
 <script lang="ts">
-  import { appendMessage, selectedWorktree, sessionStatus, setStatus } from "../stores";
+  import {
+    appendMessage,
+    selectedWorktree,
+    sessionStatus,
+    setStatus,
+    startActivity,
+    clearActivity,
+  } from "../stores";
   import * as api from "../api";
   import { Button } from "$lib/components/ui/button";
   import { Textarea } from "$lib/components/ui/textarea";
@@ -22,6 +29,7 @@
     appendMessage(wt, { type: "user_local", text: t });
     api.sendUserTurn(wt, t);
     setStatus(wt, "working");
+    startActivity(wt);
     text = "";
   }
 
@@ -29,6 +37,7 @@
     if (!wt) return;
     api.interruptAgent(wt);
     setStatus(wt, "running");
+    clearActivity(wt);
   }
 
   function onKeydown(e: KeyboardEvent) {

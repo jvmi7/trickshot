@@ -5,6 +5,7 @@
   import Composer from "./Composer.svelte";
   import PermissionModal from "./PermissionModal.svelte";
   import ScrollIndicator from "./ScrollIndicator.svelte";
+  import LoadingState from "./LoadingState.svelte";
 
   // Bottom fade only while actively scrolling and not yet at the latest message;
   // it fades out smoothly (CSS) once you settle / reach the bottom.
@@ -36,6 +37,7 @@
     <ScrollIndicator />
   </div>
 
+  <LoadingState />
   <Composer />
   <PermissionModal />
 </div>

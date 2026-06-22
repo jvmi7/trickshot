@@ -16,7 +16,7 @@ const hasLS = typeof localStorage !== "undefined";
 export const sidebarOpen = writable<boolean>(true);
 
 /** The chat's custom "scroll" position — a global cursor into the transcript.
- *  The chat pane never natively scrolls; `scrollScramble` drives this instead
+ *  The chat pane never natively scrolls; `customScroll` drives this instead
  *  and the ScrollIndicator reflects it. `progress` is 0 (top) … 1 (bottom),
  *  `active` is true while the user is scrolling, `max` is the scrollable px. */
 export const scrollCursor = writable<{ progress: number; active: boolean; max: number }>({
@@ -106,6 +106,35 @@ export function setStatus(worktree: string, status: SessionStatus) {
   sessionStatus.update((m) => ({ ...m, [worktree]: status }));
 }
 
+// ---- Per-worktree agent activity (verbose loading state while a turn runs) ----
+export interface AgentActivity {
+  label: string; // current action, e.g. "Running command", "Thinking"
+  detail: string; // its target, e.g. the command / file / query
+  steps: number; // tool calls so far this turn
+  startedAt: number; // ms, for the elapsed timer
+}
+export const worktreeActivity = writable<Record<string, AgentActivity>>({});
+export function startActivity(worktree: string) {
+  worktreeActivity.update((m) => ({
+    ...m,
+    [worktree]: { label: "Thinking", detail: "", steps: 0, startedAt: Date.now() },
+  }));
+}
+export function setActivity(worktree: string, label: string, detail = "", bumpStep = false) {
+  worktreeActivity.update((m) => {
+    const cur = m[worktree] ?? { label, detail, steps: 0, startedAt: Date.now() };
+    return { ...m, [worktree]: { ...cur, label, detail, steps: cur.steps + (bumpStep ? 1 : 0) } };
+  });
+}
+export function clearActivity(worktree: string) {
+  worktreeActivity.update((m) => {
+    if (!(worktree in m)) return m;
+    const next = { ...m };
+    delete next[worktree];
+    return next;
+  });
+}
+
 // ---- Models ----
 // The switchable-model catalog is the same across worktrees (one Claude binary),
 // so it's a single global list; the *current* model is per-worktree.
@@ -149,6 +178,7 @@ export const FONTS: FontOption[] = [
   { id: "sans-code", label: "Sans Code" },
   { id: "wenkai", label: "WenKai Mono" },
   { id: "comic", label: "Comic Sans" },
+  { id: "ibm", label: "IBM Plex Mono" },
 ];
 const FONT_KEY = "trickshot.font";
 function loadFont(): string {
@@ -299,4 +329,9 @@ export const activePending = derived(
 export const activeModel = derived(
   [modelByWorktree, selectedWorktree],
   ([$m, $sel]) => ($sel ? ($m[$sel] ?? null) : null),
+);
+/** The selected worktree's current agent activity (null when idle). */
+export const activeActivity = derived(
+  [worktreeActivity, selectedWorktree],
+  ([$a, $sel]) => ($sel ? ($a[$sel] ?? null) : null),
 );

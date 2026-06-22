@@ -15,7 +15,67 @@
     setWorktreeModel,
     sessionByWorktree,
     setWorktreeSession,
+    setActivity,
+    clearActivity,
   } from "./lib/stores";
+
+  // ---- Verbose loading state: turn each streamed message into a human-readable
+  // "what's happening now" for the chat's loading footer. ----
+  const basename = (p: unknown) => String(p ?? "").split("/").pop() || String(p ?? "");
+  const trunc = (s: unknown, n = 64) => {
+    const t = String(s ?? "").replace(/\s+/g, " ").trim();
+    return t.length > n ? t.slice(0, n) + "…" : t;
+  };
+  function toolLabel(name: string): string {
+    switch (name) {
+      case "Bash": return "Running command";
+      case "Read": return "Reading";
+      case "Write": return "Writing file";
+      case "Edit":
+      case "MultiEdit": return "Editing";
+      case "NotebookEdit": return "Editing notebook";
+      case "Glob": return "Finding files";
+      case "Grep": return "Searching";
+      case "Task": return "Delegating";
+      case "WebFetch": return "Fetching";
+      case "WebSearch": return "Searching the web";
+      case "TodoWrite": return "Updating plan";
+      default: return "Running " + name.replace(/^mcp__/, "").replace(/_/g, " ");
+    }
+  }
+  function toolDetail(name: string, input: Record<string, unknown> = {}): string {
+    switch (name) {
+      case "Bash": return trunc(input.command);
+      case "Read":
+      case "Write":
+      case "Edit":
+      case "MultiEdit": return basename(input.file_path);
+      case "NotebookEdit": return basename(input.notebook_path);
+      case "Glob":
+      case "Grep": return trunc(input.pattern);
+      case "Task": return trunc(input.description);
+      case "WebFetch": return trunc(input.url);
+      case "WebSearch": return trunc(input.query);
+      default: return "";
+    }
+  }
+  function updateActivity(worktree: string, m: { type: string; [k: string]: unknown }) {
+    if (m.type === "assistant") {
+      const content = (m as { message?: { content?: unknown } }).message?.content;
+      const blocks = Array.isArray(content) ? (content as Array<Record<string, unknown>>) : [];
+      const tool = blocks.find((b) => b && b.type === "tool_use");
+      if (tool) {
+        setActivity(worktree, toolLabel(String(tool.name)), toolDetail(String(tool.name), tool.input as Record<string, unknown>), true);
+      } else if (blocks.some((b) => b && b.type === "text" && String(b.text ?? "").trim())) {
+        setActivity(worktree, "Writing response", "");
+      }
+    } else if (m.type === "user") {
+      // a tool result came back — the agent is reasoning again
+      setActivity(worktree, "Thinking", "");
+    } else if (m.type === "system" && (m as { subtype?: string }).subtype === "init") {
+      setActivity(worktree, "Connecting", "");
+    }
+  }
   import Header from "./lib/components/Header.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import Chat from "./lib/components/Chat.svelte";
@@ -39,9 +99,15 @@
           // `system` (init) messages are session-lifecycle noise that would
           // pile up in the persisted transcript on every resume — capture their
           // id above, but don't render them.
-          if (m.type !== "system") appendMessage(worktree, m);
+          updateActivity(worktree, m);
+          // Skip lifecycle messages: `system` (init/hooks) and `result` (a turn-end
+          // marker whose text just duplicates the final assistant message).
+          if (m.type !== "system" && m.type !== "result") appendMessage(worktree, m);
           // A `result` message ends the turn — the agent is idle again.
-          if (m.type === "result") setStatus(worktree, "running");
+          if (m.type === "result") {
+            setStatus(worktree, "running");
+            clearActivity(worktree);
+          }
         } else if (evt.kind === "permission_request") {
           pendingPermission.update((p) => ({
             ...p,
@@ -68,6 +134,7 @@
       (worktree, kind, data) => {
         // OS-level session lifecycle: a terminate OR a spawn/IO error stops it.
         setStatus(worktree, "stopped");
+        clearActivity(worktree);
         if (kind === "error") {
           appendMessage(worktree, {
             type: "error",
@@ -146,7 +213,7 @@
         <line x1="9" y1="4" x2="9" y2="20" />
       </svg>
     </button>
-    <div slot="actions" class="flex items-center gap-1">
+    <div slot="actions" class="flex items-center gap-1 self-start mt-1">
       <FontSelector />
       <ThemeSelector />
     </div>

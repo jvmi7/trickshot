@@ -41,8 +41,6 @@
       </div>
     {/if}
   {/each}
-{:else if m.type === "result"}
-  <div class="msg result">✓ {m.result ?? "done"}</div>
 {:else if m.type === "system" && m.subtype === "init"}
   <div class="msg system">
     session started{m.model ? ` · ${m.model}` : ""}
