@@ -3,10 +3,10 @@
   import * as api from "../api";
   import { Button } from "$lib/components/ui/button";
   import { Textarea } from "$lib/components/ui/textarea";
-  import ArrowUp from "@lucide/svelte/icons/arrow-up";
-  import Square from "@lucide/svelte/icons/square";
+  import ModelSelector from "./ModelSelector.svelte";
 
   let text = "";
+  let focused = false;
 
   $: wt = $selectedWorktree;
   $: status = wt ? $sessionStatus[wt] : undefined;
@@ -40,22 +40,28 @@
 </script>
 
 <div class="composer">
-  <div class="relative">
+  <!-- Terminal-style prompt: a borderless textarea that blends into the footer,
+       with the model selector tucked just left of the send button. -->
+  <div class="flex items-center gap-2">
+    <span class="composer-caret" class:focused>&gt;</span>
     <Textarea
       bind:value={text}
       onkeydown={onKeydown}
+      onfocus={() => (focused = true)}
+      onblur={() => (focused = false)}
       disabled={!alive}
       placeholder={alive ? "Message Claude…  (Enter to send, Shift+Enter for newline)" : "Select a worktree to start"}
       rows={1}
-      class="max-h-48 min-h-12 resize-none rounded-full px-4 py-4 pr-14"
+      class="max-h-48 min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent px-0 pt-2 pb-1 shadow-none outline-none focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
     />
+    <ModelSelector />
     {#if working}
-      <Button size="icon" class="absolute right-3 top-1/2 size-9 -translate-y-1/2 rounded-full" title="Stop" aria-label="Stop" onclick={stop}>
-        <Square class="size-3.5 fill-current" />
+      <Button size="icon" class="size-9 shrink-0 rounded-full" title="Stop" aria-label="Stop" onclick={stop}>
+        <i class="lni lni-pause text-base leading-none"></i>
       </Button>
     {:else}
-      <Button size="icon" class="absolute right-3 top-1/2 size-9 -translate-y-1/2 rounded-full" title="Send" aria-label="Send" onclick={send} disabled={!canSend}>
-        <ArrowUp class="size-4" />
+      <Button size="icon" class="size-9 shrink-0 rounded-full" title="Send" aria-label="Send" onclick={send} disabled={!canSend}>
+        <i class="lni lni-arrow-upward text-lg leading-none"></i>
       </Button>
     {/if}
   </div>

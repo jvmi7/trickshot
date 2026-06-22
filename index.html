@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>trickshot</title>
+    <!-- Apply the saved theme before first paint to avoid a flash of the default
+         palette. The store (stores.ts › theme) keeps this in sync afterward. -->
+    <script>
+      try {
+        var t = localStorage.getItem("trickshot.theme");
+        if (t) document.documentElement.dataset.theme = t;
+        var f = localStorage.getItem("trickshot.font");
+        if (f) document.documentElement.dataset.font = f;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="app"></div>

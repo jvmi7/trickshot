@@ -42,13 +42,18 @@ Newline-delimited JSON, both directions.
 |---|---|---|
 | app → sidecar | `user_turn` | `{ text }` |
 | app → sidecar | `permission_reply` | `{ id, behavior, message? }` — dormant (only when `canUseTool` is enabled) |
+| app → sidecar | `set_model` | `{ model }` — switch the chat's model (`q.setModel`); sidecar confirms by re-emitting `models` |
+| app → sidecar | `get_models` | — request a (re-)emit of `models`; the UI's resilient path since the ready-time broadcast can race the listener |
 | app → sidecar | `interrupt` | — |
 | sidecar → app | `ready` | — |
 | sidecar → app | `message` | `{ message: SDKMessage }` (pass-through) |
 | sidecar → app | `permission_request` | `{ id, tool, input }` — dormant under `bypassPermissions` |
+| sidecar → app | `models` | `{ models: {value,displayName,description?}[], current }` — switchable-model catalog + current (sent on ready and after `set_model`) |
 | sidecar → app | `error` | `{ error }` |
 
 `SDKMessage.type` is one of `system` (init), `assistant`, `user` (tool results), `result`, plus internal types the UI ignores. `Message.svelte` branches on it.
+
+**Model switching:** each session starts on the default model (`claude-opus-4-8`) and emits `models` on ready (catalog via `q.supportedModels()`). `ModelSelector.svelte` offers the catalog; picking one sends `set_model`. The current model is **per-worktree**, persisted to `localStorage` (`trickshot.modelByWorktree`) and re-applied on a session's `models` event when it differs from the default.
 
 ## Rust command reference (the UI hook points)
 
@@ -58,7 +63,7 @@ Newline-delimited JSON, both directions.
 | `list_worktrees` | `repoPath` | `Worktree[]` | First entry is main |
 | `create_worktree` | `repoPath, branch, baseRef?` | `Worktree` | Creates branch if new; one-click primitive |
 | `remove_worktree` | `repoPath, worktreePath, force` | `void` | Branch left intact |
-| `start_session` | `worktree` | `void` | Spawns a sidecar for that worktree; idempotent (no-op if already running) |
+| `start_session` | `worktree, resume?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` = a prior session id → restores agent context via `RESUME_SESSION` env → SDK `resume` |
 | `send_to_session` | `worktree, payload` (JSON string) | `void` | Writes a line to that worktree's sidecar stdin |
 | `stop_session` | `worktree` | `void` | Kills that worktree's sidecar |
 
@@ -76,7 +81,7 @@ The Agent SDK doesn't run in-process — it spawns a native Claude Code binary (
 
 ## MVP boundaries (what's intentionally not here)
 
-- Repos + selected worktree persist (localStorage); **transcripts are in-memory only** (not persisted across restarts). Worktree lists are repopulated from git on launch.
+- Repos, selected worktree, per-worktree **model**, **theme**, **transcript**, and **agent session id** all persist (localStorage). On launch the selected worktree's session is resumed by id (restores agent *context*) and its transcript is rehydrated (restores the *rendered* history) — resume does NOT replay messages, so these are two separate mechanisms. Worktree lists are still repopulated from git on launch.
 - No streaming token-by-token rendering (messages arrive per SDK message; add `partial_assistant` handling for finer granularity).
 - No cap on concurrent sessions — each open worktree is its own ~279MB sidecar; add an LRU if that's too heavy.
 - No `git` branch deletion on worktree removal, no dirty-state guards.

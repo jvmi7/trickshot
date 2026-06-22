@@ -12,7 +12,9 @@
   "app": {
     "windows": [
       {
-        "title": "trickshot",
+        "title": "",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "width": 1100,
         "height": 760
       }

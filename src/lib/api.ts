@@ -26,8 +26,10 @@ export const removeWorktree = (repoPath: string, worktreePath: string, force = f
 // ---- Per-worktree agent sessions ----------------------------------------
 // Each worktree runs its own sidecar concurrently, keyed by its path.
 
-/** Start (or no-op if already running) the agent session for a worktree. */
-export const startSession = (worktree: string) => invoke<void>("start_session", { worktree });
+/** Start (or no-op if already running) the agent session for a worktree.
+ *  Pass `resume` (a prior session id) to restore that session's context. */
+export const startSession = (worktree: string, resume?: string) =>
+  invoke<void>("start_session", { worktree, resume: resume ?? null });
 
 /** Kill a worktree's agent session. */
 export const stopSession = (worktree: string) => invoke<void>("stop_session", { worktree });
@@ -49,6 +51,16 @@ export const replyPermission = (
 
 /** Interrupt a worktree's agent mid-task. */
 export const interruptAgent = (worktree: string) => send(worktree, { kind: "interrupt" });
+
+/** Switch the model this worktree's chat uses. The sidecar confirms by
+ *  re-emitting a `models` event with the updated `current`. */
+export const setModel = (worktree: string, model: string) =>
+  send(worktree, { kind: "set_model", model });
+
+/** Ask a session to (re-)emit its `models` event. Used to fetch the catalog
+ *  on demand, since the one-shot broadcast at `ready` can race the listener. */
+export const requestModels = (worktree: string) =>
+  send(worktree, { kind: "get_models" });
 
 // ---- Event stream --------------------------------------------------------
 

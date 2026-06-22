@@ -37,6 +37,7 @@ struct AgentEvent {
 pub fn start_session(
     app: AppHandle,
     worktree: String,
+    resume: Option<String>,
     state: State<'_, Sessions>,
 ) -> Result<(), String> {
     // Hold the lock across spawn+insert so two concurrent calls can't both pass
@@ -47,11 +48,16 @@ pub fn start_session(
         return Ok(());
     }
 
-    let command = app
+    let mut command = app
         .shell()
         .sidecar("agent")
         .map_err(|e| e.to_string())?
         .env("PROJECT_DIR", &worktree);
+    // Resume a prior agent session (restores its context) when the UI has a
+    // persisted id for this worktree; the sidecar reads RESUME_SESSION.
+    if let Some(id) = resume.as_deref() {
+        command = command.env("RESUME_SESSION", id);
+    }
 
     let (mut rx, child) = command.spawn().map_err(|e| e.to_string())?;
     map.insert(worktree.clone(), child);

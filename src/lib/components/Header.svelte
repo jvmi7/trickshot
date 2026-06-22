@@ -1,35 +1,13 @@
-<script lang="ts">
-  import { sidebarOpen } from "../stores";
-  import { Button } from "$lib/components/ui/button";
-
-  /** Header title. For richer content, use the `title` slot instead. */
-  export let title = "trickshot";
-
-  function toggle() {
-    sidebarOpen.update((v) => !v);
-  }
-</script>
+<script lang="ts"></script>
 
 <!--
-  Global application header. Customization points:
-    • `title` prop, or the `title` slot for full control of the center region.
-    • `left` slot    — content immediately after the sidebar toggle.
-    • `actions` slot — right-aligned controls (buttons, status, menus, …).
+  Global header / custom titlebar (macOS Overlay style): the traffic lights
+  overlay its left. The whole bar is a drag region so the window can be moved by
+  dragging empty space; interactive controls (buttons/selects) aren't drag
+  regions, so they keep working. Slots: `left` and right-aligned `actions`.
 -->
-<header class="app-header">
-  <Button
-    variant="ghost"
-    size="icon"
-    onclick={toggle}
-    title={$sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-    aria-label="Toggle sidebar"
-  >☰</Button>
-
+<header class="app-header" data-tauri-drag-region>
   <slot name="left" />
-
-  <slot name="title"><span class="title">{title}</span></slot>
-
-  <span class="spacer"></span>
-
+  <span class="spacer" data-tauri-drag-region></span>
   <slot name="actions" />
 </header>

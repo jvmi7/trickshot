@@ -1,6 +1,15 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { repos, worktreesByRepo, selectedWorktree, sessionStatus, resetTranscript } from "../stores";
+  import { get } from "svelte/store";
+  import {
+    repos,
+    worktreesByRepo,
+    selectedWorktree,
+    sessionStatus,
+    resetTranscript,
+    sessionByWorktree,
+    forgetWorktreeSession,
+  } from "../stores";
   import * as api from "../api";
   import type { Worktree } from "../types";
   import { Button } from "$lib/components/ui/button";
@@ -54,6 +63,7 @@
         /* ignore */
       }
       resetTranscript(wt.path);
+      forgetWorktreeSession(wt.path);
     }
     const paths = wts.map((w) => w.path);
     if ($selectedWorktree && paths.includes($selectedWorktree)) selectedWorktree.set(null);
@@ -70,7 +80,8 @@
   async function select(wt: Worktree) {
     selectedWorktree.set(wt.path);
     try {
-      await api.startSession(wt.path);
+      // Resume this worktree's prior session (context) if we have one persisted.
+      await api.startSession(wt.path, get(sessionByWorktree)[wt.path]);
       sessionStatus.update((s) => ({ ...s, [wt.path]: "running" }));
     } catch (e) {
       error = String(e);
@@ -109,6 +120,7 @@
       await api.stopSession(wt.path);
       await api.removeWorktree(repoPath, wt.path, true);
       resetTranscript(wt.path);
+      forgetWorktreeSession(wt.path);
       pruneStatus([wt.path]);
       worktreesByRepo.update((m) => ({
         ...m,
@@ -161,7 +173,10 @@
               class:on={$sessionStatus[wt.path] === "running" || $sessionStatus[wt.path] === "working"}
               class:busy={$sessionStatus[wt.path] === "working"}
             ></span>
-            <span class="wt-name">{wt.branch ?? "(detached)"}{wt.is_main ? " · main" : ""}</span>
+            {#if wt.is_main}
+              <i class="lni lni-home-2 wt-home"></i>
+            {/if}
+            <span class="wt-name">{wt.branch ?? "(detached)"}</span>
             {#if !wt.is_main}
               <Button
                 variant="ghost"

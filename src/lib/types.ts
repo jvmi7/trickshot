@@ -12,11 +12,19 @@ export interface SDKMessageLike {
   [key: string]: unknown;
 }
 
+/** A model the current chat can switch to (a trimmed SDK ModelInfo). */
+export interface ModelInfo {
+  value: string;
+  displayName: string;
+  description?: string;
+}
+
 /** Messages flowing FROM the sidecar TO the app. */
 export type Outbound =
   | { kind: "ready" }
   | { kind: "message"; message: SDKMessageLike }
   | { kind: "permission_request"; id: string; tool: string; input: unknown }
+  | { kind: "models"; models: ModelInfo[]; current: string }
   | { kind: "error"; error: string };
 
 /** Messages flowing FROM the app TO the sidecar (sent as a JSON string via the
@@ -24,6 +32,8 @@ export type Outbound =
 export type Inbound =
   | { kind: "user_turn"; text: string }
   | { kind: "permission_reply"; id: string; behavior: "allow" | "deny"; message?: string }
+  | { kind: "set_model"; model: string }
+  | { kind: "get_models" }
   | { kind: "interrupt" };
 
 /** A git worktree as reported by the worktree commands. */
