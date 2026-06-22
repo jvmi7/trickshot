@@ -19,24 +19,20 @@
     clearActivity,
   } from "./lib/stores";
 
-  import { contentBlocks, toolLabel, toolDetail } from "./lib/sdkMessage";
-  import type { SDKMessageLike } from "./lib/types";
+  import { toolLabel, toolDetail } from "./lib/agentMessage";
+  import type { AgentMessage } from "./lib/types";
 
-  // ---- Verbose loading state: turn each streamed message into a human-readable
+  // ---- Verbose loading state: turn each neutral message into a human-readable
   // "what's happening now" for the chat's loading footer. ----
-  function updateActivity(worktree: string, m: SDKMessageLike) {
-    if (m.type === "assistant") {
-      const blocks = contentBlocks(m);
-      const tool = blocks.find((b) => b && b.type === "tool_use");
-      if (tool) {
-        setActivity(worktree, toolLabel(String(tool.name)), toolDetail(String(tool.name), tool.input as Record<string, unknown>), true);
-      } else if (blocks.some((b) => b && b.type === "text" && String(b.text ?? "").trim())) {
-        setActivity(worktree, "Writing response", "");
-      }
-    } else if (m.type === "user") {
+  function updateActivity(worktree: string, m: AgentMessage) {
+    if (m.type === "tool_call") {
+      setActivity(worktree, toolLabel(m.name), toolDetail(m.name, m.input), true);
+    } else if (m.type === "assistant") {
+      setActivity(worktree, "Writing response", "");
+    } else if (m.type === "tool_result") {
       // a tool result came back — the agent is reasoning again
       setActivity(worktree, "Thinking", "");
-    } else if (m.type === "system" && (m as { subtype?: string }).subtype === "init") {
+    } else if (m.type === "system") {
       setActivity(worktree, "Connecting", "");
     }
   }
@@ -58,22 +54,20 @@
       (worktree, evt) => {
         if (evt.kind === "message") {
           const m = evt.message;
-          // Persist the latest session id so we can resume this worktree's
-          // context after a restart (the id rides on every SDK message).
-          const sid = (m as { session_id?: unknown }).session_id;
-          if (typeof sid === "string" && sid) setWorktreeSession(worktree, sid);
-          // `system` (init) messages are session-lifecycle noise that would
-          // pile up in the persisted transcript on every resume — capture their
-          // id above, but don't render them.
           updateActivity(worktree, m);
-          // Skip lifecycle messages: `system` (init/hooks) and `result` (a turn-end
-          // marker whose text just duplicates the final assistant message).
-          if (m.type !== "system" && m.type !== "result") appendMessage(worktree, m);
-          // A `result` message ends the turn — the agent is idle again.
-          if (m.type === "result") {
+          // `turn_end` ends the turn — the agent is idle again (not rendered).
+          // `system` is a session notice we don't render. Everything else is a
+          // transcript bubble.
+          if (m.type === "turn_end") {
             setStatus(worktree, "ready");
             clearActivity(worktree);
+          } else if (m.type !== "system") {
+            appendMessage(worktree, m);
           }
+        } else if (evt.kind === "session") {
+          // Persist the resumable session id so this worktree's agent *context*
+          // can be restored after a restart (the provider reports it once known).
+          setWorktreeSession(worktree, evt.id);
         } else if (evt.kind === "permission_request") {
           pendingPermission.update((p) => ({
             ...p,

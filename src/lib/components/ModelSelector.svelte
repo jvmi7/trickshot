@@ -35,26 +35,11 @@
     api.setModel(wt, value);
   }
 
-  // Comparison axes — all framed so "more pips = better for you", letting users
-  // read each model's tradeoff shape at a glance. Ratings (1–4) are inferred from
-  // the model tier (haiku/sonnet/opus) + a 1M-context flag.
-  const CATEGORIES = [
-    { key: "reasoning", label: "Reasoning" },
-    { key: "speed", label: "Speed" },
-    { key: "value", label: "Value" },
-    { key: "context", label: "Context" },
-  ] as const;
-
-  type Rating = Record<(typeof CATEGORIES)[number]["key"], number>;
-  function rate(value: string, displayName: string): Rating {
-    const s = `${value} ${displayName}`.toLowerCase();
-    const context = /1m|\[1m\]/.test(s) ? 4 : 2;
-    if (s.includes("haiku")) return { reasoning: 2, speed: 4, value: 4, context };
-    if (s.includes("opus")) return { reasoning: 4, speed: 2, value: 1, context };
-    return { reasoning: 3, speed: 3, value: 3, context }; // sonnet / default / unknown
-  }
-
-  const COLS = "grid-cols-[minmax(0,1fr)_repeat(4,3rem)]";
+  // Comparison axes are PROVIDER-SUPPLIED (ModelInfo.meta) — the UI no longer
+  // infers tiers from the model name. Header labels come from the first model
+  // that ships meta; the column grid sizes to that count.
+  const metaLabels = $derived($availableModels.find((m) => m.meta?.length)?.meta?.map((r) => r.label) ?? []);
+  const cols = $derived(`minmax(0,1fr) repeat(${metaLabels.length}, 3rem)`);
 </script>
 
 <Select.Root type="single" value={$activeModel ?? ""} onValueChange={choose} {disabled}>
@@ -65,31 +50,37 @@
   >
     {label}
   </Select.Trigger>
-  <Select.Content class="min-w-[360px]">
-    <!-- Column header (category names), aligned to the item grid below. -->
-    <div
-      class="text-muted-foreground grid {COLS} items-center gap-x-2 pb-1.5 pl-1.5 pr-8 text-[9px] font-medium uppercase tracking-tight"
-    >
-      <span>Model</span>
-      {#each CATEGORIES as c (c.key)}
-        <span class="text-center">{c.label}</span>
-      {/each}
-    </div>
+  <Select.Content class={metaLabels.length ? "min-w-[360px]" : undefined}>
+    {#if metaLabels.length}
+      <!-- Column header (provider's category names), aligned to the item grid. -->
+      <div
+        class="text-muted-foreground grid items-center gap-x-2 pb-1.5 pl-1.5 pr-8 text-[9px] font-medium uppercase tracking-tight"
+        style="grid-template-columns: {cols}"
+      >
+        <span>Model</span>
+        {#each metaLabels as l (l)}
+          <span class="text-center">{l}</span>
+        {/each}
+      </div>
+    {/if}
     {#each $availableModels as m (m.value)}
-      {@const r = rate(m.value, m.displayName)}
       <Select.Item value={m.value} label={m.displayName}>
-        <div class="grid w-full {COLS} items-center gap-x-2">
+        {#if m.meta?.length}
+          <div class="grid w-full items-center gap-x-2" style="grid-template-columns: {cols}">
+            <span class="truncate">{m.displayName}</span>
+            {#each m.meta as r (r.label)}
+              <span class="flex justify-center gap-0.5">
+                {#each Array(r.max ?? 4) as _, i}
+                  <span
+                    class="size-1.5 rounded-full {i < r.score ? 'bg-primary' : 'bg-muted-foreground/25'}"
+                  ></span>
+                {/each}
+              </span>
+            {/each}
+          </div>
+        {:else}
           <span class="truncate">{m.displayName}</span>
-          {#each CATEGORIES as c (c.key)}
-            <span class="flex justify-center gap-0.5">
-              {#each Array(4) as _, i}
-                <span
-                  class="size-1.5 rounded-full {i < r[c.key] ? 'bg-primary' : 'bg-muted-foreground/25'}"
-                ></span>
-              {/each}
-            </span>
-          {/each}
-        </div>
+        {/if}
       </Select.Item>
     {/each}
   </Select.Content>

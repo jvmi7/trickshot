@@ -1,5 +1,5 @@
 import { derived, writable } from "svelte/store";
-import type { ModelInfo, Repo, SDKMessageLike, Worktree } from "./types";
+import type { ModelInfo, Repo, TranscriptMessage, Worktree } from "./types";
 
 export interface PermissionReq {
   id: string;
@@ -244,8 +244,11 @@ export function forgetWorktreeSession(worktree: string) {
 // worktrees. Each message gets a stable `__key` for identity-keyed {#each}.
 // Transcripts persist to localStorage so chat history survives restarts (resume
 // restores agent context but not the rendered messages — see above).
-const TRANSCRIPTS_KEY = "trickshot.transcripts";
-function loadTranscripts(): Record<string, SDKMessageLike[]> {
+// `.v2` because the persisted message shape changed (raw SDK messages -> the
+// neutral AgentMessage schema). Bumping the key drops pre-v2 transcripts on
+// upgrade rather than rendering them blank; resume still restores agent context.
+const TRANSCRIPTS_KEY = "trickshot.transcripts.v2";
+function loadTranscripts(): Record<string, TranscriptMessage[]> {
   if (!hasLS) return {};
   try {
     const v = JSON.parse(localStorage.getItem(TRANSCRIPTS_KEY) ?? "{}");
@@ -255,7 +258,7 @@ function loadTranscripts(): Record<string, SDKMessageLike[]> {
   }
 }
 const _loaded = loadTranscripts();
-export const transcripts = writable<Record<string, SDKMessageLike[]>>(_loaded);
+export const transcripts = writable<Record<string, TranscriptMessage[]>>(_loaded);
 
 // Continue keys above any rehydrated __key so identity-keyed {#each} stays unique
 // (the counter resets to 0 on reload, which would otherwise collide).
@@ -286,7 +289,7 @@ if (hasLS) {
   });
 }
 
-const _buffers: Record<string, SDKMessageLike[]> = {};
+const _buffers: Record<string, TranscriptMessage[]> = {};
 let _flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 function flush() {
@@ -304,7 +307,7 @@ function flush() {
 }
 
 /** Append a message to a worktree's transcript (stable key + batched write). */
-export function appendMessage(worktree: string, msg: SDKMessageLike) {
+export function appendMessage(worktree: string, msg: TranscriptMessage) {
   (msg as { __key?: number }).__key = _key++;
   (_buffers[worktree] ??= []).push(msg);
   if (_flushTimer === null) _flushTimer = setTimeout(flush, 16);

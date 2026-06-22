@@ -51,7 +51,8 @@ Then `bun run build`. On macOS the Bun binary must be codesigned with JIT entitl
 - **`src/lib/api.ts`** — the typed command + event surface. Import from here; don't call `invoke`/`listen` directly.
 - **`src/lib/stores.ts`** — Svelte stores for session/worktree state.
 - **`src/lib/components/`** — minimal components to replace/extend.
-- **`shared/protocol.ts`** — the line-delimited JSON wire unions (`Inbound`/`Outbound`/`ModelInfo`), imported by **both** the webview (`src/lib/types.ts`) and the sidecar (`sidecar/core.ts`).
+- **`shared/protocol.ts`** — the provider-neutral, line-delimited JSON wire unions (`Inbound`/`Outbound`/`AgentMessage`/`ModelInfo`), imported by **both** the webview (`src/lib/types.ts`) and the sidecar (`sidecar/core.ts`).
+- **`sidecar/providers/`** — pluggable model-provider adapters (`claude.ts` is the first). Add a provider by implementing `AgentProvider` and mapping its native events to the neutral `AgentMessage` schema — no UI or protocol change. See `ARCHITECTURE.md` → Providers.
 - **`src/lib/types.ts`** — the app-side protocol surface (`Worktree`, `Repo`, `AgentEnvelope`) + the re-exported wire types.
 
 ## Checks

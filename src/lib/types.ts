@@ -1,26 +1,29 @@
 // Protocol truth for the UI side. The wire unions (`Inbound`/`Outbound`/
-// `ModelInfo`) live in `shared/protocol.ts` and are imported by BOTH this file
-// and the sidecar (`sidecar/core.ts`) so the two TS mirrors can't drift. This
-// file binds `Outbound`'s message to the loose `SDKMessageLike` and adds the
-// app-only types (`Worktree`, `Repo`, `AgentEnvelope`). The sidecar writes one
-// JSON object per line to stdout; Rust relays each line as a worktree-tagged
-// `agent-event` Tauri event; api.ts parses them.
+// `AgentMessage`/`ModelInfo`) live in `shared/protocol.ts` and are imported by
+// BOTH this file and the sidecar (`sidecar/core.ts`) so the two TS mirrors can't
+// drift. This file re-exports them and adds the app-only types (`TranscriptMessage`,
+// `Worktree`, `Repo`, `AgentEnvelope`). The sidecar writes one JSON object per
+// line to stdout; Rust relays each line as a worktree-tagged `agent-event` Tauri
+// event; api.ts parses them.
 
-import type { Outbound as OutboundOf } from "../../shared/protocol";
+import type { AgentMessage } from "../../shared/protocol";
 
-export type { Inbound, ModelInfo } from "../../shared/protocol";
+export type {
+  AgentMessage,
+  Inbound,
+  ModelInfo,
+  ModelRating,
+  Outbound,
+} from "../../shared/protocol";
 
-/** A pass-through Claude Agent SDK message (SDKMessage). Kept loose on purpose —
- *  the UI branches on `type` and reads fields defensively. */
-export interface SDKMessageLike {
-  type: string;
-  /** Stable per-message key assigned on append (see stores.appendMessage). */
-  __key?: number;
-  [key: string]: unknown;
-}
-
-/** Messages flowing FROM the sidecar TO the app (loose message representation). */
-export type Outbound = OutboundOf<SDKMessageLike>;
+/** A rendered transcript entry: a provider-neutral `AgentMessage`, or a UI-only
+ *  bubble — the optimistic user echo (`user_local`) or an error notice. `__key`
+ *  is the stable per-message id assigned on append (see stores.appendMessage). */
+export type TranscriptMessage = (
+  | AgentMessage
+  | { type: "user_local"; text: string }
+  | { type: "error"; error: string }
+) & { __key?: number };
 
 /** A git worktree as reported by the worktree commands. */
 export interface Worktree {

@@ -38,6 +38,7 @@ pub fn start_session(
     app: AppHandle,
     worktree: String,
     resume: Option<String>,
+    provider: Option<String>,
     state: State<'_, Sessions>,
 ) -> Result<(), String> {
     // Hold the lock across spawn+insert so two concurrent calls can't both pass
@@ -52,7 +53,10 @@ pub fn start_session(
         .shell()
         .sidecar("agent")
         .map_err(|e| e.to_string())?
-        .env("PROJECT_DIR", &worktree);
+        .env("PROJECT_DIR", &worktree)
+        // Which provider adapter the sidecar loads (see sidecar/providers).
+        // Defaults to "claude" in the sidecar when unset.
+        .env("AGENT_PROVIDER", provider.as_deref().unwrap_or("claude"));
     // Resume a prior agent session (restores its context) when the UI has a
     // persisted id for this worktree; the sidecar reads RESUME_SESSION.
     if let Some(id) = resume.as_deref() {

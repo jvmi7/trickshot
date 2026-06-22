@@ -22,9 +22,11 @@ If a genuinely new pattern is unavoidable, say so explicitly in your reasoning a
 Svelte webview (Vite)
   -> src/lib/api.ts          (Tauri IPC: invoke<T>() / listen())
   -> Rust core (src-tauri)   agent.rs runs ONE sidecar per worktree (concurrent); worktree.rs shells git
-  -> Bun sidecar PER WORKTREE (sidecar/core.ts)   query() agent loop
+  -> Bun sidecar PER WORKTREE   core.ts (neutral transport) -> providers/<id>.ts (adapter)
   -> native `claude` binary  -> Anthropic API
 ```
+
+- **Provider-pluggable.** The sidecar speaks a provider-neutral protocol: `core.ts` is transport; a provider adapter (`sidecar/providers/<id>.ts`, default `claude`) runs the agent loop and maps native events into the neutral `AgentMessage` schema. The whole UI + protocol is Claude-agnostic; adding a provider is a new adapter, not a UI/protocol change.
 
 - **One agent session per worktree, running concurrently.** Selecting a worktree starts its session (idempotent); sessions keep running when you switch. No global start/stop — a worktree just *has* an agent.
 - Rust <-> sidecar: **newline-delimited JSON over stdin/stdout**. Rust relays bytes opaquely (no parsing).
@@ -34,7 +36,7 @@ Svelte webview (Vite)
 ## Cross-process contract + SYNC RULE (most important)
 
 The line-delimited JSON protocol (`Inbound` / `Outbound` `kind` unions) plus the worktree-tagged event envelope are **hand-mirrored across places**. The two TypeScript ends now share ONE source of truth; only the link to Rust is hand-mirrored:
-- `shared/protocol.ts` — the **single** TS source of truth for the wire unions (`Inbound`/`Outbound`/`ModelInfo`). Imported by BOTH ends so the two TS mirrors can't drift:
+- `shared/protocol.ts` — the **single** TS source of truth for the wire unions (`Inbound`/`Outbound`/`AgentMessage`/`ModelInfo`), all **provider-neutral** (nothing Claude-specific). Imported by BOTH ends so the two TS mirrors can't drift:
   - `src/lib/types.ts` re-exports them (binding `Outbound`'s message to the loose `SDKMessageLike`) and adds the app-only `Worktree`/`Repo`/`AgentEnvelope` (the last mirrors the Rust `AgentEvent` struct field-for-field).
   - `sidecar/core.ts` imports them (binding `Outbound`'s message to the SDK's own `SDKMessage`) + does by-hand `cmd.kind` parsing.
 - `src-tauri/src/agent.rs` — the `AgentEvent { worktree, kind, data }` struct emitted on `agent-event`. **No compiler link to the TS side — still hand-mirrored.**
@@ -51,12 +53,14 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Concern | File |
 |---|---|
 | IPC surface (the only one) | `src/lib/api.ts` |
-| Wire protocol unions (shared by webview + sidecar) | `shared/protocol.ts` |
-| Protocol re-export + app-side types (`Worktree`/`Repo`/`AgentEnvelope`) | `src/lib/types.ts` |
+| Wire protocol unions, provider-neutral (`Inbound`/`Outbound`/`AgentMessage`/`ModelInfo`) | `shared/protocol.ts` |
+| Protocol re-export + app-side types (`TranscriptMessage`/`Worktree`/`Repo`/`AgentEnvelope`) | `src/lib/types.ts` |
 | Per-worktree state: persisted repos, worktrees, selection, session status, per-worktree transcripts (`appendMessage` batching) | `src/lib/stores.ts` |
 | UI components (one per concern) | `src/lib/components/*.svelte` |
-| Shared SDK-message readers (block extraction, tool labels) | `src/lib/sdkMessage.ts` |
-| SDK-message rendering (branches on `type`) | `src/lib/components/Message.svelte` |
+| Tool-label helpers for the loading footer | `src/lib/agentMessage.ts` |
+| Neutral `AgentMessage` rendering (branches on `type`) | `src/lib/components/Message.svelte` |
+| Sidecar transport (provider-neutral; frames JSON, dispatches `Inbound`) | `sidecar/core.ts` |
+| Provider adapters (agent loop + native→neutral mapping, one per provider) | `sidecar/providers/*.ts` |
 | Large-text truncation | `src/lib/components/Collapsible.svelte` |
 | Global header (slots: `title`/`left`/`actions` + sidebar toggle) | `src/lib/components/Header.svelte` |
 | shadcn-svelte primitives (the UI building blocks) | `src/lib/components/ui/` |
@@ -66,7 +70,6 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Rust command registry (`generate_handler!`) | `src-tauri/src/lib.rs` |
 | Permission scope (shell:allow-spawn, sidecar) | `src-tauri/capabilities/default.json` |
 | Sidecar/bundle config | `src-tauri/tauri.conf.json` |
-| Agent loop (platform-agnostic) | `sidecar/core.ts` |
 | Thin per-platform embed shims (~6-7 lines each) | `sidecar/agent.<platform>.ts` |
 | Sidecar compile script | `scripts/build-sidecar.sh` |
 
@@ -106,7 +109,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 - DO route every IPC call through `api.ts` with a generic-typed `invoke<T>()`; DON'T scatter raw `invoke("...")` / `listen()` in components.
 - DO type every boundary explicitly (the `Inbound`/`Outbound` unions, `Worktree`); DON'T return bare `any` or untyped objects across IPC.
 - DO confine each unavoidable cast to one line with a WHY comment (e.g. `(q as any).interrupt`); DON'T sprinkle untracked casts. Keep control flow explicit and greppable — prefer a named helper over an inline trick.
-- DO read SDK message internals through the shared defensive helpers in `src/lib/sdkMessage.ts` (block extraction `contentBlocks`, tool-label helpers) — used by `Message.svelte` (rendering) and `App.svelte` (loading footer). `SDKMessageLike` is intentionally `{ type: string; [key: string]: unknown }` — read defensively, branch on `m.type` (`system`/`assistant`/`user`/`result`), guard nested content with `Array.isArray`, render only known block types (`text`, `tool_use`, `tool_result`), and keep `??` fallbacks (`m.result ?? 'done'`, `w.branch ?? '(detached)'`). An unknown type or missing field must render nothing, never throw.
+- DO keep the UI on the **neutral `AgentMessage` schema** (`shared/protocol.ts`) — NEVER parse a provider's raw message shape in the webview. Mapping native→neutral happens in the provider adapter (`sidecar/providers/<id>.ts`); `Message.svelte` branches on the neutral `type` (`assistant`/`tool_call`/`tool_result`/`system`/`turn_end`, plus the UI-only `user_local`/`error` bubbles) and renders nothing for an unknown type. Tool-label helpers for the loading footer live in `src/lib/agentMessage.ts`. Keep `??` fallbacks (`w.branch ?? '(detached)'`); a missing field must render nothing, never throw.
 - DO write comments that explain WHY (the non-obvious invariant); DON'T add WHAT comments restating the code.
 
 ## Conventions — Svelte (v5)
@@ -142,8 +145,8 @@ The hot path is bursty, data-dependent streaming (big tool results). Preserve th
 - **Work in markup (known tradeoff).** `Message.svelte` hoists block extraction to `$: blocks = contentBlocks(m)` (reactive, recomputed only when `m` changes) but still stringifies inline with `JSON.stringify(b.input, null, 2)` per reactive pass. Acceptable now; if profiling shows it hot, pre-stringify tool inputs into the derived value too.
 - **Bound the DOM.** Always send large tool I/O through `Collapsible` so the truncated slice (not the multi-KB blob) hits the DOM. The transcript is **windowed**: Chat mounts only the newest `RENDER_WINDOW` (300) messages via the `renderedMessages` derived, with a "N earlier messages hidden" banner above; older messages stay in the persisted transcript but out of the DOM. The store/`flush()` still hold the full list (a transcript only grows except on `resetTranscript`), so raise `RENDER_WINDOW` only after profiling — and switch `flush()` to in-place push first if you do (see below). True virtualization (variable-height rows under the custom transform scroll) is the next step if 300 isn't enough.
 - **Rust relay does ZERO work per chunk.** In `agent.rs`, each `CommandEvent::Stdout` becomes one `agent-event` emit tagged `{ worktree, kind: "stdout", data: line }` — no JSON parse, no per-message transform, no clones beyond the unavoidable `String::from_utf8_lossy`. Parsing belongs in `api.ts` (which routes by `worktree`). Each worktree has its own reader task; heavy work there throttles that session's stream.
-- **Serialize each payload once.** Sidecar `send()` stringifies one compact object per line (`JSON.stringify(o) + "\n"`) — never pretty-print (no `null, 2`) on the wire, never split one logical message across writes (the newline is the only framing). Rust relays the string verbatim; `api.ts` parses once. Don't add a parse-then-restringify layer anywhere.
-- **Never block the sidecar loops.** The `for await (const message of q)` agent loop and the `makeQueue` `push()` (the input backpressure point) must stay O(1); forward each `SDKMessage` straight to `send()` without aggregating or serializing large state in the loop.
+- **Serialize each payload once.** `core.ts`'s `emit()` stringifies one compact object per line (`JSON.stringify(o) + "\n"`) — never pretty-print (no `null, 2`) on the wire, never split one logical message across writes (the newline is the only framing). Rust relays the string verbatim; `api.ts` parses once. Don't add a parse-then-restringify layer anywhere.
+- **Never block the sidecar loops.** In a provider, the `for await (...)` agent loop and the `makeQueue` `push()` (the input backpressure point) must stay O(1); map each native message to `AgentMessage` and `emit()` it without aggregating or serializing large state in the loop.
 - **Measure before tuning** the 16ms window, virtualization threshold, or `Collapsible` `max` — profile a real heavy tool-result burst and a long multi-turn session, not a hello-world.
 
 ## Build / run
@@ -166,9 +169,10 @@ CI (`.github/workflows/ci.yml`) runs `lint` + `check` + `build:sidecar` (fronten
 - **Target-triple naming.** `tauri.conf.json` lists only the base name `binaries/agent`; the file on disk MUST carry the Rust target-triple suffix or Tauri's `sidecar()` won't resolve it.
 - **`$bunfs` native-CLI embed.** `bun --compile` doesn't bundle the spawned native `claude` binary. Each `sidecar/agent.<platform>.ts` does `import binPath from '@anthropic-ai/claude-agent-sdk-<platform>/claude[.exe]' with { type: 'file' }` then `run(extractFromBunfs(binPath))` (note win-x64 uses `claude.exe`). Keep this OUT of `core.ts` (platform-agnostic). To add/change a platform, edit only the matching entrypoint + the case in `build-sidecar.sh`.
 - **Auth uses the existing Claude Code login. There is NO API key in this app** — the embedded native `claude` binary handles auth. Don't add API-key plumbing.
-- **`bypassPermissions` is on.** `core.ts` runs the SDK in `permissionMode: 'bypassPermissions'`, so the SDK never calls `canUseTool` and the sidecar never emits a `permission_request` — `PermissionModal.svelte` / `replyPermission` are dormant despite existing in the protocol. The plumbing is for when bypass is disabled; don't assume the Allow/Deny modal is exercised.
-- **Pinned config.** Model is `claude-opus-4-8`, systemPrompt is the `claude_code` preset, both set in `core.ts` `run()`. Agent cwd comes from `PROJECT_DIR` (set by Rust `start_session` to the worktree path), defaulting to `process.cwd()`.
-- **Don't close the prompt queue.** The `makeQueue` async-iterable in `core.ts` is intentionally never closed so the session stays open for multi-turn chat; user turns are `push()`ed in. Don't "fix" it to close after a turn.
+- **Provider adapters.** The sidecar is provider-pluggable: `core.ts` is neutral transport; the agent loop + native→`AgentMessage` mapping live in `sidecar/providers/<id>.ts`, selected by `AGENT_PROVIDER` (Rust `start_session(provider?)`, default `claude`). Adding a provider = a new adapter implementing `AgentProvider` and mapping to `AgentMessage` — DON'T put provider-specific logic in `core.ts` or the UI. A runtime needing a different native binary also needs its own `agent.<platform>.ts` embed.
+- **`bypassPermissions` is on.** `providers/claude.ts` runs the SDK in `permissionMode: 'bypassPermissions'`, so the SDK never calls `canUseTool` and never emits a `permission_request` — `PermissionModal.svelte` / `replyPermission` / the provider's `pendingPermissions` map are dormant despite existing in the protocol. The plumbing is for when bypass is disabled; don't assume the Allow/Deny modal is exercised.
+- **Pinned config (Claude provider).** Model is `claude-opus-4-8`, systemPrompt is the `claude_code` preset, both set in `providers/claude.ts`. Agent cwd comes from `PROJECT_DIR` (set by Rust `start_session`), read in `core.ts` and passed as `ctx.projectDir`, defaulting to `process.cwd()`.
+- **Don't close the prompt queue.** The `makeQueue` async-iterable in `providers/claude.ts` is intentionally never closed so the session stays open for multi-turn chat; user turns are `push()`ed in. Don't "fix" it to close after a turn.
 - **Concurrent sessions are unbounded & heavy.** Each selected worktree runs its own sidecar (~279MB resident). There is no cap by design (Conductor-style), so many open worktrees = real RAM — add an LRU/cap in `start_session` if you need one. All sessions are killed on app quit by the `lib.rs` exit handler.
 - **Persistence.** Repos, selected worktree, per-worktree model, theme, **transcript**, and **agent session id** persist to `localStorage` (keys `trickshot.*`). Chat survives restarts via TWO mechanisms that must both stay wired: the persisted transcript restores the *rendered* messages, and `start_session(worktree, resume)` resumes the SDK session by id to restore the agent's *context* — the SDK does NOT replay messages on resume, so neither alone is enough. The session id rides on every SDK message (`m.session_id`); App.svelte captures the latest. Transcripts are saved on a 600ms idle debounce (never mid-stream) and tolerate localStorage quota errors. Worktree lists are still repopulated from git (`list_worktrees`) on launch — git is the source of truth, not a persisted list.
 - **macOS packaging:** the Bun binary needs JIT codesign entitlements before notarization; ship a `-baseline` Bun target for older x64 CPUs (see README + ARCHITECTURE Packaging).

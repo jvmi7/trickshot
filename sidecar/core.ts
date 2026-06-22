@@ -1,172 +1,59 @@
-// Shared sidecar core. Each platform entrypoint (agent.<platform>.ts) embeds the
-// matching native Claude Code binary, extracts it from Bun's $bunfs at startup,
-// and calls run(cliPath).
+// Shared sidecar core — the provider-neutral transport. Each platform entrypoint
+// (agent.<platform>.ts) embeds the matching native Claude Code binary, extracts
+// it from Bun's $bunfs at startup, and calls run(cliPath).
+//
+// This module owns ONLY the wire: it frames newline-delimited JSON, dispatches
+// each Inbound command to the selected provider, and lets the provider emit
+// Outbound events. All model/agent logic lives behind the AgentProvider adapter
+// (see sidecar/providers/) — core.ts has no Claude import.
 //
 // Protocol (newline-delimited JSON):
-//   stdin  (app -> sidecar):  Inbound  { kind: "user_turn" | "permission_reply" | "interrupt", ... }
-//   stdout (sidecar -> app):  Outbound { kind: "ready" | "message" | "permission_request" | "error", ... }
+//   stdin  (app -> sidecar):  Inbound   { kind: "user_turn" | "set_model" | "interrupt" | ... }
+//   stdout (sidecar -> app):  Outbound  { kind: "ready" | "session" | "message" | "models" | "error" | ... }
 
 import { createInterface } from "node:readline";
-import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-// Shared wire protocol (also re-exported by the webview's src/lib/types.ts) so
-// the two TS mirrors can't drift. The sidecar binds Outbound's message to the
-// SDK's own SDKMessage. See the SYNC RULE in CLAUDE.md.
-import type { ModelInfo, Outbound as OutboundOf } from "../shared/protocol";
-
-// The default model a fresh session starts on (the UI can switch it per chat).
-const DEFAULT_MODEL = "claude-opus-4-8";
-
-type Outbound = OutboundOf<SDKMessage>;
-
-function send(o: Outbound) {
-  process.stdout.write(JSON.stringify(o) + "\n");
-}
-
-// A pushable async-iterable used as the streaming `prompt`. We never close it,
-// so the session stays open for a multi-turn chat.
-function makeQueue<T>() {
-  const items: T[] = [];
-  let wake: (() => void) | null = null;
-  return {
-    push(item: T) {
-      items.push(item);
-      wake?.();
-      wake = null;
-    },
-    async *[Symbol.asyncIterator]() {
-      for (;;) {
-        if (items.length) {
-          yield items.shift() as T;
-          continue;
-        }
-        await new Promise<void>((resolve) => (wake = resolve));
-      }
-    },
-  };
-}
+import type { Inbound, Outbound } from "../shared/protocol";
+import { createProvider, DEFAULT_PROVIDER } from "./providers/registry";
 
 export function run(cliPath: string) {
-  const turns = makeQueue<SDKUserMessage>();
-  const pendingPermissions = new Map<string, (reply: any) => void>();
+  // Serialize one compact object per line; the newline is the only framing.
+  const emit = (o: Outbound) => process.stdout.write(JSON.stringify(o) + "\n");
 
-  // The model this session is currently using, and the catalog of switchable
-  // models (fetched once on ready, cached so set_model can re-publish cheaply).
-  let currentModel = DEFAULT_MODEL;
-  let modelCatalog: ModelInfo[] = [];
-
-  const q = query({
-    prompt: turns,
-    options: {
-      model: DEFAULT_MODEL,
-      // Resume a prior session (id set by Rust from the per-worktree persisted
-      // value) so the agent's *context* survives app restarts. The SDK does NOT
-      // replay prior messages on resume, so the visible transcript is restored
-      // separately (persisted in the app — see CLAUDE.md Persistence). Absent on
-      // a first run, where the SDK mints a fresh id we then capture and persist.
-      resume: process.env.RESUME_SESSION || undefined,
-      cwd: process.env.PROJECT_DIR ?? process.cwd(),
-      // The extracted native CLI binary (see platform entrypoints).
-      pathToClaudeCodeExecutable: cliPath,
-      // Opt into Claude Code's system prompt (the SDK defaults to empty post-rename).
-      systemPrompt: { type: "preset", preset: "claude_code" },
-      // Skip all permission prompts. In bypassPermissions mode the SDK never
-      // invokes canUseTool, so no tool is routed through the app's UI.
-      permissionMode: "bypassPermissions",
-    },
+  const provider = createProvider(process.env.AGENT_PROVIDER ?? DEFAULT_PROVIDER, {
+    cliPath,
+    projectDir: process.env.PROJECT_DIR ?? process.cwd(),
+    resumeSessionId: process.env.RESUME_SESSION || undefined,
+    emit,
   });
 
-  // Publish the switchable-model catalog + current selection. The catalog is
-  // static, so it's fetched once and cached; later calls just re-send it. The UI
-  // requests this on demand (get_models) because the ready-time broadcast can
-  // race ahead of the app's async event-listener registration and be missed.
-  async function publishModels() {
-    if (modelCatalog.length === 0) {
-      try {
-        const models = await q.supportedModels();
-        modelCatalog = models.map((m) => ({
-          value: m.value,
-          displayName: m.displayName ?? m.value,
-          description: typeof m.description === "string" ? m.description : undefined,
-        }));
-      } catch {
-        // supportedModels is a control request; if unavailable, advertise current only
-      }
-      if (modelCatalog.length === 0) {
-        modelCatalog = [{ value: currentModel, displayName: currentModel }];
-      }
-    }
-    send({ kind: "models", models: modelCatalog, current: currentModel });
-  }
-
-  // Read commands from stdin.
+  // Read commands from stdin and dispatch to the provider.
   createInterface({ input: process.stdin }).on("line", (line) => {
     const trimmed = line.trim();
     if (!trimmed) return;
-    let cmd: any;
+    let cmd: Inbound;
     try {
-      cmd = JSON.parse(trimmed);
+      cmd = JSON.parse(trimmed) as Inbound;
     } catch {
       return;
     }
     switch (cmd.kind) {
       case "user_turn":
-        turns.push({
-          type: "user",
-          message: { role: "user", content: String(cmd.text ?? "") },
-          parent_tool_use_id: null,
-        } as SDKUserMessage);
+        provider.pushTurn(cmd.text);
         break;
-      case "permission_reply": {
-        const resolve = pendingPermissions.get(cmd.id);
-        if (resolve) {
-          pendingPermissions.delete(cmd.id);
-          resolve(cmd);
-        }
+      case "set_model":
+        provider.setModel(cmd.model);
         break;
-      }
-      case "interrupt": {
-        // interrupt() exists on the Query in streaming-input mode.
-        const p = (q as any).interrupt?.();
-        if (p && typeof p.catch === "function") p.catch(() => {});
-        break;
-      }
-      case "set_model": {
-        const model = String(cmd.model ?? "");
-        if (!model || model === currentModel) break;
-        // setModel is a streaming-mode control request (async). On success
-        // re-publish the catalog with the confirmed `current` so the UI
-        // reflects sidecar truth, not just an optimistic guess.
-        void (async () => {
-          try {
-            await q.setModel(model);
-            currentModel = model;
-            send({ kind: "models", models: modelCatalog, current: currentModel });
-          } catch (e) {
-            send({ kind: "error", error: e instanceof Error ? e.message : String(e) });
-          }
-        })();
-        break;
-      }
       case "get_models":
-        // On-demand catalog fetch — the resilient path the UI relies on.
-        void publishModels();
+        provider.publishModels();
+        break;
+      case "interrupt":
+        provider.interrupt();
+        break;
+      case "permission_reply":
+        provider.replyPermission(cmd.id, cmd.behavior, cmd.message);
         break;
     }
   });
 
-  send({ kind: "ready" });
-  // Best-effort broadcast on ready; the UI also re-requests via get_models in
-  // case this races ahead of the listener (see publishModels).
-  void publishModels();
-
-  // Drive the agent loop. With an open input queue this runs for the life of the session.
-  (async () => {
-    try {
-      for await (const message of q) {
-        send({ kind: "message", message });
-      }
-    } catch (e) {
-      send({ kind: "error", error: e instanceof Error ? e.message : String(e) });
-    }
-  })();
+  provider.start();
 }

@@ -1,19 +1,7 @@
-// Shared, framework-free helpers for reading Claude Agent SDK message internals.
-// `Message.svelte` renders these content blocks; `App.svelte` uses the tool
-// label/detail helpers to drive the loading footer. Keeping the parsing in ONE
-// module (rather than duplicated per component) honors the "one place reads SDK
-// internals" rule in CLAUDE.md — read defensively here, never throw.
-
-import type { SDKMessageLike } from "./types";
-
-/** The Anthropic content blocks nested under an SDK message's `message.content`,
- *  or [] for any message without an array body. Returns `any[]` on purpose: the
- *  UI branches on `b.type` and reads known block fields defensively (see the
- *  PERFORMANCE note on `blocks()` in CLAUDE.md). */
-export function contentBlocks(m: SDKMessageLike): any[] {
-  const content = (m as { message?: { content?: unknown } }).message?.content;
-  return Array.isArray(content) ? content : [];
-}
+// Presentation helpers for the neutral AgentMessage schema. Currently just the
+// tool label/detail mapping the loading footer (App.svelte) shows for a
+// `tool_call`. Provider-neutral: unknown tool names fall back to a generic
+// label, so a non-Claude provider's tools render sensibly without changes.
 
 /** Last path segment of a file-ish value (for compact tool labels). */
 export const basename = (p: unknown) =>
@@ -61,26 +49,27 @@ export function toolLabel(name: string): string {
 }
 
 /** The tool call's most relevant argument, truncated (loading footer detail). */
-export function toolDetail(name: string, input: Record<string, unknown> = {}): string {
+export function toolDetail(name: string, input?: unknown): string {
+  const i = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
   switch (name) {
     case "Bash":
-      return trunc(input.command);
+      return trunc(i.command);
     case "Read":
     case "Write":
     case "Edit":
     case "MultiEdit":
-      return basename(input.file_path);
+      return basename(i.file_path);
     case "NotebookEdit":
-      return basename(input.notebook_path);
+      return basename(i.notebook_path);
     case "Glob":
     case "Grep":
-      return trunc(input.pattern);
+      return trunc(i.pattern);
     case "Task":
-      return trunc(input.description);
+      return trunc(i.description);
     case "WebFetch":
-      return trunc(input.url);
+      return trunc(i.url);
     case "WebSearch":
-      return trunc(input.query);
+      return trunc(i.query);
     default:
       return "";
   }
