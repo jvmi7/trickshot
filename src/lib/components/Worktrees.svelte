@@ -9,6 +9,7 @@
     resetTranscript,
     sessionByWorktree,
     forgetWorktreeSession,
+    providerByWorktree,
   } from "../stores";
   import * as api from "../api";
   import type { Worktree } from "../types";
@@ -83,8 +84,13 @@
   async function select(wt: Worktree) {
     selectedWorktree.set(wt.path);
     try {
-      // Resume this worktree's prior session (context) if we have one persisted.
-      await api.startSession(wt.path, get(sessionByWorktree)[wt.path]);
+      // Resume this worktree's prior session (context) if we have one persisted,
+      // on its last-used provider (defaults to claude).
+      await api.startSession(
+        wt.path,
+        get(sessionByWorktree)[wt.path],
+        get(providerByWorktree)[wt.path],
+      );
       sessionStatus.update((s) => ({ ...s, [wt.path]: "ready" }));
     } catch (e) {
       error = String(e);

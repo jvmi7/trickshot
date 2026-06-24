@@ -3,10 +3,12 @@
 // To add a provider: implement AgentProvider in `./<name>.ts` and add it here.
 
 import { createClaudeProvider } from "./claude";
+import { createGlmProvider } from "./glm";
 import type { AgentProvider, ProviderContext, ProviderFactory } from "./types";
 
 const PROVIDERS: Record<string, ProviderFactory> = {
   claude: createClaudeProvider,
+  glm: createGlmProvider,
 };
 
 export const DEFAULT_PROVIDER = "claude";

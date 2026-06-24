@@ -1,4 +1,5 @@
 mod agent;
+mod settings;
 mod worktree;
 
 use agent::Sessions;
@@ -12,8 +13,11 @@ pub fn run() {
         .manage(Sessions::default())
         .invoke_handler(tauri::generate_handler![
             agent::start_session,
+            agent::restart_session,
             agent::send_to_session,
             agent::stop_session,
+            settings::get_zai_settings,
+            settings::set_zai_settings,
             worktree::pick_directory,
             worktree::list_worktrees,
             worktree::create_worktree,
@@ -27,7 +31,7 @@ pub fn run() {
             if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
                 if let Some(state) = app_handle.try_state::<Sessions>() {
                     let mut map = state.0.lock().unwrap_or_else(|e| e.into_inner());
-                    for (_, child) in map.drain() {
+                    for (_, (_, child)) in map.drain() {
                         let _ = child.kill();
                     }
                 }

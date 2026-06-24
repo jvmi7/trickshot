@@ -64,10 +64,14 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 
 - **`sidecar/providers/types.ts`** — the `AgentProvider` interface (`start`, `pushTurn`, `setModel`, `interrupt`, `publishModels`, `replyPermission`) + `ProviderContext` (`cliPath`, `projectDir`, `resumeSessionId`, `emit`).
-- **`sidecar/providers/claude.ts`** — the only Claude-aware module: wraps the Claude Agent SDK and maps `SDKMessage` → `AgentMessage`. The Claude tier→pips heuristic lives here (not the UI).
-- **`sidecar/providers/registry.ts`** — id → factory; `core.ts` selects via `AGENT_PROVIDER` (default `claude`), plumbed from Rust `start_session(provider?)`.
+- **`sidecar/providers/anthropic-base.ts`** — the shared adapter over the Claude Agent SDK + native `claude` binary (`makeQueue`, `SDKMessage`→`AgentMessage` mapping, the agent loop). Both shipped providers are thin configs over it.
+- **`sidecar/providers/claude.ts`** — Claude config: default `claude-opus-4-8`, SDK-fetched catalog, the tier→pips heuristic. Auth = the Claude Code login.
+- **`sidecar/providers/glm.ts`** — GLM (Z.ai) config: default `glm-5.2`, a static catalog. Same native binary, pointed at Z.ai's **Anthropic-compatible endpoint** (`https://api.z.ai/api/anthropic`) via `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`, which Rust `start_session` injects from the OS keychain when `provider=glm`.
+- **`sidecar/providers/registry.ts`** — id → factory (`claude`, `glm`); `core.ts` selects via `AGENT_PROVIDER` (default `claude`), plumbed from Rust `start_session(provider?)`.
 
-**Add a provider:** implement `AgentProvider` in `providers/<id>.ts`, map its native events to `AgentMessage`, register it. No protocol or UI change. (A runtime needing a different native binary also needs its own `agent.<platform>.ts` embed — the binary is provider-specific; the rest is not.)
+**Add a provider:** implement `AgentProvider` in `providers/<id>.ts` (or, for an Anthropic-compatible endpoint, a thin config over `anthropic-base.ts`), map its native events to `AgentMessage`, register it. No protocol or UI change. (A runtime needing a *different* native binary also needs its own `agent.<platform>.ts` embed — GLM reuses the Claude one.)
+
+**Switching provider** is a sidecar restart (a provider is fixed per process), via the `restart_session` command. A liveness flag per session (`agent.rs`) silences the superseded sidecar's reader so no stale event leaks to the UI — see CLAUDE.md.
 
 ## Rust command reference (the UI hook points)
 
@@ -77,9 +81,12 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 | `list_worktrees` | `repoPath` | `Worktree[]` | First entry is main |
 | `create_worktree` | `repoPath, branch, baseRef?` | `Worktree` | Creates branch if new; one-click primitive |
 | `remove_worktree` | `repoPath, worktreePath, force` | `void` | Branch left intact |
-| `start_session` | `worktree, resume?, provider?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` = a prior session id → `RESUME_SESSION` env. `provider` (default `claude`) → `AGENT_PROVIDER` env → which adapter the sidecar loads |
+| `start_session` | `worktree, resume?, provider?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` = a prior session id → `RESUME_SESSION` env. `provider` (default `claude`) → `AGENT_PROVIDER` env → which adapter the sidecar loads. For `glm`, also injects `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` (from the keychain) |
+| `restart_session` | `worktree, resume?, provider?` | `void` | Silences + kills the current sidecar, then spawns a fresh one — the provider-switch path |
 | `send_to_session` | `worktree, payload` (JSON string) | `void` | Writes a line to that worktree's sidecar stdin |
 | `stop_session` | `worktree` | `void` | Kills that worktree's sidecar |
+| `get_zai_settings` | — | `{ base_url, key_present }` | Z.ai base URL + whether a key is stored (never returns the key) |
+| `set_zai_settings` | `apiKey?, baseUrl?` | `void` | Store/clear the Z.ai key (keychain) + base URL; empty string clears |
 
 Events: a single `agent-event` carrying `{ worktree, kind, data }`, where `kind` is `stdout` (a protocol line) | `stderr` | `error` | `terminated`. The frontend routes by `worktree`.
 

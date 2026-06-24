@@ -140,9 +140,39 @@ export function clearActivity(worktree: string) {
 }
 
 // ---- Models ----
-// The switchable-model catalog is the same across worktrees (one Claude binary),
-// so it's a single global list; the *current* model is per-worktree.
+// The switchable-model catalog is the *selected worktree's live catalog* — the
+// models its running provider advertises (Claude's lineup, or GLM's). It's a
+// single global because only one worktree is in view at a time; the current model
+// is per-worktree. The model selector overlays a stub for the OTHER provider so
+// you can switch across providers (which restarts the sidecar).
 export const availableModels = writable<ModelInfo[]>([]);
+
+// ---- Per-worktree model provider (persisted) ----
+// Which provider adapter a worktree's sidecar runs ("claude" | "glm"). A provider
+// is fixed for a sidecar's life, so changing it restarts the session (see
+// ModelSelector). Persisted so a worktree reopens on its last-used provider.
+const PROVIDER_KEY = "trickshot.providerByWorktree";
+function loadProviderByWorktree(): Record<string, string> {
+  if (!hasLS) return {};
+  try {
+    const v = JSON.parse(localStorage.getItem(PROVIDER_KEY) ?? "{}");
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+export const providerByWorktree = writable<Record<string, string>>(loadProviderByWorktree());
+providerByWorktree.subscribe((m) => {
+  if (!hasLS) return;
+  try {
+    localStorage.setItem(PROVIDER_KEY, JSON.stringify(m));
+  } catch {
+    /* ignore quota errors */
+  }
+});
+export function setWorktreeProvider(worktree: string, provider: string) {
+  providerByWorktree.update((m) => ({ ...m, [worktree]: provider }));
+}
 
 // Per-worktree current model, persisted so a chat's model choice is sticky across
 // restarts. On a session's `models` event, App.svelte re-applies a persisted
@@ -353,6 +383,11 @@ export const activePending = derived([pendingPermission, selectedWorktree], ([$p
  *  reports a `models` event). */
 export const activeModel = derived([modelByWorktree, selectedWorktree], ([$m, $sel]) =>
   $sel ? ($m[$sel] ?? null) : null,
+);
+/** The provider the selected worktree runs ("claude" by default). Drives which
+ *  models are in-session vs. require a provider switch in the model selector. */
+export const activeProvider = derived([providerByWorktree, selectedWorktree], ([$p, $sel]) =>
+  $sel ? ($p[$sel] ?? "claude") : "claude",
 );
 /** The selected worktree's current agent activity (null when idle). */
 export const activeActivity = derived([worktreeActivity, selectedWorktree], ([$a, $sel]) =>

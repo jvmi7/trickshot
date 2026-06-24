@@ -52,7 +52,8 @@ jobs:
             build-essential \
             libssl-dev \
             libxdo-dev \
-            file
+            file \
+            libdbus-1-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

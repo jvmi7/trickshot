@@ -32,6 +32,13 @@ export const removeWorktree = (repoPath: string, worktreePath: string, force = f
 export const startSession = (worktree: string, resume?: string, provider?: string) =>
   invoke<void>("start_session", { worktree, resume: resume ?? null, provider: provider ?? null });
 
+/** Restart a worktree's session under a (possibly different) `provider`. Used to
+ *  switch model-provider, since a provider is fixed for a sidecar's life — the
+ *  Rust side silences + kills the old sidecar before spawning the new one, so the
+ *  UI only sees the replacement's events. */
+export const restartSession = (worktree: string, resume?: string, provider?: string) =>
+  invoke<void>("restart_session", { worktree, resume: resume ?? null, provider: provider ?? null });
+
 /** Kill a worktree's agent session. */
 export const stopSession = (worktree: string) => invoke<void>("stop_session", { worktree });
 
@@ -61,6 +68,19 @@ export const setModel = (worktree: string, model: string) =>
 /** Ask a session to (re-)emit its `models` event. Used to fetch the catalog
  *  on demand, since the one-shot broadcast at `ready` can race the listener. */
 export const requestModels = (worktree: string) => send(worktree, { kind: "get_models" });
+
+// ---- Provider settings (Z.ai / GLM) -------------------------------------
+// The Z.ai API key lives in the OS keychain (Rust side), never in localStorage
+// and never returned to the webview — `getZaiSettings` reports only presence.
+
+/** The Z.ai key presence + base URL (result is snake_case from Rust). */
+export const getZaiSettings = () =>
+  invoke<{ base_url: string; key_present: boolean }>("get_zai_settings");
+
+/** Store (or clear, when empty) the Z.ai API key and/or base URL. A field left
+ *  `undefined` is unchanged; an empty string clears it. */
+export const setZaiSettings = (apiKey?: string, baseUrl?: string) =>
+  invoke<void>("set_zai_settings", { apiKey: apiKey ?? null, baseUrl: baseUrl ?? null });
 
 // ---- Event stream --------------------------------------------------------
 

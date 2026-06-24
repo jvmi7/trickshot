@@ -7,7 +7,8 @@ A Tauri v2 desktop shell around the **Claude Agent SDK**, with **one-click git w
 - **Rust** (stable) + the Tauri v2 system deps for your OS — https://v2.tauri.app/start/prerequisites/
 - **Bun** ≥ 1.2.4 — https://bun.sh
 - **git** on `PATH` (used for worktree commands)
-- A **logged-in Claude Code CLI**. This app has **no API-key plumbing** — the sidecar embeds the native `claude` binary, which uses your existing Claude Code authentication. Sign in once (e.g. `claude` / `claude login`) and the app reuses it. See `CLAUDE.md` → Gotchas (Auth).
+- A **logged-in Claude Code CLI**. The Claude provider has **no API-key plumbing** — the sidecar embeds the native `claude` binary, which uses your existing Claude Code authentication. Sign in once (e.g. `claude` / `claude login`) and the app reuses it. See `CLAUDE.md` → Gotchas (Auth).
+- **(Optional) GLM-5.2 via Z.ai.** To use the GLM model option, add a Z.ai API key in **Settings → GLM (Z.ai)**; it's stored in your OS keychain (never localStorage). On **Linux** the keychain needs `libdbus-1-dev` at build time and a running secret-service daemon (e.g. `gnome-keyring`) at runtime; macOS/Windows use the native keychain with no extra deps.
 
 ## First-time setup
 

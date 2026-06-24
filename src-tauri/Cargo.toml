@@ -18,3 +18,13 @@ tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
+# OS keychain for the Z.ai (GLM) API key — see src/settings.rs. Native backends
+# on macOS/Windows; on Linux this uses the D-Bus Secret Service (build needs
+# libdbus-1-dev, runtime needs a secret-service daemon, e.g. gnome-keyring).
+# `crypto-rust` keeps the crypto pure-Rust (no libssl).
+keyring = { version = "3", features = [
+    "apple-native",
+    "windows-native",
+    "sync-secret-service",
+    "crypto-rust",
+] }

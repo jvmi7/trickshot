@@ -15,6 +15,7 @@
     setWorktreeModel,
     sessionByWorktree,
     setWorktreeSession,
+    providerByWorktree,
     setActivity,
     clearActivity,
   } from "./lib/stores";
@@ -133,7 +134,7 @@
           // Pass the persisted session id so the agent's context resumes too.
           // The `ready`/`models` events flip status to ready and fill the catalog.
           try {
-            await startSession(sel, get(sessionByWorktree)[sel]);
+            await startSession(sel, get(sessionByWorktree)[sel], get(providerByWorktree)[sel]);
             setStatus(sel, "ready");
           } catch {
             // a real spawn failure surfaces via the agent-event error path
