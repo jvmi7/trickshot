@@ -231,7 +231,11 @@ fn diff_shortstat(worktree_path: &str) -> (i32, i32) {
     let (mut ins, mut del) = (0, 0);
     for part in out.split(',') {
         let p = part.trim();
-        let Some(n) = p.split_whitespace().next().and_then(|t| t.parse::<i32>().ok()) else {
+        let Some(n) = p
+            .split_whitespace()
+            .next()
+            .and_then(|t| t.parse::<i32>().ok())
+        else {
             continue;
         };
         if p.contains("insertion") {
