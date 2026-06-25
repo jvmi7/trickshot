@@ -159,6 +159,9 @@ export function startActivity(worktree: string) {
 export function setActivity(worktree: string, label: string, detail = "", bumpStep = false) {
   worktreeActivity.update((m) => {
     const cur = m[worktree] ?? { label, detail, steps: 0, startedAt: Date.now() };
+    // Skip a no-op write (same label/detail, no step bump): returning the same map
+    // identity fires no subscribers — mirrors clearActivity's early-return guard.
+    if (worktree in m && cur.label === label && cur.detail === detail && !bumpStep) return m;
     return { ...m, [worktree]: { ...cur, label, detail, steps: cur.steps + (bumpStep ? 1 : 0) } };
   });
 }
