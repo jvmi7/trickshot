@@ -59,8 +59,8 @@ struct OauthTokens {
 /// keychain and fall back to the file. Other platforms use the file directly.
 fn read_access_token() -> Result<String, String> {
     let raw = read_credentials_json()?;
-    let creds: Credentials =
-        serde_json::from_str(&raw).map_err(|e| format!("could not parse Claude credentials: {e}"))?;
+    let creds: Credentials = serde_json::from_str(&raw)
+        .map_err(|e| format!("could not parse Claude credentials: {e}"))?;
     Ok(creds.claude_ai_oauth.access_token)
 }
 
@@ -68,7 +68,12 @@ fn read_access_token() -> Result<String, String> {
 fn read_credentials_json() -> Result<String, String> {
     // Live token: `security find-generic-password -s "Claude Code-credentials" -w`.
     let out = Command::new("security")
-        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+        .args([
+            "find-generic-password",
+            "-s",
+            "Claude Code-credentials",
+            "-w",
+        ])
         .output()
         .map_err(|e| format!("failed to read keychain: {e}"))?;
     if out.status.success() {
