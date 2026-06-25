@@ -28,6 +28,29 @@ fn git(repo: &str, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// Validate a user-supplied branch name before it flows into a filesystem path
+/// AND a git ref. Path containment must not depend on git's incidental ref rules:
+/// reject leading `-` (option injection), absolute paths, `..` segments, and
+/// control chars up front. git's own `check-ref-format` still applies on top.
+fn validate_branch(branch: &str) -> Result<(), String> {
+    if branch.is_empty() {
+        return Err("branch name is required".into());
+    }
+    if branch.starts_with('-') {
+        return Err("branch name cannot start with '-'".into());
+    }
+    if branch.starts_with('/') || branch.starts_with('\\') {
+        return Err("branch name cannot be an absolute path".into());
+    }
+    if branch.split(['/', '\\']).any(|seg| seg == "..") {
+        return Err("branch name cannot contain '..'".into());
+    }
+    if branch.chars().any(|c| c.is_control()) {
+        return Err("branch name cannot contain control characters".into());
+    }
+    Ok(())
+}
+
 /// Native folder picker. Returns the chosen absolute path (or None if cancelled).
 /// Marked async so it runs off the main thread, where blocking_pick_folder is safe.
 #[tauri::command]
@@ -91,9 +114,7 @@ pub fn create_worktree(
     base_ref: Option<String>,
 ) -> Result<Worktree, String> {
     let branch = branch.trim().to_string();
-    if branch.is_empty() {
-        return Err("branch name is required".into());
-    }
+    validate_branch(&branch)?;
 
     let repo = Path::new(&repo_path);
     let repo_name = repo.file_name().and_then(|s| s.to_str()).unwrap_or("repo");
@@ -103,7 +124,15 @@ pub fn create_worktree(
 
     // Preserve slashes as nested directories (avoids feature/foo vs feature-foo
     // collisions); `git worktree add` creates intermediate parent dirs.
-    let wt_dir = parent.join(format!(".{repo_name}-worktrees")).join(&branch);
+    let wt_base = parent.join(format!(".{repo_name}-worktrees"));
+    let wt_dir = wt_base.join(&branch);
+    // Defense in depth: keep the worktree inside its base dir as an explicit,
+    // enforced invariant — not an emergent side effect of git's ref validation.
+    // (Lexical check; `validate_branch` already rejected the `..`/absolute cases
+    // that `starts_with` alone wouldn't catch.)
+    if !wt_dir.starts_with(&wt_base) {
+        return Err("refusing to create a worktree outside the worktrees directory".into());
+    }
     let wt_path = wt_dir.to_string_lossy().to_string();
 
     // Does the branch already exist?
@@ -126,12 +155,13 @@ pub fn create_worktree(
         if base_ref.is_some() {
             return Err("base_ref cannot be applied to an existing branch".into());
         }
-        git(&repo_path, &["worktree", "add", &wt_path, &branch])?;
+        // `--` terminates options so a value can never be parsed as a git flag.
+        git(&repo_path, &["worktree", "add", &wt_path, "--", &branch])?;
     } else {
         let base = base_ref.unwrap_or_else(|| "HEAD".to_string());
         git(
             &repo_path,
-            &["worktree", "add", "-b", &branch, &wt_path, &base],
+            &["worktree", "add", "-b", &branch, &wt_path, "--", &base],
         )?;
     }
 
@@ -160,7 +190,44 @@ pub fn remove_worktree(
     if force {
         args.push("--force");
     }
+    args.push("--"); // terminate options; the path can't be parsed as a flag
     args.push(&worktree_path);
     git(&repo_path, &args)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_branch;
+
+    #[test]
+    fn accepts_ordinary_names() {
+        for ok in ["feature", "feature/foo", "fix-123", "user.name/wip", "v2.0"] {
+            assert!(validate_branch(ok).is_ok(), "should accept {ok:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_option_injection() {
+        // A leading '-' would be parsed by git as a flag, not a branch/commit-ish.
+        assert!(validate_branch("--force").is_err());
+        assert!(validate_branch("-b").is_err());
+    }
+
+    #[test]
+    fn rejects_path_escape() {
+        // These would otherwise let the worktree dir escape its base.
+        assert!(validate_branch("/etc/passwd").is_err()); // absolute -> Path::join replaces base
+        assert!(validate_branch("..").is_err());
+        assert!(validate_branch("../evil").is_err());
+        assert!(validate_branch("a/../../b").is_err());
+        assert!(validate_branch("\\abs").is_err());
+    }
+
+    #[test]
+    fn rejects_control_chars_and_empty() {
+        assert!(validate_branch("").is_err());
+        assert!(validate_branch("a\nb").is_err());
+        assert!(validate_branch("a\0b").is_err());
+    }
 }

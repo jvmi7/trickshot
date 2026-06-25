@@ -100,6 +100,15 @@
   src: url("./fonts/comic-sans-ms.ttf") format("truetype");
 }
 
+/* Helvetica — self-hosted (user-provided TTF). Proportional sans, not monospace. */
+@font-face {
+  font-family: "Helvetica Self";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./fonts/helvetica.ttf") format("truetype");
+}
+
 /* IBM Plex Mono — self-hosted (latin + latin-ext, weights 400/500/600). */
 @font-face {
   font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap;
@@ -140,11 +149,13 @@
   --font-wenkai: "LXGW WenKai Mono TC", "Google Sans Code", ui-monospace, monospace;
   --font-comic: "Comic Sans MS", "Comic Sans", ui-rounded, cursive;
   --font-ibm: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-helvetica: "Helvetica Self", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --app-font: var(--font-sans-code);
 }
 [data-font="wenkai"] { --app-font: var(--font-wenkai); }
 [data-font="comic"] { --app-font: var(--font-comic); }
 [data-font="ibm"] { --app-font: var(--font-ibm); }
+[data-font="helvetica"] { --app-font: var(--font-helvetica); }
 
 /* ============================================================
    THEME ENGINE — semantic base palette (the SINGLE source of
@@ -157,7 +168,7 @@
   --base-surface: #18181b;        /* panels: header, sidebar, cards, popovers */
   --base-surface-raised: #212126; /* hover / secondary / muted / accent surfaces */
   --base-border: #303036;         /* dividers, inputs */
-  --base-text: #e6e6ea;           /* primary text */
+  --base-text: #d0d0d7;           /* primary text (softened from stark white) */
   --base-text-muted: #8b8b96;     /* dim / secondary text */
   --base-accent: #d97757;         /* brand accent (terracotta) */
   --base-on-accent: #111113;      /* text / icon on accent fills */
@@ -357,6 +368,18 @@
   --app-accent: var(--base-accent);
   --app-accent-text: var(--base-on-accent);
   --app-danger: var(--base-danger);
+  /* Markdown prose palette (see Markdown.svelte / `.markdown` below). Color is
+     reserved for CODE only — prose (titles, body, links) all share `--app-text`.
+     The inline-code chip + code identifiers route through `--base-accent` so they
+     follow the theme (the chart hues --base-info/warning/etc. are deliberately
+     theme-CONSTANT, so building code color on them looked identical everywhere).
+     Never hardcode a hex here. */
+  --app-code: var(--base-accent);
+  --app-code-bg: color-mix(in srgb, var(--base-accent) 13%, var(--base-surface-raised));
+  --app-code-border: color-mix(in srgb, var(--base-accent) 28%, var(--base-border));
+  /* Max width of the chat reading column (messages + loading + composer); it
+     centers in the pane when wider. */
+  --chat-col: 740px;
   font-family: var(--app-font);
   font-size: 14px;
 }
@@ -420,24 +443,57 @@ body { margin: 0; }
 
 /* ---- sidebar column: full-height, right border is the sole divider ---- */
 .sidebar {
-  width: 320px;
+  position: relative; /* anchors the drag handle */
+  width: var(--sidebar-width, 320px); /* drag-to-resize; see App.svelte */
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--app-bg);
   border-right: 1px solid var(--app-border);
-  /* slide in/out: collapsed pulls the (fixed-width) panel off to the left,
-     letting the content smoothly fill the freed space. */
+  /* slide in/out: collapsed pulls the panel fully off to the left (by its current
+     width), letting the content smoothly fill the freed space. */
   transition: margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.sidebar.collapsed { margin-left: -320px; }
+.sidebar.collapsed { margin-left: calc(-1 * var(--sidebar-width, 320px)); }
 .sidebar-head { height: 48px; flex-shrink: 0; }
 .sidebar-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 16px; }
+.sidebar-foot { flex-shrink: 0; padding: 8px; border-top: 1px solid var(--app-border); }
+/* Drag handle straddling the sidebar's right border: a wide (6px) invisible grab
+   target, but the hover highlight is just a thin accent line over the border (not
+   the full grab width). */
+.sidebar-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -6px;
+  width: 12px;
+  cursor: col-resize;
+  z-index: 15;
+}
+.sidebar-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.sidebar-resize:hover::after { background: var(--app-accent); }
+.sidebar.collapsed .sidebar-resize { display: none; } /* nothing to grab when hidden */
+/* During a drag: show the resize cursor everywhere and don't select text. */
+.layout.resizing { cursor: col-resize; user-select: none; }
 
 /* ---- content column ---- */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .content { flex: 1; display: flex; min-width: 0; min-height: 0; }
+
+/* ---- settings page (swaps in for the chat in the center pane) ---- */
+.settings-page { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 24px 32px 48px; }
+.settings-inner { max-width: 720px; margin: 0 auto; }
 
 .error-box { margin-top: 16px; color: var(--app-danger); font-size: 12px; white-space: pre-wrap; }
 
@@ -490,17 +546,21 @@ body { margin: 0; }
 /* Custom scroll: the viewport clips, the inner content is transformed by
    customScroll (no native scroll). See src/lib/customScroll.ts. */
 .messages-viewport { flex: 1; min-height: 0; overflow: hidden; position: relative; }
-.messages { padding: 16px; display: flex; flex-direction: column; gap: 12px; will-change: transform; }
+/* The chat content (messages, loading footer, composer) shares one reading column
+   capped at --chat-col and centered when the pane is wider. The scroll viewport
+   and dividers stay full-width; only the content centers. */
+.messages { width: 100%; max-width: var(--chat-col); margin-inline: auto; padding: 16px 32px; display: flex; flex-direction: column; gap: 12px; will-change: transform; }
 .empty { color: var(--app-dim); text-align: center; margin-top: 40px; }
 
 /* Top/bottom fade overlays — content fades in/out as it scrolls past the edges.
    Painted in the canvas color so it reads as a fade; above content, below the
    scroll indicator (z 5). */
-.edge-fade { position: absolute; left: 0; right: 0; height: 52px; pointer-events: none; z-index: 3; }
+/* Both fades are positional: hidden by default, shown (via .show, toggled in
+   Chat.svelte) only when there's content scrolled off that edge. */
+.edge-fade { position: absolute; left: 0; right: 0; height: 52px; pointer-events: none; z-index: 3; opacity: 0; transition: opacity 0.3s ease; }
+.edge-fade.show { opacity: 1; }
 .edge-fade-top { top: 0; background: linear-gradient(to bottom, var(--base-bg), transparent); }
-/* Bottom fade only shows while scrolling (not at the latest); fades out smoothly. */
-.edge-fade-bottom { bottom: 0; background: linear-gradient(to top, var(--base-bg), transparent); opacity: 0; transition: opacity 0.4s ease; }
-.edge-fade-bottom.show { opacity: 1; }
+.edge-fade-bottom { bottom: 0; background: linear-gradient(to top, var(--base-bg), transparent); }
 
 /* Scroll position indicator (top-right): animates in on scroll, fill tracks the
    cursor frame-accurately, fades out when idle. */
@@ -531,36 +591,131 @@ body { margin: 0; }
   box-shadow: 0 0 8px var(--base-accent);
 }
 
-.msg { max-width: 80%; }
-.msg .role { font-size: 11px; color: var(--app-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
-.msg.user { align-self: flex-end; text-align: right; }
-.msg.user .body { color: var(--app-accent); display: inline-block; text-align: left; }
-.msg .text { margin: 0 0 6px; white-space: pre-wrap; }
-.tool-use { background: var(--app-bg); border: 1px solid var(--app-border); border-radius: 8px; padding: 8px; margin-top: 6px; }
-.tool-name { font-size: 12px; color: var(--app-accent); }
-.tool-result { align-self: flex-start; }
-.tool-result pre, .tool-use pre { font-size: 11px; overflow-x: auto; margin: 6px 0 0; color: var(--app-dim); }
+/* All messages share ONE left-aligned column (no left/right split). The user's
+   own messages get a subtle, theme-tinted container so they read distinctly from
+   the assistant's plain prose; the box hugs its content (inline-block). */
+.msg.user .body {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--app-accent) 12%, var(--app-panel));
+  border: 1px solid color-mix(in srgb, var(--app-accent) 20%, var(--app-border));
+  color: var(--app-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* ---- rendered markdown (assistant prose; see Markdown.svelte). Tight vertical
+   rhythm so a chat bubble reads as one block; code stays monospace regardless of
+   the chosen UI font (--app-font can be a non-mono theme). ---- */
+.markdown { line-height: 1.5; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p { margin: 0 0 8px; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 14px 0 6px; line-height: 1.3; font-weight: 600; color: var(--app-text); }
+.markdown h1 { font-size: 1.3em; }
+.markdown h2 { font-size: 1.18em; }
+.markdown h3 { font-size: 1.07em; }
+.markdown h4 { font-size: 1em; }
+.markdown ul, .markdown ol { margin: 0 0 8px; padding-left: 1.4em; }
+.markdown li { margin: 2px 0; }
+.markdown li > ul, .markdown li > ol { margin: 2px 0; }
+/* Links stay text-colored (underline is the affordance) — color is for code only. */
+.markdown a { color: var(--app-text); text-decoration: underline; text-underline-offset: 2px; }
+.markdown strong { font-weight: 600; color: var(--app-text); }
+.markdown blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 2px solid var(--app-border); color: var(--app-dim); }
+.markdown hr { border: none; border-top: 1px solid var(--app-border); margin: 12px 0; }
+/* Inline code: an info-blue chip so file/symbol mentions pop out of the prose. */
+.markdown code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.9em; color: var(--app-code);
+  background: var(--app-code-bg); border: 1px solid var(--app-code-border);
+  border-radius: 4px; padding: 0.1em 0.35em;
+}
+/* Fenced block: surface panel so code/diagrams read as a distinct unit. A bordered
+   block needs more breathing room than the 8px inline-paragraph rhythm, so it gets
+   symmetric 12px margins (vs the surrounding text's tighter spacing). */
+.markdown pre {
+  background: var(--app-panel); border: 1px solid var(--app-border); border-radius: 8px;
+  padding: 10px 12px; margin: 12px 0; overflow-x: auto;
+}
+.markdown pre code { color: var(--app-text); background: none; border: none; padding: 0; font-size: 0.85em; }
+.markdown table { border-collapse: collapse; margin: 0 0 8px; display: block; overflow-x: auto; }
+.markdown th, .markdown td { border: 1px solid var(--app-border); padding: 4px 8px; text-align: left; }
+/* highlight.js scopes → the theme's existing chart hues (no imported hljs theme,
+   so syntax color follows the active --base-* palette). */
+.markdown .hljs-comment, .markdown .hljs-quote { color: var(--app-dim); font-style: italic; }
+.markdown .hljs-keyword, .markdown .hljs-built_in, .markdown .hljs-literal, .markdown .hljs-type { color: var(--base-special); }
+.markdown .hljs-string, .markdown .hljs-regexp, .markdown .hljs-char, .markdown .hljs-addition { color: var(--base-success); }
+.markdown .hljs-number, .markdown .hljs-symbol { color: var(--base-warning); }
+.markdown .hljs-title, .markdown .hljs-name, .markdown .hljs-section, .markdown .hljs-selector-tag { color: var(--app-accent); }
+.markdown .hljs-attr, .markdown .hljs-attribute, .markdown .hljs-property, .markdown .hljs-variable, .markdown .hljs-template-variable { color: var(--app-accent); }
+.markdown .hljs-meta, .markdown .hljs-tag, .markdown .hljs-punctuation { color: var(--app-dim); }
+.markdown .hljs-deletion { color: var(--app-danger); }
+.markdown .hljs-emphasis { font-style: italic; }
+.markdown .hljs-strong { font-weight: 600; }
+/* ---- compact tool rows (a tool_call + its folded-in result; see
+   ToolActivity.svelte). Dim and one-line by default so assistant prose
+   dominates; click the head to expand input + result. ---- */
+.tool-row { margin-top: 4px; }
+.tool-row-head {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 3px 0; background: none; border: none; cursor: pointer;
+  font-size: 12px; color: var(--app-dim); text-align: left;
+}
+.tool-row-head:hover { color: var(--app-text); }
+.tool-chevron { flex-shrink: 0; opacity: 0.7; transition: transform 0.15s ease; }
+.tool-row-head[data-state="open"] .tool-chevron { transform: rotate(90deg); }
+.tool-label { color: var(--app-text); flex-shrink: 0; }
+.tool-detail { color: var(--app-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-status { flex-shrink: 0; margin-left: auto; display: inline-flex; color: var(--app-dim); opacity: 0.8; }
+.tool-row.error .tool-status { color: var(--app-danger); opacity: 1; }
+.tool-pending { width: 5px; height: 5px; border-radius: 50%; background: var(--app-dim); display: inline-block; opacity: 0.6; }
+.tool-row-body { padding: 4px 0 2px 20px; }
+.tool-block { margin-top: 4px; }
+.tool-block-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--app-dim); opacity: 0.7; margin-bottom: 2px; }
+/* A run of tool calls batched behind one collapsible header (see ToolGroup). */
+.tool-group { margin-top: 4px; }
+.tool-group.error .tool-status { color: var(--app-danger); opacity: 1; }
+.tool-group-body { padding-left: 14px; }
 .msg.result { align-self: center; color: var(--app-dim); font-size: 12px; }
 .msg.system { align-self: center; color: var(--app-dim); font-size: 11px; }
 .msg.error { align-self: center; color: var(--app-danger); font-size: 12px; }
 
 /* ---- loading state (verbose "what's happening" footer while a turn runs) ---- */
-.loading-state { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 8px 16px 0; }
-.loading-dots { display: inline-flex; gap: 4px; flex-shrink: 0; align-self: flex-start; margin-top: 5px; }
-.loading-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--app-accent); animation: loading-bounce 1s ease-in-out infinite; }
-.loading-dots i:nth-child(2) { animation-delay: 0.15s; }
-.loading-dots i:nth-child(3) { animation-delay: 0.3s; }
-@keyframes loading-bounce {
-  0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
-  40% { opacity: 1; transform: translateY(-3px); }
+/* One row: the shimmer "thinking" label, with the elapsed timer inline beside it.
+   The label truncates if long so the timer stays visible right next to it. */
+.loading-state { max-width: var(--chat-col); margin-inline: auto; width: 100%; flex-shrink: 0; display: flex; align-items: baseline; gap: 8px; padding: 8px 32px 12px; }
+.loading-label { font-size: 13px; color: var(--app-text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.loading-meta { font-size: 11px; color: var(--app-dim); flex-shrink: 0; }
+/* Idle end-of-turn summary ("Finished in 17s · 4 steps") in the same footer slot. */
+.loading-summary { font-size: 12px; color: var(--app-dim); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* "Thinking" text animation: a shimmer sweep (a moving highlight in a gradient
+   clipped to the glyphs) over the JS typewriter reveal (see LoadingState.svelte). */
+.loading-label .shimmer {
+  background: linear-gradient(90deg, var(--app-dim) 30%, var(--app-text) 50%, var(--app-dim) 70%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 2s linear infinite;
 }
-.loading-text { display: flex; flex-direction: column; line-height: 1.35; min-width: 0; }
-.loading-label { font-size: 13px; color: var(--app-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.loading-detail { color: var(--app-dim); }
-.loading-meta { font-size: 11px; color: var(--app-dim); }
+@keyframes text-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
 
 /* ---- composer ---- */
-.composer { flex-shrink: 0; border-top: 1px solid var(--app-border); padding: 12px 16px; }
+.composer { position: relative; width: 100%; max-width: var(--chat-col); margin-inline: auto; flex-shrink: 0; padding: 12px 32px; }
+/* Divider inset to the content's left/right padding (not the full box width). */
+.composer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 32px;
+  right: 32px;
+  border-top: 1px solid var(--app-border);
+}
 /* Terminal prompt caret: muted when the input is blurred, accent when focused. */
 .composer-caret {
   font-weight: 600;

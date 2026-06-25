@@ -9,7 +9,7 @@
     "dialog:default",
     {
       "identifier": "shell:allow-spawn",
-      "allow": [{ "name": "binaries/agent", "sidecar": true, "args": true }]
+      "allow": [{ "name": "binaries/agent", "sidecar": true, "args": false }]
     }
   ]
 }

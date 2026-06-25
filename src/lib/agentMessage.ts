@@ -74,3 +74,12 @@ export function toolDetail(name: string, input?: unknown): string {
       return "";
   }
 }
+
+/** Compact elapsed time for display: "3s", "1m 2s", "2m". Shared by the loading
+ *  footer and the end-of-turn summary. */
+export function humanTime(total: number): string {
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  if (m === 0) return `${s}s`;
+  return s === 0 ? `${m}m` : `${m}m ${s}s`;
+}

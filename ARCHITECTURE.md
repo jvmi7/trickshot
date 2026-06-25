@@ -35,7 +35,7 @@ The sidecar is split: **`core.ts` is a provider-neutral transport** (frames JSON
 3. **Selecting a worktree = activating its session** (no manual start/stop). `start_session(worktree)` spawns a sidecar with `PROJECT_DIR=<worktree>` if one isn't already running (idempotent). Worktrees run **concurrently** — each keeps its own sidecar; switching only changes the view.
 4. **Events** → each sidecar's stdout line is emitted as one `agent-event` tagged `{ worktree, kind, data }`. `api.onAgentEvent` parses it and routes to that worktree's transcript → the selected transcript re-renders.
 5. **User turn** → `sendUserTurn(worktree, text)` → `send_to_session` writes a `{kind:"user_turn"}` JSON line to that worktree's sidecar stdin → `core.ts` dispatches it to the provider's `pushTurn`, which (for Claude) pushes it into the SDK's streaming `prompt` iterable.
-6. **Tool use** → the Claude provider runs `permissionMode: "bypassPermissions"`, so the SDK runs tools automatically and never calls `canUseTool` — no `permission_request` is emitted and the Allow/Deny modal stays dormant. The `permission_request`/`permission_reply` plumbing (`PermissionModal.svelte`, `replyPermission`, the `pendingPermissions` map in `providers/claude.ts`) is retained for when bypass is disabled.
+6. **Tool use** → by default the Claude provider runs `permissionMode: "bypassPermissions"` (with the SDK-required `allowDangerouslySkipPermissions: true`), so the SDK runs tools automatically and never calls `canUseTool` — no `permission_request` is emitted and the Allow/Deny modal stays dormant. Pass a non-bypass mode via `start_session(…, permissionMode)` (→ `AGENT_PERMISSION` env) and the provider wires `canUseTool` → emits `permission_request` → `PermissionModal.svelte` → `replyPermission` settles the SDK promise. The plumbing is real, not dormant; only the *default* bypasses it.
 
 ## The sidecar protocol (`shared/protocol.ts`, imported by `src/lib/types.ts` + `sidecar/core.ts`)
 
@@ -44,26 +44,32 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 | Direction | `kind` | Payload |
 |---|---|---|
 | app → sidecar | `user_turn` | `{ text }` |
-| app → sidecar | `permission_reply` | `{ id, behavior, message? }` — dormant (only when `canUseTool` is enabled) |
+| app → sidecar | `permission_reply` | `{ id, behavior, message? }` — active only under a non-bypass `permissionMode` (settles a `canUseTool` prompt) |
 | app → sidecar | `set_model` | `{ model }` — switch the chat's model; sidecar confirms by re-emitting `models` |
 | app → sidecar | `get_models` | — request a (re-)emit of `models`; the UI's resilient path since the ready-time broadcast can race the listener |
+| app → sidecar | `get_connectors` | — request a (re-)emit of `connectors` (resilient, mirrors `get_models`) |
+| app → sidecar | `toggle_connector` | `{ name, enabled }` — enable/disable an MCP connector live; sidecar confirms by re-emitting `connectors` |
+| app → sidecar | `reconnect_connector` | `{ name }` — reconnect an MCP connector (e.g. after a failure / needs-auth) |
 | app → sidecar | `interrupt` | — |
 | sidecar → app | `ready` | — |
 | sidecar → app | `session` | `{ id }` — the resumable session id, emitted once the provider knows it |
 | sidecar → app | `message` | `{ message: AgentMessage }` — one neutral transcript event |
-| sidecar → app | `permission_request` | `{ id, tool, input }` — dormant under `bypassPermissions` |
+| sidecar → app | `permission_request` | `{ id, tool, input }` — emitted only under a non-bypass `permissionMode` (the default bypass never calls `canUseTool`) |
 | sidecar → app | `models` | `{ models: {value,displayName,description?,meta?}[], current }` — catalog + current (on ready and after `set_model`); `meta` is provider-supplied comparison pips |
+| sidecar → app | `connectors` | `{ servers: {name,status,scope?,error?,tools:{name,description?,readOnly?,destructive?}[]}[] }` — MCP connectors + their tools/status (on ready and after a toggle/reconnect) |
 | sidecar → app | `error` | `{ error }` |
 
 **`AgentMessage`** (the neutral transcript schema) `.type` is `system` | `assistant` (a prose chunk) | `tool_call` `{id,name,input}` | `tool_result` `{id,content,isError?}` | `turn_end`. Each provider adapter maps its native output into these; `Message.svelte` renders only these (plus the UI-only `user_local`/`error` bubbles). The UI is never exposed to a provider's raw message shape.
 
 **Model switching:** each session starts on the provider's default model and emits `models` on ready. `ModelSelector.svelte` offers the catalog and renders each model's provider-supplied `meta` pips; picking one sends `set_model`. The current model is **per-worktree**, persisted to `localStorage` (`trickshot.modelByWorktree`) and re-applied on a session's `models` event when it differs from the default.
 
+**Connectors (MCP servers):** each session emits `connectors` on ready (and after a toggle/reconnect). The **Settings page** (`Settings.svelte`, opened from the button at the foot of the sidebar) shows every connector's status + tools and lets you enable/disable/reconnect them live (`toggle_connector`/`reconnect_connector` → the SDK's `toggleMcpServer`/`reconnectMcpServer`). Control is **global** (one set of preferences for every repo/session), persisted to `localStorage` (`trickshot.connectorPrefs.global`). The SDK's toggle is a live control it does not remember across sessions, so the preference is **re-applied on each session's `connectors` event** (App.svelte) and a UI toggle applies live to every currently-running session. Per-tool muting of built-in tools (Bash/WebFetch) is out of scope — it needs the construction-time `disallowedTools` option + a session restart.
+
 ## Providers (model-provider adapters)
 
 The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 
-- **`sidecar/providers/types.ts`** — the `AgentProvider` interface (`start`, `pushTurn`, `setModel`, `interrupt`, `publishModels`, `replyPermission`) + `ProviderContext` (`cliPath`, `projectDir`, `resumeSessionId`, `emit`).
+- **`sidecar/providers/types.ts`** — the `AgentProvider` interface (`start`, `pushTurn`, `setModel`, `interrupt`, `publishModels`, `publishConnectors`, `toggleConnector`, `reconnectConnector`, `replyPermission`) + `ProviderContext` (`cliPath`, `projectDir`, `resumeSessionId`, `permissionMode`, `emit`).
 - **`sidecar/providers/claude.ts`** — the only Claude-aware module: wraps the Claude Agent SDK and maps `SDKMessage` → `AgentMessage`. The Claude tier→pips heuristic lives here (not the UI).
 - **`sidecar/providers/registry.ts`** — id → factory; `core.ts` selects via `AGENT_PROVIDER` (default `claude`), plumbed from Rust `start_session(provider?)`.
 
@@ -77,7 +83,7 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 | `list_worktrees` | `repoPath` | `Worktree[]` | First entry is main |
 | `create_worktree` | `repoPath, branch, baseRef?` | `Worktree` | Creates branch if new; one-click primitive |
 | `remove_worktree` | `repoPath, worktreePath, force` | `void` | Branch left intact |
-| `start_session` | `worktree, resume?, provider?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` = a prior session id → `RESUME_SESSION` env. `provider` (default `claude`) → `AGENT_PROVIDER` env → which adapter the sidecar loads |
+| `start_session` | `worktree, resume?, provider?, permissionMode?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` = a prior session id → `RESUME_SESSION` env. `provider` (default `claude`) → `AGENT_PROVIDER` env → which adapter the sidecar loads. `permissionMode` → `AGENT_PERMISSION` env (omit = full bypass; a value like `default` activates the Allow/Deny modal) |
 | `send_to_session` | `worktree, payload` (JSON string) | `void` | Writes a line to that worktree's sidecar stdin |
 | `stop_session` | `worktree` | `void` | Kills that worktree's sidecar |
 

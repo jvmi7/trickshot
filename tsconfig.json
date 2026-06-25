@@ -14,6 +14,10 @@
       "$lib/*": ["./src/lib/*"]
     },
     "strict": true,
+    // The app is pervasively keyed by per-worktree `Record<string, …>` maps; this
+    // makes a missing key surface as `T | undefined` so the `?? fallback` discipline
+    // (CLAUDE.md) is enforced by the compiler, not just convention.
+    "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
     "noEmit": true,
     "lib": ["ESNext", "DOM", "DOM.Iterable"],

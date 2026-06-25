@@ -17,12 +17,16 @@ import { createProvider, DEFAULT_PROVIDER } from "./providers/registry";
 
 export function run(cliPath: string) {
   // Serialize one compact object per line; the newline is the only framing.
-  const emit = (o: Outbound) => process.stdout.write(JSON.stringify(o) + "\n");
+  // `onFlush` fires once the chunk is flushed (lets a provider exit without
+  // truncating its last line — process.exit doesn't drain a pipe).
+  const emit = (o: Outbound, onFlush?: () => void) =>
+    process.stdout.write(JSON.stringify(o) + "\n", onFlush);
 
   const provider = createProvider(process.env.AGENT_PROVIDER ?? DEFAULT_PROVIDER, {
     cliPath,
     projectDir: process.env.PROJECT_DIR ?? process.cwd(),
     resumeSessionId: process.env.RESUME_SESSION || undefined,
+    permissionMode: process.env.AGENT_PERMISSION || undefined,
     emit,
   });
 
@@ -46,12 +50,29 @@ export function run(cliPath: string) {
       case "get_models":
         provider.publishModels();
         break;
+      case "get_connectors":
+        provider.publishConnectors();
+        break;
+      case "toggle_connector":
+        provider.toggleConnector(cmd.name, cmd.enabled);
+        break;
+      case "reconnect_connector":
+        provider.reconnectConnector(cmd.name);
+        break;
       case "interrupt":
         provider.interrupt();
         break;
       case "permission_reply":
         provider.replyPermission(cmd.id, cmd.behavior, cmd.message);
         break;
+      default: {
+        // Exhaustiveness guard: a new Inbound `kind` added to the protocol
+        // without a case here is now a COMPILE error (the sidecar is typechecked
+        // in CI via tsconfig.sidecar.json). Without this, a one-sided protocol
+        // edit toward the sidecar would be silently dropped (see SYNC RULE).
+        const _exhaustive: never = cmd;
+        void _exhaustive;
+      }
     }
   });
 

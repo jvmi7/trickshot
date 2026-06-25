@@ -39,6 +39,7 @@ pub fn start_session(
     worktree: String,
     resume: Option<String>,
     provider: Option<String>,
+    permission_mode: Option<String>,
     state: State<'_, Sessions>,
 ) -> Result<(), String> {
     // Hold the lock across spawn+insert so two concurrent calls can't both pass
@@ -61,6 +62,11 @@ pub fn start_session(
     // persisted id for this worktree; the sidecar reads RESUME_SESSION.
     if let Some(id) = resume.as_deref() {
         command = command.env("RESUME_SESSION", id);
+    }
+    // Tool-permission mode. Unset = the sidecar's default (full bypass). A value
+    // like "default"/"dontAsk" activates the Allow/Deny path (see providers).
+    if let Some(mode) = permission_mode.as_deref() {
+        command = command.env("AGENT_PERMISSION", mode);
     }
 
     let (mut rx, child) = command.spawn().map_err(|e| e.to_string())?;

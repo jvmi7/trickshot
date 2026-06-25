@@ -10,6 +10,8 @@ import type { AgentMessage } from "../../shared/protocol";
 
 export type {
   AgentMessage,
+  ConnectorInfo,
+  ConnectorTool,
   Inbound,
   ModelInfo,
   ModelRating,
