@@ -9,6 +9,7 @@
     resetTranscript,
     sessionByWorktree,
     forgetWorktreeSession,
+    setCenterView,
   } from "../stores";
   import * as api from "../api";
   import type { Worktree } from "../types";
@@ -79,9 +80,11 @@
     });
   }
 
-  // Selecting a worktree = activating its session (no manual start/stop).
+  // Selecting a worktree = activating its session (no manual start/stop) and
+  // returning the center pane to the chat (leaving the Settings page if open).
   async function select(wt: Worktree) {
     selectedWorktree.set(wt.path);
+    setCenterView("chat");
     try {
       // Resume this worktree's prior session (context) if we have one persisted.
       await api.startSession(wt.path, get(sessionByWorktree)[wt.path]);

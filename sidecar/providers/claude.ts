@@ -4,8 +4,15 @@
 // protocol, the whole UI) is provider-neutral. Use it as the template for a new
 // provider: implement AgentProvider, emit neutral messages, register it.
 
-import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentMessage, ModelInfo } from "../../shared/protocol";
+import {
+  type CanUseTool,
+  type PermissionMode,
+  type PermissionResult,
+  query,
+  type SDKMessage,
+  type SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
+import type { AgentMessage, ConnectorInfo, ModelInfo } from "../../shared/protocol";
 import type { AgentProvider, ProviderContext } from "./types";
 
 // The default model a fresh session starts on (the UI can switch it per chat).
@@ -53,7 +60,8 @@ function ratings(value: string, displayName: string): ModelInfo["meta"] {
 }
 
 // Map one Claude SDKMessage into zero or more neutral AgentMessages.
-function toNeutral(msg: SDKMessage): AgentMessage[] {
+// Exported for unit testing (the native->neutral mapping is core correctness).
+export function toNeutral(msg: SDKMessage): AgentMessage[] {
   switch (msg.type) {
     case "assistant": {
       const content = (msg as { message?: { content?: unknown } }).message?.content;
@@ -100,10 +108,39 @@ function toNeutral(msg: SDKMessage): AgentMessage[] {
 
 export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
   const turns = makeQueue<SDKUserMessage>();
-  const pendingPermissions = new Map<string, (reply: unknown) => void>();
+  const pendingPermissions = new Map<string, (reply: PermissionResult) => void>();
   let currentModel = DEFAULT_MODEL;
   let modelCatalog: ModelInfo[] = [];
+  // Captured from the `system`/init message — the name+status fallback for the
+  // connector list when the richer mcpServerStatus() control request is unavailable.
+  let initServers: { name: string; status: string }[] = [];
   let lastSession = ctx.resumeSessionId ?? "";
+  let dead = false;
+
+  // Default is full bypass (the shipped behavior). A non-bypass AGENT_PERMISSION
+  // value (plumbed by Rust start_session) routes tool use through canUseTool, so
+  // the app's Allow/Deny modal becomes a real kill-switch instead of dormant.
+  const permissionMode = (ctx.permissionMode as PermissionMode) || "bypassPermissions";
+
+  // Bridge the SDK's permission callback onto the neutral protocol: emit a
+  // permission_request, park the resolver, and let `replyPermission` settle it.
+  // Only wired in when NOT bypassing (see options below), so default behavior is
+  // byte-identical to before.
+  const canUseTool: CanUseTool = (toolName, input, { toolUseID, signal }) =>
+    new Promise<PermissionResult>((resolve) => {
+      pendingPermissions.set(toolUseID, resolve);
+      // Don't leak a hung promise if the turn is interrupted before the user answers.
+      signal.addEventListener(
+        "abort",
+        () => {
+          if (pendingPermissions.delete(toolUseID)) {
+            resolve({ behavior: "deny", message: "Interrupted." });
+          }
+        },
+        { once: true },
+      );
+      ctx.emit({ kind: "permission_request", id: toolUseID, tool: toolName, input });
+    });
 
   const q = query({
     prompt: turns,
@@ -116,8 +153,13 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       pathToClaudeCodeExecutable: ctx.cliPath,
       // Opt into Claude Code's system prompt (the SDK defaults to empty post-rename).
       systemPrompt: { type: "preset", preset: "claude_code" },
-      // Skip all permission prompts; the SDK never invokes canUseTool in this mode.
-      permissionMode: "bypassPermissions",
+      permissionMode,
+      // bypassPermissions is a deliberate, dangerous default for this local tool;
+      // the SDK now *requires* the explicit opt-in flag for it. Any other mode
+      // funnels through canUseTool -> the Allow/Deny modal.
+      ...(permissionMode === "bypassPermissions"
+        ? { allowDangerouslySkipPermissions: true }
+        : { canUseTool }),
     },
   });
 
@@ -141,14 +183,47 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
     ctx.emit({ kind: "models", models: modelCatalog, current: currentModel });
   }
 
+  // Mirror of publishModels for connectors: prefer the rich mcpServerStatus()
+  // control request (per-tool detail + scope), fall back to the init message's
+  // name+status list if that control request is unavailable.
+  async function publishConnectors() {
+    let servers: ConnectorInfo[] = [];
+    try {
+      const statuses = await q.mcpServerStatus();
+      servers = statuses.map((s) => ({
+        name: s.name,
+        status: s.status,
+        scope: s.scope,
+        error: s.error,
+        tools: (s.tools ?? []).map((t) => ({
+          name: t.name,
+          description: typeof t.description === "string" ? t.description : undefined,
+          readOnly: t.annotations?.readOnly,
+          destructive: t.annotations?.destructive,
+        })),
+      }));
+    } catch {
+      // mcpServerStatus is a control request; if unavailable, degrade to init.
+    }
+    if (servers.length === 0 && initServers.length > 0) {
+      servers = initServers.map((s) => ({
+        name: s.name,
+        status: (s.status as ConnectorInfo["status"]) || "connected",
+        tools: [],
+      }));
+    }
+    ctx.emit({ kind: "connectors", servers });
+  }
+
   return {
     id: "claude",
 
     start() {
       ctx.emit({ kind: "ready" });
-      // Best-effort broadcast; the UI also re-requests via get_models in case this
-      // races ahead of the listener.
+      // Best-effort broadcast; the UI also re-requests (get_models/get_connectors)
+      // in case this races ahead of the listener.
       void publishModels();
+      void publishConnectors();
 
       // Drive the agent loop. With an open input queue this runs for the session's life.
       (async () => {
@@ -159,15 +234,37 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
               lastSession = sid;
               ctx.emit({ kind: "session", id: sid });
             }
+            // The init message carries the configured MCP servers; cache them as
+            // the connector fallback and re-publish (connectors are now known).
+            const sys = message as {
+              type?: string;
+              subtype?: string;
+              mcp_servers?: { name: string; status: string }[];
+            };
+            if (sys.type === "system" && sys.subtype === "init" && Array.isArray(sys.mcp_servers)) {
+              initServers = sys.mcp_servers;
+              void publishConnectors();
+            }
             for (const m of toNeutral(message)) ctx.emit({ kind: "message", message: m });
           }
         } catch (e) {
-          ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) });
+          // The loop is the session's life; once it throws, the agent is dead but
+          // the process would otherwise stay alive (stdin readline keeps it up),
+          // leaving Rust with a live key it won't restart and a queue with no
+          // consumer that silently swallows future turns. Surface the error, then
+          // exit so Rust emits `terminated` and frees the session — but only AFTER
+          // the line flushes (process.exit doesn't drain stdout, and a large error
+          // line would otherwise be truncated into invalid JSON and dropped).
+          dead = true;
+          ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) }, () =>
+            process.exit(1),
+          );
         }
       })();
     },
 
     pushTurn(text) {
+      if (dead) return; // the loop has exited; nothing will consume this turn
       turns.push({
         type: "user",
         message: { role: "user", content: String(text ?? "") },
@@ -200,14 +297,50 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       void publishModels();
     },
 
-    replyPermission(id, _behavior, _message) {
-      // Dormant under bypassPermissions (canUseTool is never called, so this map is
-      // never populated). Retained for when bypass is disabled — see CLAUDE.md.
+    publishConnectors() {
+      void publishConnectors();
+    },
+
+    toggleConnector(name, enabled) {
+      // toggleMcpServer is a streaming-mode control request (async). Re-publish on
+      // success so the UI reflects sidecar truth; surface failures on the stream.
+      void (async () => {
+        try {
+          await q.toggleMcpServer(name, enabled);
+          void publishConnectors();
+        } catch (e) {
+          ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) });
+        }
+      })();
+    },
+
+    reconnectConnector(name) {
+      void (async () => {
+        try {
+          await q.reconnectMcpServer(name);
+        } catch (e) {
+          // Reconnect throws on failure (e.g. a `needs-auth` connector that can't
+          // complete OAuth from a headless sidecar). Surface it, but ALWAYS
+          // re-publish below so the UI's status refreshes after the attempt
+          // instead of looking like nothing happened.
+          ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) });
+        } finally {
+          void publishConnectors();
+        }
+      })();
+    },
+
+    replyPermission(id, behavior, message) {
+      // Settles the promise parked by canUseTool. Active only when a non-bypass
+      // permissionMode is in effect (under bypass the map is never populated).
       const resolve = pendingPermissions.get(id);
-      if (resolve) {
-        pendingPermissions.delete(id);
-        resolve({ behavior: _behavior, message: _message });
-      }
+      if (!resolve) return;
+      pendingPermissions.delete(id);
+      resolve(
+        behavior === "allow"
+          ? { behavior: "allow" }
+          : { behavior: "deny", message: message || "Denied by the user." },
+      );
     },
   };
 }

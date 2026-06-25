@@ -1,0 +1,5 @@
+# Pin the Rust toolchain so local and CI builds are reproducible. `stable` always
+# resolves to the latest stable; rustup installs the listed components on first use.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

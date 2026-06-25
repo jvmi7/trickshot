@@ -30,6 +30,29 @@ export interface ModelRating {
   max?: number;
 }
 
+/** A tool exposed by an MCP connector (server). `readOnly`/`destructive` mirror
+ *  the provider's tool annotations so the UI can flag what a tool can do. */
+export interface ConnectorTool {
+  name: string;
+  description?: string;
+  readOnly?: boolean;
+  destructive?: boolean;
+}
+
+/** An MCP connector (server) available to the current session, with its live
+ *  connection status and the tools it exposes. Provider-neutral: a provider maps
+ *  its native server status into this. `status` follows the common MCP lifecycle;
+ *  a connector the user has turned off reports `disabled`. */
+export interface ConnectorInfo {
+  name: string;
+  status: "connected" | "failed" | "needs-auth" | "pending" | "disabled";
+  /** Where the connector is configured (e.g. project | user | local | managed). */
+  scope?: string;
+  /** Failure detail when `status` is `failed`. */
+  error?: string;
+  tools: ConnectorTool[];
+}
+
 /** Provider-neutral transcript event. Every provider adapter maps its native
  *  output into these; the UI renders ONLY these (never provider-specific
  *  shapes). One message per semantic event: assistant prose, a tool call, a
@@ -48,6 +71,9 @@ export type Inbound =
   | { kind: "permission_reply"; id: string; behavior: "allow" | "deny"; message?: string }
   | { kind: "set_model"; model: string }
   | { kind: "get_models" }
+  | { kind: "get_connectors" }
+  | { kind: "toggle_connector"; name: string; enabled: boolean }
+  | { kind: "reconnect_connector"; name: string }
   | { kind: "interrupt" };
 
 /** Messages flowing FROM the sidecar TO the app. `message` carries the neutral
@@ -59,4 +85,5 @@ export type Outbound =
   | { kind: "message"; message: AgentMessage }
   | { kind: "permission_request"; id: string; tool: string; input: unknown }
   | { kind: "models"; models: ModelInfo[]; current: string }
+  | { kind: "connectors"; servers: ConnectorInfo[] }
   | { kind: "error"; error: string };

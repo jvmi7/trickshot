@@ -18,3 +18,11 @@ tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
+
+# Release builds default to an unoptimized, unstripped binary; for a shipped
+# desktop app, optimize for size and strip symbols.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

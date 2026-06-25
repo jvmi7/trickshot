@@ -1,5 +1,5 @@
 import { derived, writable } from "svelte/store";
-import type { ModelInfo, Repo, TranscriptMessage, Worktree } from "./types";
+import type { ConnectorInfo, ModelInfo, Repo, TranscriptMessage, Worktree } from "./types";
 
 export interface PermissionReq {
   id: string;
@@ -18,6 +18,38 @@ const hasLS = typeof localStorage !== "undefined";
 // ---- UI state ----
 /** Whether the left sidebar is visible. Toggled from the global header. */
 export const sidebarOpen = writable<boolean>(true);
+
+/** What the center pane shows: the active chat, or the full Settings page.
+ *  Ephemeral (always starts on `chat`). Set via `setCenterView`; selecting a
+ *  worktree returns to `chat`, the sidebar-foot button opens `settings`. */
+export type CenterView = "chat" | "settings";
+export const centerView = writable<CenterView>("chat");
+export function setCenterView(v: CenterView) {
+  centerView.set(v);
+}
+
+/** Sidebar width in px (drag-to-resize), persisted and clamped to [MIN,MAX]. */
+const SIDEBAR_MIN = 200;
+const SIDEBAR_MAX = 520;
+const SIDEBAR_W_KEY = "trickshot.sidebarWidth";
+function loadSidebarWidth(): number {
+  if (!hasLS) return 320;
+  const v = Number(localStorage.getItem(SIDEBAR_W_KEY));
+  return Number.isFinite(v) && v >= SIDEBAR_MIN && v <= SIDEBAR_MAX ? v : 320;
+}
+export const sidebarWidth = writable<number>(loadSidebarWidth());
+sidebarWidth.subscribe((w) => {
+  if (!hasLS) return;
+  try {
+    localStorage.setItem(SIDEBAR_W_KEY, String(w));
+  } catch {
+    /* ignore quota errors */
+  }
+});
+/** Set the sidebar width, clamped to its allowed range (the drag handle's setter). */
+export function setSidebarWidth(w: number) {
+  sidebarWidth.set(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(w))));
+}
 
 /** The chat's custom "scroll" position — a global cursor into the transcript.
  *  The chat pane never natively scrolls; `customScroll` drives this instead
@@ -139,6 +171,20 @@ export function clearActivity(worktree: string) {
   });
 }
 
+// ---- Per-worktree last-completed-turn summary ("Cooked in 17s · 4 steps") ----
+// Set on turn_end (App.svelte) and shown in the loading footer WHEN IDLE — it
+// replaces the loading indicator and stays there until the next turn runs (the
+// loading state takes precedence while busy, so it disappears as a turn starts).
+// Ephemeral session state (not persisted).
+export interface TurnSummary {
+  seconds: number;
+  steps: number;
+}
+export const turnSummary = writable<Record<string, TurnSummary>>({});
+export function setTurnSummary(worktree: string, summary: TurnSummary) {
+  turnSummary.update((m) => ({ ...m, [worktree]: summary }));
+}
+
 // ---- Models ----
 // The switchable-model catalog is the same across worktrees (one Claude binary),
 // so it's a single global list; the *current* model is per-worktree.
@@ -170,6 +216,43 @@ export function setWorktreeModel(worktree: string, model: string) {
   modelByWorktree.update((m) => ({ ...m, [worktree]: model }));
 }
 
+// ---- Connectors (MCP servers) ----
+// Live, per-worktree connector list as last reported by that session's
+// `connectors` event (ephemeral — re-fetched each session, not persisted).
+export const connectorsByWorktree = writable<Record<string, ConnectorInfo[]>>({});
+export function setConnectors(worktree: string, servers: ConnectorInfo[]) {
+  connectorsByWorktree.update((m) => ({ ...m, [worktree]: servers }));
+}
+
+// trickshot's OWN connector enable/disable preferences — GLOBAL (one set for
+// every repo/session). The SDK's `toggleMcpServer` is a LIVE control it does not
+// remember across sessions, so we persist the preference here and re-apply it on
+// each session's `connectors` event (see App.svelte). `undefined` for a connector
+// = leave it at the SDK's own default. Persisted via the standard template.
+const CONN_GLOBAL_KEY = "trickshot.connectorPrefs.global";
+function loadBoolMap(key: string): Record<string, boolean> {
+  if (!hasLS) return {};
+  try {
+    const v = JSON.parse(localStorage.getItem(key) ?? "{}");
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+/** Global connector enable/disable preferences (connector name → enabled). */
+export const globalConnectorPrefs = writable<Record<string, boolean>>(loadBoolMap(CONN_GLOBAL_KEY));
+globalConnectorPrefs.subscribe((m) => {
+  if (!hasLS) return;
+  try {
+    localStorage.setItem(CONN_GLOBAL_KEY, JSON.stringify(m));
+  } catch {
+    /* ignore quota errors */
+  }
+});
+export function setGlobalConnectorPref(name: string, enabled: boolean) {
+  globalConnectorPrefs.update((m) => ({ ...m, [name]: enabled }));
+}
+
 // ---- Font ----
 export interface FontOption {
   id: string;
@@ -183,6 +266,7 @@ export const FONTS: FontOption[] = [
   { id: "wenkai", label: "WenKai Mono" },
   { id: "comic", label: "Comic Sans" },
   { id: "ibm", label: "IBM Plex Mono" },
+  { id: "helvetica", label: "Helvetica" },
 ];
 const FONT_KEY = "trickshot.font";
 function loadFont(): string {
@@ -299,7 +383,9 @@ function flush() {
   transcripts.update((t) => {
     const next = { ...t };
     for (const k of keys) {
-      next[k] = (next[k] ?? []).concat(_buffers[k]);
+      const batch = _buffers[k];
+      if (!batch) continue;
+      next[k] = (next[k] ?? []).concat(batch);
       delete _buffers[k];
     }
     return next;
@@ -327,6 +413,20 @@ export const activeMessages = derived([transcripts, selectedWorktree], ([$t, $se
   $sel ? ($t[$sel] ?? []) : [],
 );
 
+/** tool_call id → its result, from the selected transcript. Lets a tool_call row
+ *  fold in its result (the merged one-line tool rendering); the standalone
+ *  tool_result bubble is then suppressed in Message.svelte. Derived over the full
+ *  active transcript (same O(total) order as the per-flush copy already done each
+ *  burst — see CLAUDE.md PERFORMANCE), not the window, so a call always finds its
+ *  result even when it sits near the window edge. */
+export const toolResultsById = derived(activeMessages, ($m) => {
+  const map: Record<string, { content: string; isError: boolean }> = {};
+  for (const msg of $m) {
+    if (msg.type === "tool_result") map[msg.id] = { content: msg.content, isError: !!msg.isError };
+  }
+  return map;
+});
+
 // ---- Transcript windowing (bound the DOM) ----
 // A transcript only grows (except on resetTranscript), and naive full-mount tops
 // out at ~hundreds of messages (see CLAUDE.md PERFORMANCE). Chat mounts only the
@@ -346,6 +446,41 @@ export const renderedMessages = derived(activeMessages, ($m) =>
 export const hiddenMessageCount = derived(activeMessages, ($m) =>
   Math.max(0, $m.length - RENDER_WINDOW),
 );
+
+// ---- Tool-call grouping (batch consecutive tool activity) ----
+// A turn can fire dozens of tool calls; rendering one row each spams the chat.
+// We bundle a maximal RUN of tool messages (tool_call + tool_result, no prose in
+// between) into one collapsible group (see ToolGroup.svelte). `tool_result`s are
+// folded into their call (toolResultsById) and don't render, but they DON'T break
+// a run. Everything else (assistant/user_local/system/error) is its own group.
+type ToolCallMsg = Extract<TranscriptMessage, { type: "tool_call" }>;
+export type RenderedGroup =
+  | { kind: "single"; key: string; message: TranscriptMessage }
+  | { kind: "tools"; key: string; tools: ToolCallMsg[] };
+
+/** `renderedMessages` collapsed into render groups. Keyed stably by the first
+ *  member's `__key` (prefixed) so identity-keyed `{#each}` reconciles efficiently:
+ *  appending a tool call grows the open run's array (same group key), and the
+ *  group's own `{#each tools (__key)}` adds just the new row. */
+export const renderedGroups = derived(renderedMessages, ($msgs): RenderedGroup[] => {
+  const groups: RenderedGroup[] = [];
+  let run: { kind: "tools"; key: string; tools: ToolCallMsg[] } | null = null;
+  for (const m of $msgs) {
+    if (m.type === "tool_call") {
+      if (!run) {
+        run = { kind: "tools", key: `g${m.__key}`, tools: [] };
+        groups.push(run);
+      }
+      run.tools.push(m);
+    } else if (m.type === "tool_result") {
+      // Folded into its call (renders nothing); does not break the current run.
+    } else {
+      run = null;
+      groups.push({ kind: "single", key: `m${m.__key}`, message: m });
+    }
+  }
+  return groups;
+});
 export const activePending = derived([pendingPermission, selectedWorktree], ([$p, $sel]) =>
   $sel ? ($p[$sel] ?? null) : null,
 );
@@ -357,4 +492,8 @@ export const activeModel = derived([modelByWorktree, selectedWorktree], ([$m, $s
 /** The selected worktree's current agent activity (null when idle). */
 export const activeActivity = derived([worktreeActivity, selectedWorktree], ([$a, $sel]) =>
   $sel ? ($a[$sel] ?? null) : null,
+);
+/** The selected worktree's last-completed-turn summary (null until a turn ends). */
+export const activeSummary = derived([turnSummary, selectedWorktree], ([$s, $sel]) =>
+  $sel ? ($s[$sel] ?? null) : null,
 );

@@ -28,8 +28,15 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Lint + format (Biome)
         run: bunx biome ci
-      - name: Typecheck (svelte-check)
+      - name: Typecheck webview (svelte-check)
         run: bun run check
+      # `bun build --compile` does NOT typecheck and the main tsconfig excludes
+      # sidecar/**, so this is the ONLY compile-time net for the sidecar half of
+      # the hand-mirrored protocol (see SYNC RULE).
+      - name: Typecheck sidecar (tsc)
+        run: bun run check:sidecar
+      - name: Test (bun)
+        run: bun test
       # Compiles sidecar/core.ts (+ the shared protocol module) and embeds the
       # native CLI — catches a broken sidecar before it ships as a stale binary.
       - name: Build sidecar
@@ -71,5 +78,44 @@ jobs:
         run: cargo fmt --check
         working-directory: src-tauri
       - name: Clippy
-        run: cargo clippy --all-targets
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: src-tauri
+      - name: Test
+        run: cargo test
+        working-directory: src-tauri
+
+  build:
+    name: build (real sidecar + app integration)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Install Tauri system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            libayatana-appindicator3-dev \
+            patchelf \
+            build-essential \
+            libssl-dev \
+            libxdo-dev \
+            file
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      # Unlike the rust job (which stubs the binary for clippy), this builds the
+      # REAL sidecar and frontend, then compiles the app crate against them — so
+      # an externalBin/capability/frontend-prod-build break can't slip past CI.
+      - name: Build sidecar (host triple)
+        run: bun run build:sidecar
+      - name: Build frontend (vite, prod)
+        run: bun run build:vite
+      - name: Build app crate (integrated)
+        run: cargo build --locked
         working-directory: src-tauri
