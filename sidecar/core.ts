@@ -65,6 +65,9 @@ export function run(cliPath: string) {
       case "interrupt":
         provider.interrupt();
         break;
+      case "rewind":
+        provider.rewind(cmd.messageId);
+        break;
       case "permission_reply":
         provider.replyPermission(cmd.id, cmd.behavior, cmd.message);
         break;

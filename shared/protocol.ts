@@ -90,7 +90,8 @@ export type Inbound =
   | { kind: "get_connectors" }
   | { kind: "toggle_connector"; name: string; enabled: boolean }
   | { kind: "reconnect_connector"; name: string }
-  | { kind: "interrupt" };
+  | { kind: "interrupt" }
+  | { kind: "rewind"; messageId: string };
 
 /** Provider-neutral permission modes (mirrors the Claude SDK's `PermissionMode`).
  *  `bypassPermissions` runs every tool without prompting (the historical
@@ -108,4 +109,7 @@ export type Outbound =
   | { kind: "permission_request"; id: string; tool: string; input: unknown }
   | { kind: "models"; models: ModelInfo[]; current: string }
   | { kind: "connectors"; servers: ConnectorInfo[] }
-  | { kind: "error"; error: string };
+  | { kind: "error"; error: string }
+  // The provider-assigned id of a user turn, usable as a `rewind` target (file
+  // checkpoint). Emitted once the agent backend echoes the turn with its id.
+  | { kind: "checkpoint"; id: string };

@@ -52,7 +52,9 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 | app → sidecar | `toggle_connector` | `{ name, enabled }` — enable/disable an MCP connector live; sidecar confirms by re-emitting `connectors` |
 | app → sidecar | `reconnect_connector` | `{ name }` — reconnect an MCP connector (e.g. after a failure / needs-auth) |
 | app → sidecar | `interrupt` | — |
+| app → sidecar | `rewind` | `{ messageId }` — revert file changes made after that user turn (file checkpoint; requires `enableFileCheckpointing`) |
 | sidecar → app | `ready` | — |
+| sidecar → app | `checkpoint` | `{ id }` — the provider-assigned id of a user turn, stored on the `user_local` bubble as its `rewind` target |
 | sidecar → app | `session` | `{ id }` — the resumable session id, emitted once the provider knows it |
 | sidecar → app | `message` | `{ message: AgentMessage }` — one neutral transcript event |
 | sidecar → app | `permission_request` | `{ id, tool, input }` — emitted by `canUseTool` when the mode isn't `bypassPermissions`; answered by `permission_reply` |

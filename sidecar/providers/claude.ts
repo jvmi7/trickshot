@@ -188,6 +188,9 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       ...(initialPermissionMode === "bypassPermissions"
         ? { allowDangerouslySkipPermissions: true }
         : {}),
+      // Back up files before edits so a turn's changes can be reverted by
+      // rewindFiles (the per-turn "rewind to here" checkpoint feature).
+      enableFileCheckpointing: true,
     },
   });
 
@@ -273,6 +276,22 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
               initServers = sys.mcp_servers;
               void publishConnectors();
             }
+            // Capture the provider-assigned id of a user turn (our own input echo,
+            // not a tool-result or subagent message) as a rewindable checkpoint.
+            if (message.type === "user") {
+              const um = message as {
+                uuid?: string;
+                parent_tool_use_id?: string | null;
+                message?: { content?: unknown };
+              };
+              const content = um.message?.content;
+              const hasToolResult =
+                Array.isArray(content) &&
+                content.some((b) => (b as { type?: string })?.type === "tool_result");
+              if (um.uuid && !hasToolResult && !um.parent_tool_use_id) {
+                ctx.emit({ kind: "checkpoint", id: um.uuid });
+              }
+            }
             for (const m of toNeutral(message)) ctx.emit({ kind: "message", message: m });
           }
         } catch (e) {
@@ -327,6 +346,22 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       // interrupt() exists on the Query in streaming-input mode.
       const p = (q as { interrupt?: () => Promise<void> }).interrupt?.();
       if (p && typeof p.catch === "function") p.catch(() => {});
+    },
+
+    rewind(messageId) {
+      // Revert file changes made after the given user message (requires
+      // enableFileCheckpointing, set above). Surface a failure as a stream error;
+      // success is reflected by the app refreshing its git view.
+      void q
+        .rewindFiles(messageId)
+        .then((r) => {
+          if (!r.canRewind) {
+            ctx.emit({ kind: "error", error: r.error || "cannot rewind to this point" });
+          }
+        })
+        .catch((e) => {
+          ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) });
+        });
     },
 
     publishModels() {

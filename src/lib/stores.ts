@@ -518,6 +518,35 @@ export function resetTranscript(worktree: string) {
   transcripts.update((t) => ({ ...t, [worktree]: [] }));
 }
 
+/** Attach a rewind checkpoint id to the most recent `user_local` turn that
+ *  doesn't have one yet (the turn the agent just echoed). No-op if none found.
+ *  Checks the un-flushed buffer first, then the store. */
+export function attachRewindId(worktree: string, id: string) {
+  const buf = _buffers[worktree];
+  if (buf) {
+    for (let i = buf.length - 1; i >= 0; i--) {
+      const m = buf[i];
+      if (m && m.type === "user_local" && !m.rewindId) {
+        m.rewindId = id;
+        return;
+      }
+    }
+  }
+  transcripts.update((t) => {
+    const list = t[worktree];
+    if (!list) return t;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const m = list[i];
+      if (m && m.type === "user_local" && !m.rewindId) {
+        const next = list.slice();
+        next[i] = { ...m, rewindId: id };
+        return { ...t, [worktree]: next };
+      }
+    }
+    return t;
+  });
+}
+
 // ---- Per-worktree pending permission (dormant under bypassPermissions) ----
 export const pendingPermission = writable<Record<string, PermissionReq | null>>({});
 

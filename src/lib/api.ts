@@ -104,6 +104,10 @@ export const replyPermission = (
 /** Interrupt a worktree's agent mid-task. */
 export const interruptAgent = (worktree: string) => send(worktree, { kind: "interrupt" });
 
+/** Revert file changes made after a given user turn (its checkpoint id). */
+export const rewind = (worktree: string, messageId: string) =>
+  send(worktree, { kind: "rewind", messageId });
+
 /** Switch the model this worktree's chat uses. The sidecar confirms by
  *  re-emitting a `models` event with the updated `current`. */
 export const setModel = (worktree: string, model: string) =>

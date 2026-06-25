@@ -30,6 +30,7 @@
     DEFAULT_PERMISSION_MODE,
     mainView,
     bumpGitRefresh,
+    attachRewindId,
   } from "./lib/stores";
 
   import { toolLabel, toolDetail } from "./lib/agentMessage";
@@ -119,6 +120,9 @@
             ...p,
             [worktree]: { id: evt.id, tool: evt.tool, input: evt.input },
           }));
+        } else if (evt.kind === "checkpoint") {
+          // Tag the just-sent user turn with its rewindable checkpoint id.
+          attachRewindId(worktree, evt.id);
         } else if (evt.kind === "error") {
           // Surface only. Status is deliberately NOT reset here: this channel is
           // shared by FATAL errors (an agent-loop throw, which then exits → the
