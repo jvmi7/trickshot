@@ -17,6 +17,19 @@
   &[data-closed] { @slot; }
 }
 
+/* Same mismatch for Tabs: the generated `ui/tabs` trigger styles its selected
+   state via the `data-active:` variant, but bits-ui 2.18.1 stamps
+   `data-state="active"/"inactive"` — so without these the active tab is
+   indistinguishable from the inactive ones. Map both spellings. */
+@custom-variant data-active {
+  &[data-state="active"] { @slot; }
+  &[data-active] { @slot; }
+}
+@custom-variant data-inactive {
+  &[data-state="inactive"] { @slot; }
+  &[data-inactive] { @slot; }
+}
+
 /* ============================================================
    Google Sans Code — the app's global typeface (self-hosted so
    the packaged desktop app needs no network). Variable weight
@@ -411,6 +424,12 @@ body { margin: 0; }
      on screen is the sidebar's full-height right border. */
 }
 .app-header .spacer { flex: 1; }
+/* Chat/Changes segmented toggle in the header's actions slot. */
+.view-tabs { display: flex; gap: 4px; }
+/* Diffstat counts on the header's Changes tab (added green / removed red,
+   matching DiffView's line colors). */
+.diff-add { color: var(--base-success); font-variant-numeric: tabular-nums; }
+.diff-del { color: var(--destructive); font-variant-numeric: tabular-nums; }
 
 /* ---- floating top-bar icon buttons (HeaderIconButton.svelte): the sidebar
    toggle (left, past the macOS traffic lights so it survives the sidebar
@@ -514,6 +533,9 @@ body { margin: 0; }
 .dot.busy { animation: dot-pulse 1.2s ease-in-out infinite; }
 @keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .wt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Sidebar activity badges: pending-permission flag + background unread count. */
+.wt-pending { flex-shrink: 0; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--base-warning, #d29922); }
+.wt-unread { flex-shrink: 0; min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border-radius: 8px; background: var(--app-accent); color: var(--app-bg); }
 
 /* ---- chat ---- */
 .chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
@@ -726,8 +748,25 @@ body { margin: 0; }
 }
 .composer-caret.focused { color: var(--app-accent); }
 
+/* Caret that rides the end of the animated placeholder as it types/backspaces,
+   matching the real textarea caret (color + blink) so the handoff is seamless. */
+.ph-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--primary);
+  animation: ph-caret-blink 1s step-end infinite;
+}
+
 }
 /* end @layer components */
+
+@keyframes ph-caret-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
 
 /* Tokenized modal scrim — overrides the shadcn dialog-overlay's hardcoded
    `bg-black/10` so the scrim follows the theme. Unlayered so it beats

@@ -10,6 +10,14 @@
     sessionByWorktree,
     forgetWorktreeSession,
     setCenterView,
+    permissionModeByWorktree,
+    DEFAULT_PERMISSION_MODE,
+    systemPromptAppend,
+    getMcpServers,
+    getAgents,
+    unreadByWorktree,
+    clearUnread,
+    pendingPermission,
   } from "../stores";
   import * as api from "../api";
   import type { Worktree } from "../types";
@@ -85,9 +93,17 @@
   async function select(wt: Worktree) {
     selectedWorktree.set(wt.path);
     setCenterView("chat");
+    clearUnread(wt.path);
     try {
-      // Resume this worktree's prior session (context) if we have one persisted.
-      await api.startSession(wt.path, get(sessionByWorktree)[wt.path]);
+      // Resume this worktree's prior session (context) if we have one persisted,
+      // applying its saved permission mode (default: bypassPermissions).
+      await api.startSession(wt.path, {
+        resume: get(sessionByWorktree)[wt.path],
+        permissionMode: get(permissionModeByWorktree)[wt.path] ?? DEFAULT_PERMISSION_MODE,
+        systemPromptAppend: get(systemPromptAppend),
+        mcpServers: getMcpServers(),
+        agents: getAgents(),
+      });
       sessionStatus.update((s) => ({ ...s, [wt.path]: "ready" }));
     } catch (e) {
       error = String(e);
@@ -123,6 +139,20 @@
     e.stopPropagation();
     error = "";
     try {
+      // Guard against silently discarding uncommitted work (we force-remove below).
+      try {
+        const st = await api.worktreeStatus(wt.path);
+        if (
+          st.files.length > 0 &&
+          !confirm(
+            `"${wt.branch ?? wt.path}" has ${st.files.length} uncommitted change${st.files.length === 1 ? "" : "s"}. Remove anyway and discard them?`,
+          )
+        ) {
+          return;
+        }
+      } catch {
+        // status check failed (e.g. not a git dir) — proceed with removal
+      }
       await api.stopSession(wt.path);
       await api.removeWorktree(repoPath, wt.path, true);
       resetTranscript(wt.path);
@@ -183,6 +213,12 @@
               <House class="wt-home" />
             {/if}
             <span class="wt-name">{wt.branch ?? "(detached)"}</span>
+            {#if $pendingPermission[wt.path]}
+              <span class="wt-pending" title="Waiting for permission">!</span>
+            {/if}
+            {#if ($unreadByWorktree[wt.path] ?? 0) > 0 && $selectedWorktree !== wt.path}
+              <span class="wt-unread" title="Finished while in background">{$unreadByWorktree[wt.path]}</span>
+            {/if}
             {#if !wt.is_main}
               <Button
                 variant="ghost"

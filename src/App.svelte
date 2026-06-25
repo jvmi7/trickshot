@@ -1,13 +1,22 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import { onAgentEvent, listWorktrees, setModel, startSession, toggleConnector } from "./lib/api";
+  import {
+    onAgentEvent,
+    listWorktrees,
+    setModel,
+    startSession,
+    toggleConnector,
+    notify,
+    worktreeStatus,
+  } from "./lib/api";
   import {
     repos,
     worktreesByRepo,
     selectedWorktree,
     appendMessage,
     pendingPermission,
+    pendingQuestion,
     setStatus,
     sidebarOpen,
     availableModels,
@@ -25,7 +34,27 @@
     globalConnectorPrefs,
     centerView,
     setCenterView,
+    addTurnCost,
+    permissionModeByWorktree,
+    DEFAULT_PERMISSION_MODE,
+    mainView,
+    bumpGitRefresh,
+    gitRefreshNonce,
+    setGitStat,
+    activeGitStat,
+    attachRewindId,
+    availableCommands,
+    systemPromptAppend,
+    mcpStatus,
+    getMcpServers,
+    getAgents,
+    bumpUnread,
   } from "./lib/stores";
+
+  /** Basename of a worktree path, for notification labels. */
+  function shortName(path: string): string {
+    return path.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || path;
+  }
 
   import { toolLabel, toolDetail } from "./lib/agentMessage";
   import type { AgentMessage } from "./lib/types";
@@ -48,6 +77,7 @@
   import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import Chat from "./lib/components/Chat.svelte";
+  import GitPanel from "./lib/components/GitPanel.svelte";
   import Settings from "./lib/components/Settings.svelte";
   import { Button } from "./lib/components/ui/button";
   import * as Tooltip from "./lib/components/ui/tooltip";
@@ -75,6 +105,27 @@
     window.addEventListener("pointerup", up);
   }
 
+  // Keep the selected worktree's change summary fresh so the header can show the
+  // Changes tab (only when dirty) with its +/- diffstat. Re-runs on selection and
+  // on gitRefreshNonce (bumped after a turn that likely touched files).
+  $effect(() => {
+    const wt = $selectedWorktree;
+    void $gitRefreshNonce;
+    if (!wt) return;
+    worktreeStatus(wt)
+      .then((s) =>
+        setGitStat(wt, { changed: s.files.length, insertions: s.insertions, deletions: s.deletions }),
+      )
+      // Non-git dirs / errors → treat as no changes (Worktrees surfaces real errors).
+      .catch(() => setGitStat(wt, { changed: 0, insertions: 0, deletions: 0 }));
+  });
+
+  // If the worktree on screen has no changes, don't strand the user on the (now
+  // hidden) Changes tab — fall back to chat.
+  $effect(() => {
+    if ($mainView === "changes" && ($activeGitStat?.changed ?? 0) === 0) mainView.set("chat");
+  });
+
   onMount(() => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
@@ -97,6 +148,16 @@
               setTurnSummary(worktree, { seconds, steps: act.steps });
             }
             clearActivity(worktree);
+            // Fold the turn's token/cost figures into the worktree's running total.
+            if (m.usage) addTurnCost(worktree, m.usage);
+            // The turn likely touched files — refresh an open git panel.
+            bumpGitRefresh();
+            // If this worktree isn't the one on screen, flag it + notify so the
+            // user notices a background agent finishing.
+            if (worktree !== get(selectedWorktree)) {
+              bumpUnread(worktree);
+              void notify("Agent finished", shortName(worktree));
+            }
           } else if (m.type !== "system") {
             appendMessage(worktree, m);
           }
@@ -109,6 +170,24 @@
             ...p,
             [worktree]: { id: evt.id, tool: evt.tool, input: evt.input },
           }));
+        } else if (evt.kind === "question_request") {
+          pendingQuestion.update((p) => ({
+            ...p,
+            [worktree]: { id: evt.id, questions: evt.questions },
+          }));
+        } else if (evt.kind === "checkpoint") {
+          // Tag the just-sent user turn with its rewindable checkpoint id.
+          attachRewindId(worktree, evt.id);
+        } else if (evt.kind === "commands") {
+          availableCommands.set(evt.commands);
+        } else if (evt.kind === "mcp_status") {
+          mcpStatus.set(evt.servers);
+        } else if (evt.kind === "notification") {
+          // Agent wants attention — raise an OS notification if it's not the
+          // worktree currently on screen.
+          if (worktree !== get(selectedWorktree)) {
+            void notify(shortName(worktree), evt.message);
+          }
         } else if (evt.kind === "error") {
           // Surface only. Status is deliberately NOT reset here: this channel is
           // shared by FATAL errors (an agent-loop throw, which then exits → the
@@ -196,7 +275,13 @@
           // Pass the persisted session id so the agent's context resumes too.
           // The `ready`/`models` events flip status to ready and fill the catalog.
           try {
-            await startSession(sel, get(sessionByWorktree)[sel]);
+            await startSession(sel, {
+              resume: get(sessionByWorktree)[sel],
+              permissionMode: get(permissionModeByWorktree)[sel] ?? DEFAULT_PERMISSION_MODE,
+              systemPromptAppend: get(systemPromptAppend),
+              mcpServers: getMcpServers(),
+              agents: getAgents(),
+            });
             setStatus(sel, "ready");
           } catch {
             // a real spawn failure surfaces via the agent-event error path
@@ -270,10 +355,38 @@
           <span class="dim">select or create a worktree on the left</span>
         {/if}
       </div>
+      <div slot="actions" class="view-tabs">
+        {#if $centerView !== "settings"}
+          <Button
+            size="sm"
+            variant={$mainView === "chat" ? "secondary" : "ghost"}
+            class="h-7 text-xs"
+            onclick={() => mainView.set("chat")}>Chat</Button
+          >
+          {#if $activeGitStat && $activeGitStat.changed > 0}
+            <Button
+              size="sm"
+              variant={$mainView === "changes" ? "secondary" : "ghost"}
+              class="h-7 gap-1.5 text-xs"
+              onclick={() => mainView.set("changes")}
+            >
+              Changes
+              {#if $activeGitStat.insertions > 0}
+                <span class="diff-add">+{$activeGitStat.insertions}</span>
+              {/if}
+              {#if $activeGitStat.deletions > 0}
+                <span class="diff-del">−{$activeGitStat.deletions}</span>
+              {/if}
+            </Button>
+          {/if}
+        {/if}
+      </div>
     </Header>
     <div class="content">
       {#if $centerView === "settings"}
         <Settings />
+      {:else if $mainView === "changes"}
+        <GitPanel />
       {:else}
         <Chat />
       {/if}

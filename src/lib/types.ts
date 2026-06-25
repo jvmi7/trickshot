@@ -13,9 +13,15 @@ export type {
   ConnectorInfo,
   ConnectorTool,
   Inbound,
+  McpStatusInfo,
   ModelInfo,
   ModelRating,
   Outbound,
+  PermissionMode,
+  Question,
+  QuestionOption,
+  SlashCommandInfo,
+  TurnUsage,
 } from "../../shared/protocol";
 
 /** A rendered transcript entry: a provider-neutral `AgentMessage`, or a UI-only
@@ -23,7 +29,7 @@ export type {
  *  is the stable per-message id assigned on append (see stores.appendMessage). */
 export type TranscriptMessage = (
   | AgentMessage
-  | { type: "user_local"; text: string }
+  | { type: "user_local"; text: string; rewindId?: string }
   | { type: "error"; error: string }
 ) & { __key?: number };
 
@@ -40,6 +46,26 @@ export interface Worktree {
 export interface Repo {
   path: string;
   name: string;
+}
+
+/** One changed path in a worktree (mirrors the Rust `FileStatus`). `index` and
+ *  `worktree` are the staged/unstaged sides of `git status`'s XY code. */
+export interface GitFileStatus {
+  path: string;
+  index: string;
+  worktree: string;
+  staged: boolean;
+}
+
+/** A worktree's working-tree status (mirrors the Rust `WorktreeStatus`). */
+export interface GitStatus {
+  branch: string | null;
+  ahead: number;
+  behind: number;
+  /** Lines added/removed vs HEAD (staged + unstaged tracked changes). */
+  insertions: number;
+  deletions: number;
+  files: GitFileStatus[];
 }
 
 /** Envelope for a worktree-tagged agent event on the `agent-event` channel

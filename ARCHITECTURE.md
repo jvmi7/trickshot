@@ -35,7 +35,7 @@ The sidecar is split: **`core.ts` is a provider-neutral transport** (frames JSON
 3. **Selecting a worktree = activating its session** (no manual start/stop). `start_session(worktree)` spawns a sidecar with `PROJECT_DIR=<worktree>` if one isn't already running (idempotent). Worktrees run **concurrently** — each keeps its own sidecar; switching only changes the view.
 4. **Events** → each sidecar's stdout line is emitted as one `agent-event` tagged `{ worktree, kind, data }`. `api.onAgentEvent` parses it and routes to that worktree's transcript → the selected transcript re-renders.
 5. **User turn** → `sendUserTurn(worktree, text)` → `send_to_session` writes a `{kind:"user_turn"}` JSON line to that worktree's sidecar stdin → `core.ts` dispatches it to the provider's `pushTurn`, which (for Claude) pushes it into the SDK's streaming `prompt` iterable.
-6. **Tool use** → by default the Claude provider runs `permissionMode: "bypassPermissions"` (with the SDK-required `allowDangerouslySkipPermissions: true`), so the SDK runs tools automatically and never calls `canUseTool` — no `permission_request` is emitted and the Allow/Deny modal stays dormant. Pass a non-bypass mode via `start_session(…, permissionMode)` (→ `AGENT_PERMISSION` env) and the provider wires `canUseTool` → emits `permission_request` → `PermissionModal.svelte` → `replyPermission` settles the SDK promise. The plumbing is real, not dormant; only the *default* bypasses it.
+6. **Tool use** → the permission mode is **per-worktree**, defaulting to `bypassPermissions` (silent tool use, the historical default; the provider sets the SDK-required `allowDangerouslySkipPermissions: true` when starting in bypass). The provider ALWAYS wires `canUseTool`, so when the mode is `default`/`acceptEdits`/`plan` (chosen at start or switched live) the SDK calls it, emitting a `permission_request`; `PermissionModal.svelte` shows Allow/Deny and `replyPermission` resolves it via the `pendingPermissions` map in `providers/claude.ts`. The mode is chosen in the composer (`PermissionModeSelector.svelte`), applied at session start via the `PERMISSION_MODE` env, and switched live via `set_permission_mode` (`q.setPermissionMode`).
 
 ## The sidecar protocol (`shared/protocol.ts`, imported by `src/lib/types.ts` + `sidecar/core.ts`)
 
@@ -44,22 +44,33 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 | Direction | `kind` | Payload |
 |---|---|---|
 | app → sidecar | `user_turn` | `{ text }` |
-| app → sidecar | `permission_reply` | `{ id, behavior, message? }` — active only under a non-bypass `permissionMode` (settles a `canUseTool` prompt) |
+| app → sidecar | `permission_reply` | `{ id, behavior, message? }` — answers a `permission_request` (active when the mode isn't `bypassPermissions`) |
+| app → sidecar | `question_reply` | `{ id, answers }` — answers a `question_request`; `answers[i]` is the chosen option labels for question `i` |
 | app → sidecar | `set_model` | `{ model }` — switch the chat's model; sidecar confirms by re-emitting `models` |
+| app → sidecar | `set_permission_mode` | `{ mode }` — switch tool-permission mode live (`default`/`acceptEdits`/`plan`/`bypassPermissions`) |
 | app → sidecar | `get_models` | — request a (re-)emit of `models`; the UI's resilient path since the ready-time broadcast can race the listener |
 | app → sidecar | `get_connectors` | — request a (re-)emit of `connectors` (resilient, mirrors `get_models`) |
 | app → sidecar | `toggle_connector` | `{ name, enabled }` — enable/disable an MCP connector live; sidecar confirms by re-emitting `connectors` |
 | app → sidecar | `reconnect_connector` | `{ name }` — reconnect an MCP connector (e.g. after a failure / needs-auth) |
+| app → sidecar | `get_commands` | — request a (re-)emit of `commands` (available slash commands) |
 | app → sidecar | `interrupt` | — |
+| app → sidecar | `rewind` | `{ messageId }` — revert file changes made after that user turn (file checkpoint; requires `enableFileCheckpointing`) |
+| app → sidecar | `set_mcp_servers` | `{ servers }` — replace live MCP servers (opaque config blob) |
+| app → sidecar | `get_mcp_status` | — request a (re-)emit of `mcp_status` |
 | sidecar → app | `ready` | — |
+| sidecar → app | `checkpoint` | `{ id }` — the provider-assigned id of a user turn, stored on the `user_local` bubble as its `rewind` target |
+| sidecar → app | `commands` | `{ commands: {name,description}[] }` — available slash commands (on ready and after `get_commands`) |
+| sidecar → app | `mcp_status` | `{ servers: {name,status}[] }` — MCP server connection statuses |
+| sidecar → app | `notification` | `{ message, notificationType? }` — agent wants attention (from the Notification hook); the app raises an OS notification for a backgrounded worktree |
 | sidecar → app | `session` | `{ id }` — the resumable session id, emitted once the provider knows it |
 | sidecar → app | `message` | `{ message: AgentMessage }` — one neutral transcript event |
-| sidecar → app | `permission_request` | `{ id, tool, input }` — emitted only under a non-bypass `permissionMode` (the default bypass never calls `canUseTool`) |
+| sidecar → app | `permission_request` | `{ id, tool, input }` — emitted by `canUseTool` when the mode isn't `bypassPermissions`; answered by `permission_reply` |
+| sidecar → app | `question_request` | `{ id, questions }` — the agent asks structured multiple-choice questions (Claude: via the `ask_user` tool); `QuestionModal.svelte` answers with `question_reply` |
 | sidecar → app | `models` | `{ models: {value,displayName,description?,meta?}[], current }` — catalog + current (on ready and after `set_model`); `meta` is provider-supplied comparison pips |
 | sidecar → app | `connectors` | `{ servers: {name,status,scope?,error?,tools:{name,description?,readOnly?,destructive?}[]}[] }` — MCP connectors + their tools/status (on ready and after a toggle/reconnect) |
 | sidecar → app | `error` | `{ error }` |
 
-**`AgentMessage`** (the neutral transcript schema) `.type` is `system` | `assistant` (a prose chunk) | `tool_call` `{id,name,input}` | `tool_result` `{id,content,isError?}` | `turn_end`. Each provider adapter maps its native output into these; `Message.svelte` renders only these (plus the UI-only `user_local`/`error` bubbles). The UI is never exposed to a provider's raw message shape.
+**`AgentMessage`** (the neutral transcript schema) `.type` is `system` | `assistant` (a prose chunk) | `tool_call` `{id,name,input}` | `tool_result` `{id,content,isError?}` | `turn_end` `{usage?}` (the turn's token/cost figures — `TurnUsage`, all fields optional; `costUsd` is a client-side estimate). `assistant`/`tool_call`/`tool_result` also carry an optional `parentId` — set when the message came from a subagent (the spawning `Agent` tool-call id, forwarded via `forwardSubagentText`), so `Message.svelte` nests/indents it. Each provider adapter maps its native output into these; `Message.svelte` renders only these (plus the UI-only `user_local`/`error` bubbles). The UI is never exposed to a provider's raw message shape. `turn_end` isn't rendered as a bubble — App.svelte consumes it to flip status to ready and fold `usage` into the per-worktree cost total (`costByWorktree`).
 
 **Model switching:** each session starts on the provider's default model and emits `models` on ready. `ModelSelector.svelte` offers the catalog and renders each model's provider-supplied `meta` pips; picking one sends `set_model`. The current model is **per-worktree**, persisted to `localStorage` (`trickshot.modelByWorktree`) and re-applied on a session's `models` event when it differs from the default.
 
@@ -83,9 +94,16 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 | `list_worktrees` | `repoPath` | `Worktree[]` | First entry is main |
 | `create_worktree` | `repoPath, branch, baseRef?` | `Worktree` | Creates branch if new; one-click primitive |
 | `remove_worktree` | `repoPath, worktreePath, force` | `void` | Branch left intact |
-| `start_session` | `worktree, resume?, provider?, permissionMode?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` = a prior session id → `RESUME_SESSION` env. `provider` (default `claude`) → `AGENT_PROVIDER` env → which adapter the sidecar loads. `permissionMode` → `AGENT_PERMISSION` env (omit = full bypass; a value like `default` activates the Allow/Deny modal) |
+| `worktree_status` | `worktreePath` | `GitStatus` | Parsed `git status --porcelain=v1 --branch` (branch, ahead/behind, changed files) |
+| `worktree_diff` | `worktreePath, file?, base?` | `string` | Unified diff vs `base` (default HEAD); untracked files fall back to a `--no-index` all-add diff |
+| `worktree_stage` / `worktree_unstage` | `worktreePath, paths` | `void` | Empty `paths` = all (`git add -A` / `git restore --staged .`) |
+| `worktree_commit` | `worktreePath, message` | `string` | Commits staged changes (git stdout) |
+| `worktree_push` | `worktreePath, setUpstream` | `string` | `setUpstream` pushes `-u origin <branch>` |
+| `worktree_merge` | `repoPath, branch` | `string` | Merges `branch` into the branch checked out at `repoPath` |
+| `start_session` | `worktree, resume?, permissionMode?, systemPromptAppend?, mcpServers?, agents?, provider?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` → `RESUME_SESSION` env. `permissionMode` → `PERMISSION_MODE` env (default `bypassPermissions`). `systemPromptAppend` → `SYSTEM_PROMPT_APPEND` env. `mcpServers` (JSON) → `MCP_SERVERS` env. `agents` (JSON) → `AGENTS` env. `provider` (default `claude`) → `AGENT_PROVIDER` env → which adapter the sidecar loads |
 | `send_to_session` | `worktree, payload` (JSON string) | `void` | Writes a line to that worktree's sidecar stdin |
 | `stop_session` | `worktree` | `void` | Kills that worktree's sidecar |
+| `notify` | `title, body` | `void` | Shows a desktop notification (tauri-plugin-notification) |
 
 Events: a single `agent-event` carrying `{ worktree, kind, data }`, where `kind` is `stdout` (a protocol line) | `stderr` | `error` | `terminated`. The frontend routes by `worktree`.
 

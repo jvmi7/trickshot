@@ -33,13 +33,19 @@ struct AgentEvent {
 
 /// Start a sidecar for `worktree` (cwd = the worktree path). Idempotent: a
 /// no-op if one is already running for that worktree.
+// Many optional knobs (resume, permission mode, system-prompt append, MCP
+// servers, subagents, provider) ride in as separate Tauri command args.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn start_session(
     app: AppHandle,
     worktree: String,
     resume: Option<String>,
-    provider: Option<String>,
     permission_mode: Option<String>,
+    system_prompt_append: Option<String>,
+    mcp_servers: Option<String>,
+    agents: Option<String>,
+    provider: Option<String>,
     state: State<'_, Sessions>,
 ) -> Result<(), String> {
     // Hold the lock across spawn+insert so two concurrent calls can't both pass
@@ -63,10 +69,28 @@ pub fn start_session(
     if let Some(id) = resume.as_deref() {
         command = command.env("RESUME_SESSION", id);
     }
-    // Tool-permission mode. Unset = the sidecar's default (full bypass). A value
-    // like "default"/"dontAsk" activates the Allow/Deny path (see providers).
+    // Initial tool-permission mode (default/acceptEdits/plan/bypassPermissions);
+    // the sidecar reads PERMISSION_MODE and defaults to bypassPermissions if unset.
     if let Some(mode) = permission_mode.as_deref() {
-        command = command.env("AGENT_PERMISSION", mode);
+        command = command.env("PERMISSION_MODE", mode);
+    }
+    // Optional text appended to the preset system prompt for custom behavior.
+    if let Some(append) = system_prompt_append.as_deref() {
+        if !append.is_empty() {
+            command = command.env("SYSTEM_PROMPT_APPEND", append);
+        }
+    }
+    // Optional MCP server config (a JSON object string the sidecar parses).
+    if let Some(mcp) = mcp_servers.as_deref() {
+        if !mcp.is_empty() {
+            command = command.env("MCP_SERVERS", mcp);
+        }
+    }
+    // Optional subagent definitions (a JSON object string the sidecar parses).
+    if let Some(a) = agents.as_deref() {
+        if !a.is_empty() {
+            command = command.env("AGENTS", a);
+        }
     }
 
     let (mut rx, child) = command.spawn().map_err(|e| e.to_string())?;
@@ -142,6 +166,19 @@ pub fn send_to_session(
     let mut bytes = payload.into_bytes();
     bytes.push(b'\n'); // sidecar reads stdin line-by-line
     child.write(&bytes).map_err(|e| e.to_string())
+}
+
+/// Show a desktop notification (used to surface backgrounded-worktree activity
+/// while the user is focused elsewhere).
+#[tauri::command]
+pub fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|e| e.to_string())
 }
 
 /// Kill a worktree's sidecar (no-op if it isn't running).

@@ -12,8 +12,19 @@
 //   stdout (sidecar -> app):  Outbound  { kind: "ready" | "session" | "message" | "models" | "error" | ... }
 
 import { createInterface } from "node:readline";
-import type { Inbound, Outbound } from "../shared/protocol";
+import type { Inbound, Outbound, PermissionMode } from "../shared/protocol";
 import { createProvider, DEFAULT_PROVIDER } from "./providers/registry";
+
+/** Parse a JSON-object env var (MCP servers / agent defs) into a record, or undefined. */
+function parseJsonObject(raw: string | undefined): Record<string, unknown> | undefined {
+  if (!raw) return undefined;
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export function run(cliPath: string) {
   // Serialize one compact object per line; the newline is the only framing.
@@ -26,7 +37,10 @@ export function run(cliPath: string) {
     cliPath,
     projectDir: process.env.PROJECT_DIR ?? process.cwd(),
     resumeSessionId: process.env.RESUME_SESSION || undefined,
-    permissionMode: process.env.AGENT_PERMISSION || undefined,
+    permissionMode: (process.env.PERMISSION_MODE as PermissionMode) || undefined,
+    systemPromptAppend: process.env.SYSTEM_PROMPT_APPEND || undefined,
+    mcpServers: parseJsonObject(process.env.MCP_SERVERS),
+    agents: parseJsonObject(process.env.AGENTS),
     emit,
   });
 
@@ -47,6 +61,9 @@ export function run(cliPath: string) {
       case "set_model":
         provider.setModel(cmd.model);
         break;
+      case "set_permission_mode":
+        provider.setPermissionMode(cmd.mode);
+        break;
       case "get_models":
         provider.publishModels();
         break;
@@ -59,11 +76,26 @@ export function run(cliPath: string) {
       case "reconnect_connector":
         provider.reconnectConnector(cmd.name);
         break;
+      case "get_commands":
+        provider.publishCommands();
+        break;
+      case "get_mcp_status":
+        provider.publishMcpStatus();
+        break;
+      case "set_mcp_servers":
+        provider.setMcpServers(cmd.servers);
+        break;
       case "interrupt":
         provider.interrupt();
         break;
+      case "rewind":
+        provider.rewind(cmd.messageId);
+        break;
       case "permission_reply":
         provider.replyPermission(cmd.id, cmd.behavior, cmd.message);
+        break;
+      case "question_reply":
+        provider.replyQuestion(cmd.id, cmd.answers);
         break;
       default: {
         // Exhaustiveness guard: a new Inbound `kind` added to the protocol

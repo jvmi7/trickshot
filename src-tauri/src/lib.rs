@@ -9,15 +9,24 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(Sessions::default())
         .invoke_handler(tauri::generate_handler![
             agent::start_session,
             agent::send_to_session,
             agent::stop_session,
+            agent::notify,
             worktree::pick_directory,
             worktree::list_worktrees,
             worktree::create_worktree,
             worktree::remove_worktree,
+            worktree::worktree_status,
+            worktree::worktree_diff,
+            worktree::worktree_stage,
+            worktree::worktree_unstage,
+            worktree::worktree_commit,
+            worktree::worktree_push,
+            worktree::worktree_merge,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

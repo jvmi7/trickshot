@@ -1,10 +1,27 @@
-import { derived, writable } from "svelte/store";
-import type { ConnectorInfo, ModelInfo, Repo, TranscriptMessage, Worktree } from "./types";
+import { derived, get, writable } from "svelte/store";
+import type {
+  ConnectorInfo,
+  McpStatusInfo,
+  ModelInfo,
+  PermissionMode,
+  Question,
+  Repo,
+  SlashCommandInfo,
+  TranscriptMessage,
+  TurnUsage,
+  Worktree,
+} from "./types";
 
 export interface PermissionReq {
   id: string;
   tool: string;
   input: unknown;
+}
+
+/** A pending `ask_user` question for a worktree (answered via QuestionModal). */
+export interface QuestionReq {
+  id: string;
+  questions: Question[];
 }
 
 /** A worktree's agent session lifecycle:
@@ -49,6 +66,30 @@ sidebarWidth.subscribe((w) => {
 /** Set the sidebar width, clamped to its allowed range (the drag handle's setter). */
 export function setSidebarWidth(w: number) {
   sidebarWidth.set(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(w))));
+}
+
+/** Which view the main pane shows for the selected worktree: the chat transcript
+ *  or the git "changes" (diff) panel. Ephemeral UI state. */
+export const mainView = writable<"chat" | "changes">("chat");
+
+/** Bumped to ask an open GitPanel to re-fetch status/diff (e.g. after a turn that
+ *  likely touched files). A monotonic counter the panel watches. */
+export const gitRefreshNonce = writable<number>(0);
+export function bumpGitRefresh() {
+  gitRefreshNonce.update((n) => n + 1);
+}
+
+/** Per-worktree change summary (changed-file count + diffstat). Populated by
+ *  App.svelte from `worktree_status` on selection / gitRefreshNonce; drives the
+ *  header's Changes tab — shown only when `changed > 0`, with the +/- counts. */
+export interface GitStat {
+  changed: number;
+  insertions: number;
+  deletions: number;
+}
+export const gitStatByWorktree = writable<Record<string, GitStat>>({});
+export function setGitStat(worktree: string, stat: GitStat) {
+  gitStatByWorktree.update((m) => ({ ...m, [worktree]: stat }));
 }
 
 /** The chat's custom "scroll" position — a global cursor into the transcript.
@@ -142,6 +183,20 @@ export function setStatus(worktree: string, status: SessionStatus) {
   sessionStatus.update((m) => ({ ...m, [worktree]: status }));
 }
 
+// ---- Per-worktree unread activity (turns completed while not selected) ----
+// Drives a sidebar badge so background agents that finished are visible at a
+// glance. Bumped on a backgrounded `turn_end`; cleared when the worktree is opened.
+export const unreadByWorktree = writable<Record<string, number>>({});
+export function bumpUnread(worktree: string) {
+  unreadByWorktree.update((m) => ({ ...m, [worktree]: (m[worktree] ?? 0) + 1 }));
+}
+export function clearUnread(worktree: string) {
+  unreadByWorktree.update((m) => {
+    if (!m[worktree]) return m;
+    return { ...m, [worktree]: 0 };
+  });
+}
+
 // ---- Per-worktree agent activity (verbose loading state while a turn runs) ----
 export interface AgentActivity {
   label: string; // current action, e.g. "Running command", "Thinking"
@@ -192,6 +247,73 @@ export function setTurnSummary(worktree: string, summary: TurnSummary) {
 // The switchable-model catalog is the same across worktrees (one Claude binary),
 // so it's a single global list; the *current* model is per-worktree.
 export const availableModels = writable<ModelInfo[]>([]);
+
+// Available slash commands for the selected worktree's session (provider-supplied
+// via the `commands` event). Global list; refreshed on session ready / get_commands.
+export const availableCommands = writable<SlashCommandInfo[]>([]);
+
+// ---- MCP integrations ----
+// MCP server config is a JSON object (same shape as `.mcp.json`'s `mcpServers`),
+// edited as raw JSON in Settings and applied at session start / live. Persisted.
+const MCP_KEY = "trickshot.mcpServersJson";
+function loadMcpServersJson(): string {
+  if (!hasLS) return "";
+  const v = localStorage.getItem(MCP_KEY);
+  return typeof v === "string" ? v : "";
+}
+export const mcpServersJson = writable<string>(loadMcpServersJson());
+mcpServersJson.subscribe((s) => {
+  if (!hasLS) return;
+  try {
+    localStorage.setItem(MCP_KEY, s);
+  } catch {
+    /* ignore quota errors */
+  }
+});
+/** Parse the saved MCP JSON into a config object, or undefined if empty/invalid. */
+export function getMcpServers(): Record<string, unknown> | undefined {
+  const raw = get(mcpServersJson).trim();
+  if (!raw) return undefined;
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+/** Latest MCP server statuses for the selected session (via the `mcp_status` event). */
+export const mcpStatus = writable<McpStatusInfo[]>([]);
+
+// ---- Subagent definitions ----
+// Optional user-defined subagents as JSON (Record<name, {description, prompt,
+// model?, tools?, ...}>), edited in Settings and applied at session start.
+// Repo `.claude/agents` are also loaded automatically via settingSources.
+const AGENTS_KEY = "trickshot.agentsJson";
+function loadAgentsJson(): string {
+  if (!hasLS) return "";
+  const v = localStorage.getItem(AGENTS_KEY);
+  return typeof v === "string" ? v : "";
+}
+export const agentsJson = writable<string>(loadAgentsJson());
+agentsJson.subscribe((s) => {
+  if (!hasLS) return;
+  try {
+    localStorage.setItem(AGENTS_KEY, s);
+  } catch {
+    /* ignore quota errors */
+  }
+});
+/** Parse the saved subagents JSON into a config object, or undefined if empty/invalid. */
+export function getAgents(): Record<string, unknown> | undefined {
+  const raw = get(agentsJson).trim();
+  if (!raw) return undefined;
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 // Per-worktree current model, persisted so a chat's model choice is sticky across
 // restarts. On a session's `models` event, App.svelte re-applies a persisted
@@ -256,6 +378,100 @@ export function setGlobalConnectorPref(name: string, enabled: boolean) {
   globalConnectorPrefs.update((m) => ({ ...m, [name]: enabled }));
 }
 
+// ---- Per-worktree cost + token usage (accumulated per turn, persisted) ----
+// Each `turn_end` carries the turn's token/cost figures (see TurnUsage); we sum
+// them per worktree for a running session total. `costUsd` is a client-side
+// estimate (per the SDK), surfaced as such in the UI.
+export interface WorktreeCost {
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  turns: number;
+}
+const ZERO_COST: WorktreeCost = {
+  costUsd: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreationTokens: 0,
+  turns: 0,
+};
+const COST_KEY = "trickshot.costByWorktree";
+function loadCostByWorktree(): Record<string, WorktreeCost> {
+  if (!hasLS) return {};
+  try {
+    const v = JSON.parse(localStorage.getItem(COST_KEY) ?? "{}");
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+export const costByWorktree = writable<Record<string, WorktreeCost>>(loadCostByWorktree());
+costByWorktree.subscribe((c) => {
+  if (!hasLS) return;
+  try {
+    localStorage.setItem(COST_KEY, JSON.stringify(c));
+  } catch {
+    /* ignore quota errors */
+  }
+});
+/** Fold one turn's usage into a worktree's running total (missing fields count
+ *  as zero, so a provider that omits a figure simply doesn't move it). */
+export function addTurnCost(worktree: string, usage: TurnUsage) {
+  costByWorktree.update((c) => {
+    const cur = c[worktree] ?? ZERO_COST;
+    return {
+      ...c,
+      [worktree]: {
+        costUsd: cur.costUsd + (usage.costUsd ?? 0),
+        inputTokens: cur.inputTokens + (usage.inputTokens ?? 0),
+        outputTokens: cur.outputTokens + (usage.outputTokens ?? 0),
+        cacheReadTokens: cur.cacheReadTokens + (usage.cacheReadTokens ?? 0),
+        cacheCreationTokens: cur.cacheCreationTokens + (usage.cacheCreationTokens ?? 0),
+        turns: cur.turns + 1,
+      },
+    };
+  });
+}
+
+// ---- Per-worktree permission mode (persisted) ----
+// Controls how the agent's tool use is gated. `bypassPermissions` (the historical
+// default) runs every tool silently; the others route tool use through the
+// Allow/Deny modal. Applied at session start (PERMISSION_MODE env) and switched
+// live via the `set_permission_mode` command.
+const PERM_MODE_KEY = "trickshot.permissionModeByWorktree";
+const PERMISSION_MODES: PermissionMode[] = ["bypassPermissions", "acceptEdits", "default", "plan"];
+function loadPermissionModeByWorktree(): Record<string, PermissionMode> {
+  if (!hasLS) return {};
+  try {
+    const v = JSON.parse(localStorage.getItem(PERM_MODE_KEY) ?? "{}");
+    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+    const out: Record<string, PermissionMode> = {};
+    for (const [k, mode] of Object.entries(v)) {
+      if (PERMISSION_MODES.includes(mode as PermissionMode)) out[k] = mode as PermissionMode;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+export const permissionModeByWorktree = writable<Record<string, PermissionMode>>(
+  loadPermissionModeByWorktree(),
+);
+permissionModeByWorktree.subscribe((m) => {
+  if (!hasLS) return;
+  try {
+    localStorage.setItem(PERM_MODE_KEY, JSON.stringify(m));
+  } catch {
+    /* ignore quota errors */
+  }
+});
+export function setWorktreePermissionMode(worktree: string, mode: PermissionMode) {
+  permissionModeByWorktree.update((m) => ({ ...m, [worktree]: mode }));
+}
+
 // ---- Font ----
 export interface FontOption {
   id: string;
@@ -283,6 +499,25 @@ font.subscribe((f) => {
   if (!hasLS) return;
   try {
     localStorage.setItem(FONT_KEY, f);
+  } catch {
+    /* ignore quota errors */
+  }
+});
+
+// ---- Custom system-prompt append (global, persisted) ----
+// Appended to the `claude_code` preset system prompt at session start (applies to
+// NEW sessions; existing ones need a restart). Empty = no append.
+const SYS_PROMPT_KEY = "trickshot.systemPromptAppend";
+function loadSystemPromptAppend(): string {
+  if (!hasLS) return "";
+  const v = localStorage.getItem(SYS_PROMPT_KEY);
+  return typeof v === "string" ? v : "";
+}
+export const systemPromptAppend = writable<string>(loadSystemPromptAppend());
+systemPromptAppend.subscribe((s) => {
+  if (!hasLS) return;
+  try {
+    localStorage.setItem(SYS_PROMPT_KEY, s);
   } catch {
     /* ignore quota errors */
   }
@@ -408,8 +643,40 @@ export function resetTranscript(worktree: string) {
   transcripts.update((t) => ({ ...t, [worktree]: [] }));
 }
 
+/** Attach a rewind checkpoint id to the most recent `user_local` turn that
+ *  doesn't have one yet (the turn the agent just echoed). No-op if none found.
+ *  Checks the un-flushed buffer first, then the store. */
+export function attachRewindId(worktree: string, id: string) {
+  const buf = _buffers[worktree];
+  if (buf) {
+    for (let i = buf.length - 1; i >= 0; i--) {
+      const m = buf[i];
+      if (m && m.type === "user_local" && !m.rewindId) {
+        m.rewindId = id;
+        return;
+      }
+    }
+  }
+  transcripts.update((t) => {
+    const list = t[worktree];
+    if (!list) return t;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const m = list[i];
+      if (m && m.type === "user_local" && !m.rewindId) {
+        const next = list.slice();
+        next[i] = { ...m, rewindId: id };
+        return { ...t, [worktree]: next };
+      }
+    }
+    return t;
+  });
+}
+
 // ---- Per-worktree pending permission (dormant under bypassPermissions) ----
 export const pendingPermission = writable<Record<string, PermissionReq | null>>({});
+
+// ---- Per-worktree pending question (the agent's `ask_user`) ----
+export const pendingQuestion = writable<Record<string, QuestionReq | null>>({});
 
 // ---- Derived views for the currently selected worktree ----
 export const activeMessages = derived([transcripts, selectedWorktree], ([$t, $sel]) =>
@@ -487,6 +754,10 @@ export const renderedGroups = derived(renderedMessages, ($msgs): RenderedGroup[]
 export const activePending = derived([pendingPermission, selectedWorktree], ([$p, $sel]) =>
   $sel ? ($p[$sel] ?? null) : null,
 );
+/** The selected worktree's pending question (null when none). */
+export const activeQuestion = derived([pendingQuestion, selectedWorktree], ([$q, $sel]) =>
+  $sel ? ($q[$sel] ?? null) : null,
+);
 /** The current model of the selected worktree's chat (null until its session
  *  reports a `models` event). */
 export const activeModel = derived([modelByWorktree, selectedWorktree], ([$m, $sel]) =>
@@ -499,4 +770,21 @@ export const activeActivity = derived([worktreeActivity, selectedWorktree], ([$a
 /** The selected worktree's last-completed-turn summary (null until a turn ends). */
 export const activeSummary = derived([turnSummary, selectedWorktree], ([$s, $sel]) =>
   $sel ? ($s[$sel] ?? null) : null,
+);
+/** The selected worktree's running cost/token total (null until a turn completes). */
+export const activeCost = derived([costByWorktree, selectedWorktree], ([$c, $sel]) =>
+  $sel ? ($c[$sel] ?? null) : null,
+);
+/** The selected worktree's change summary (null until fetched / when none). */
+export const activeGitStat = derived([gitStatByWorktree, selectedWorktree], ([$m, $sel]) =>
+  $sel ? ($m[$sel] ?? null) : null,
+);
+/** The session default when a worktree has no explicit choice — preserves the
+ *  historical silent-run behavior so enabling prompts is opt-in. */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "bypassPermissions";
+export { PERMISSION_MODES };
+/** The selected worktree's permission mode (falls back to the default). */
+export const activePermissionMode = derived(
+  [permissionModeByWorktree, selectedWorktree],
+  ([$m, $sel]) => ($sel ? ($m[$sel] ?? DEFAULT_PERMISSION_MODE) : DEFAULT_PERMISSION_MODE),
 );

@@ -4,12 +4,22 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AgentEnvelope, Inbound, Outbound, Worktree } from "./types";
+import type {
+  AgentEnvelope,
+  GitStatus,
+  Inbound,
+  Outbound,
+  PermissionMode,
+  Worktree,
+} from "./types";
 
 // ---- Repository / worktree commands -------------------------------------
 
 /** Native folder picker. Returns the chosen absolute path, or null if cancelled. */
 export const pickDirectory = () => invoke<string | null>("pick_directory");
+
+/** Show a desktop (OS) notification. */
+export const notify = (title: string, body: string) => invoke<void>("notify", { title, body });
 
 /** List all worktrees of a git repo (the first entry is the main worktree). */
 export const listWorktrees = (repoPath: string) =>
@@ -23,25 +33,65 @@ export const createWorktree = (repoPath: string, branch: string, baseRef?: strin
 export const removeWorktree = (repoPath: string, worktreePath: string, force = false) =>
   invoke<void>("remove_worktree", { repoPath, worktreePath, force });
 
+// ---- Git review (status / diff / stage / commit / push / merge) ----------
+
+/** Parsed working-tree status (branch, ahead/behind, changed files). */
+export const worktreeStatus = (worktreePath: string) =>
+  invoke<GitStatus>("worktree_status", { worktreePath });
+
+/** Unified diff of uncommitted changes vs `base` (default HEAD), optionally for
+ *  one file. Falls back to an all-addition diff for an untracked file. */
+export const worktreeDiff = (worktreePath: string, file?: string, base?: string) =>
+  invoke<string>("worktree_diff", { worktreePath, file: file ?? null, base: base ?? null });
+
+/** Stage paths (empty list = stage everything). */
+export const worktreeStage = (worktreePath: string, paths: string[] = []) =>
+  invoke<void>("worktree_stage", { worktreePath, paths });
+
+/** Unstage paths (empty list = unstage everything). */
+export const worktreeUnstage = (worktreePath: string, paths: string[] = []) =>
+  invoke<void>("worktree_unstage", { worktreePath, paths });
+
+/** Commit staged changes; returns git's stdout. */
+export const worktreeCommit = (worktreePath: string, message: string) =>
+  invoke<string>("worktree_commit", { worktreePath, message });
+
+/** Push the current branch (`setUpstream` pushes `-u origin <branch>`). */
+export const worktreePush = (worktreePath: string, setUpstream = false) =>
+  invoke<string>("worktree_push", { worktreePath, setUpstream });
+
+/** Merge `branch` into the branch checked out at `repoPath` (the main worktree). */
+export const worktreeMerge = (repoPath: string, branch: string) =>
+  invoke<string>("worktree_merge", { repoPath, branch });
+
 // ---- Per-worktree agent sessions ----------------------------------------
 // Each worktree runs its own sidecar concurrently, keyed by its path.
 
 /** Start (or no-op if already running) the agent session for a worktree.
- *  Pass `resume` (a prior session id) to restore that session's context,
- *  `provider` to pick a model-provider adapter (defaults to "claude"), and
- *  `permissionMode` to override tool-permission handling (omit = full bypass,
- *  the default; a value like "default" activates the Allow/Deny modal). */
+ *  Options: `resume` (a prior session id) restores that session's context;
+ *  `permissionMode` sets the initial tool-permission gate (default
+ *  bypassPermissions; a non-bypass value activates the Allow/Deny modal);
+ *  `systemPromptAppend` adds custom text to the preset system prompt; `provider`
+ *  picks a model-provider adapter (default "claude"). */
 export const startSession = (
   worktree: string,
-  resume?: string,
-  provider?: string,
-  permissionMode?: string,
+  opts: {
+    resume?: string;
+    permissionMode?: PermissionMode;
+    systemPromptAppend?: string;
+    mcpServers?: Record<string, unknown>;
+    agents?: Record<string, unknown>;
+    provider?: string;
+  } = {},
 ) =>
   invoke<void>("start_session", {
     worktree,
-    resume: resume ?? null,
-    provider: provider ?? null,
-    permissionMode: permissionMode ?? null,
+    resume: opts.resume ?? null,
+    permissionMode: opts.permissionMode ?? null,
+    systemPromptAppend: opts.systemPromptAppend ?? null,
+    mcpServers: opts.mcpServers ? JSON.stringify(opts.mcpServers) : null,
+    agents: opts.agents ? JSON.stringify(opts.agents) : null,
+    provider: opts.provider ?? null,
   });
 
 /** Kill a worktree's agent session. */
@@ -63,8 +113,17 @@ export const replyPermission = (
   message?: string,
 ) => send(worktree, { kind: "permission_reply", id, behavior, message });
 
+/** Answer a pending question (the agent's `ask_user`) with the user's choices —
+ *  per question, the chosen option labels (one for single-select, more for multi). */
+export const replyQuestion = (worktree: string, id: string, answers: string[][]) =>
+  send(worktree, { kind: "question_reply", id, answers });
+
 /** Interrupt a worktree's agent mid-task. */
 export const interruptAgent = (worktree: string) => send(worktree, { kind: "interrupt" });
+
+/** Revert file changes made after a given user turn (its checkpoint id). */
+export const rewind = (worktree: string, messageId: string) =>
+  send(worktree, { kind: "rewind", messageId });
 
 /** Switch the model this worktree's chat uses. The sidecar confirms by
  *  re-emitting a `models` event with the updated `current`. */
@@ -87,6 +146,20 @@ export const toggleConnector = (worktree: string, name: string, enabled: boolean
 /** Reconnect an MCP connector (e.g. after a failure / needs-auth). */
 export const reconnectConnector = (worktree: string, name: string) =>
   send(worktree, { kind: "reconnect_connector", name });
+
+/** Ask a session to (re-)emit its `commands` event (available slash commands). */
+export const requestCommands = (worktree: string) => send(worktree, { kind: "get_commands" });
+
+/** Ask a session to (re-)emit its `mcp_status` event (MCP server health). */
+export const requestMcpStatus = (worktree: string) => send(worktree, { kind: "get_mcp_status" });
+
+/** Replace a session's live MCP server set (an opaque provider config blob). */
+export const setMcpServers = (worktree: string, servers: Record<string, unknown>) =>
+  send(worktree, { kind: "set_mcp_servers", servers });
+
+/** Switch a worktree's tool-permission mode live (mid-session). */
+export const setPermissionMode = (worktree: string, mode: PermissionMode) =>
+  send(worktree, { kind: "set_permission_mode", mode });
 
 // ---- Event stream --------------------------------------------------------
 
