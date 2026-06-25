@@ -5,6 +5,7 @@
 // provider: implement AgentProvider, emit neutral messages, register it.
 
 import {
+  type McpServerConfig,
   type PermissionResult,
   query,
   type SDKMessage,
@@ -199,6 +200,9 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       // Back up files before edits so a turn's changes can be reverted by
       // rewindFiles (the per-turn "rewind to here" checkpoint feature).
       enableFileCheckpointing: true,
+      // MCP servers are a provider-specific config blob on the wire; the SDK
+      // option is typed, so cast at this single boundary.
+      ...(ctx.mcpServers ? { mcpServers: ctx.mcpServers as Record<string, McpServerConfig> } : {}),
     },
   });
 
@@ -266,6 +270,18 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
     }
   }
 
+  async function publishMcpStatus() {
+    try {
+      const servers = await q.mcpServerStatus();
+      ctx.emit({
+        kind: "mcp_status",
+        servers: servers.map((s) => ({ name: s.name, status: s.status })),
+      });
+    } catch {
+      // mcpServerStatus is a control request; if unavailable, leave it empty
+    }
+  }
+
   return {
     id: "claude",
 
@@ -276,6 +292,7 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       void publishModels();
       void publishConnectors();
       void publishCommands();
+      void publishMcpStatus();
 
       // Drive the agent loop. With an open input queue this runs for the session's life.
       (async () => {
@@ -424,6 +441,20 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
 
     publishCommands() {
       void publishCommands();
+    },
+
+    publishMcpStatus() {
+      void publishMcpStatus();
+    },
+
+    setMcpServers(servers) {
+      // Replace the dynamically-added MCP servers live, then refresh status.
+      void q
+        .setMcpServers(servers as Record<string, McpServerConfig>)
+        .then(() => publishMcpStatus())
+        .catch((e) => {
+          ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) });
+        });
     },
 
     replyPermission(id, behavior, message) {

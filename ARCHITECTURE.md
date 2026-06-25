@@ -54,9 +54,12 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 | app → sidecar | `get_commands` | — request a (re-)emit of `commands` (available slash commands) |
 | app → sidecar | `interrupt` | — |
 | app → sidecar | `rewind` | `{ messageId }` — revert file changes made after that user turn (file checkpoint; requires `enableFileCheckpointing`) |
+| app → sidecar | `set_mcp_servers` | `{ servers }` — replace live MCP servers (opaque config blob) |
+| app → sidecar | `get_mcp_status` | — request a (re-)emit of `mcp_status` |
 | sidecar → app | `ready` | — |
 | sidecar → app | `checkpoint` | `{ id }` — the provider-assigned id of a user turn, stored on the `user_local` bubble as its `rewind` target |
 | sidecar → app | `commands` | `{ commands: {name,description}[] }` — available slash commands (on ready and after `get_commands`) |
+| sidecar → app | `mcp_status` | `{ servers: {name,status}[] }` — MCP server connection statuses |
 | sidecar → app | `session` | `{ id }` — the resumable session id, emitted once the provider knows it |
 | sidecar → app | `message` | `{ message: AgentMessage }` — one neutral transcript event |
 | sidecar → app | `permission_request` | `{ id, tool, input }` — emitted by `canUseTool` when the mode isn't `bypassPermissions`; answered by `permission_reply` |
@@ -94,7 +97,7 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 | `worktree_commit` | `worktreePath, message` | `string` | Commits staged changes (git stdout) |
 | `worktree_push` | `worktreePath, setUpstream` | `string` | `setUpstream` pushes `-u origin <branch>` |
 | `worktree_merge` | `repoPath, branch` | `string` | Merges `branch` into the branch checked out at `repoPath` |
-| `start_session` | `worktree, resume?, permissionMode?, systemPromptAppend?, provider?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` → `RESUME_SESSION` env. `permissionMode` → `PERMISSION_MODE` env (default `bypassPermissions`). `systemPromptAppend` → `SYSTEM_PROMPT_APPEND` env (appended to the preset prompt). `provider` (default `claude`) → `AGENT_PROVIDER` env → which adapter the sidecar loads |
+| `start_session` | `worktree, resume?, permissionMode?, systemPromptAppend?, mcpServers?, provider?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` → `RESUME_SESSION` env. `permissionMode` → `PERMISSION_MODE` env (default `bypassPermissions`). `systemPromptAppend` → `SYSTEM_PROMPT_APPEND` env. `mcpServers` (JSON string) → `MCP_SERVERS` env. `provider` (default `claude`) → `AGENT_PROVIDER` env → which adapter the sidecar loads |
 | `send_to_session` | `worktree, payload` (JSON string) | `void` | Writes a line to that worktree's sidecar stdin |
 | `stop_session` | `worktree` | `void` | Kills that worktree's sidecar |
 

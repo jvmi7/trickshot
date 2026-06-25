@@ -76,6 +76,7 @@ export const startSession = (
     resume?: string;
     permissionMode?: PermissionMode;
     systemPromptAppend?: string;
+    mcpServers?: Record<string, unknown>;
     provider?: string;
   } = {},
 ) =>
@@ -84,6 +85,7 @@ export const startSession = (
     resume: opts.resume ?? null,
     permissionMode: opts.permissionMode ?? null,
     systemPromptAppend: opts.systemPromptAppend ?? null,
+    mcpServers: opts.mcpServers ? JSON.stringify(opts.mcpServers) : null,
     provider: opts.provider ?? null,
   });
 
@@ -137,6 +139,13 @@ export const reconnectConnector = (worktree: string, name: string) =>
 
 /** Ask a session to (re-)emit its `commands` event (available slash commands). */
 export const requestCommands = (worktree: string) => send(worktree, { kind: "get_commands" });
+
+/** Ask a session to (re-)emit its `mcp_status` event (MCP server health). */
+export const requestMcpStatus = (worktree: string) => send(worktree, { kind: "get_mcp_status" });
+
+/** Replace a session's live MCP server set (an opaque provider config blob). */
+export const setMcpServers = (worktree: string, servers: Record<string, unknown>) =>
+  send(worktree, { kind: "set_mcp_servers", servers });
 
 /** Switch a worktree's tool-permission mode live (mid-session). */
 export const setPermissionMode = (worktree: string, mode: PermissionMode) =>

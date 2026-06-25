@@ -23,7 +23,11 @@
     setStatus,
     globalConnectorPrefs,
     setGlobalConnectorPref,
+    mcpServersJson,
+    mcpStatus,
   } from "../stores";
+
+  let mcpError = $state("");
 
   // Trigger label = the currently-selected option's display label.
   const themeLabel = $derived(THEMES.find((t) => t.id === $theme)?.label ?? "Theme");
@@ -115,6 +119,26 @@
       }
     }, 8000);
   }
+
+  // Apply the edited MCP JSON to the selected worktree's live session. An empty
+  // body clears dynamic servers; invalid JSON is reported, not sent.
+  function applyMcp() {
+    mcpError = "";
+    const raw = $mcpServersJson.trim();
+    let parsed: Record<string, unknown> = {};
+    if (raw) {
+      try {
+        const v = JSON.parse(raw);
+        if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("must be a JSON object");
+        parsed = v;
+      } catch (e) {
+        mcpError = `Invalid JSON: ${e instanceof Error ? e.message : String(e)}`;
+        return;
+      }
+    }
+    const wt = $selectedWorktree;
+    if (wt) api.setMcpServers(wt, parsed);
+  }
 </script>
 
 <div class="settings-page">
@@ -161,6 +185,41 @@
               aria-label="Custom system prompt append"
             />
             <span class="text-muted-foreground text-xs">Applies to newly started sessions.</span>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-muted-foreground">MCP servers (JSON)</span>
+              {#if $mcpStatus.length}
+                <span class="text-muted-foreground text-xs">
+                  {$mcpStatus.map((s) => `${s.name}: ${s.status}`).join(" · ")}
+                </span>
+              {/if}
+            </div>
+            <Textarea
+              bind:value={$mcpServersJson}
+              rows={4}
+              placeholder={'{\n  "playwright": { "command": "npx", "args": ["-y", "@playwright/mcp"] }\n}'}
+              class="resize-none font-mono text-xs"
+              aria-label="MCP servers JSON config"
+            />
+            {#if mcpError}
+              <span class="text-destructive text-xs">{mcpError}</span>
+            {/if}
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-muted-foreground text-xs">
+                Saved for new sessions; Apply updates the current one live.
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                class="h-7 text-xs"
+                disabled={!$selectedWorktree}
+                onclick={applyMcp}
+              >
+                Apply
+              </Button>
+            </div>
           </div>
         </div>
       </Tabs.Content>

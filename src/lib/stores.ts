@@ -1,6 +1,7 @@
-import { derived, writable } from "svelte/store";
+import { derived, get, writable } from "svelte/store";
 import type {
   ConnectorInfo,
+  McpStatusInfo,
   ModelInfo,
   PermissionMode,
   Repo,
@@ -213,6 +214,38 @@ export const availableModels = writable<ModelInfo[]>([]);
 // Available slash commands for the selected worktree's session (provider-supplied
 // via the `commands` event). Global list; refreshed on session ready / get_commands.
 export const availableCommands = writable<SlashCommandInfo[]>([]);
+
+// ---- MCP integrations ----
+// MCP server config is a JSON object (same shape as `.mcp.json`'s `mcpServers`),
+// edited as raw JSON in Settings and applied at session start / live. Persisted.
+const MCP_KEY = "trickshot.mcpServersJson";
+function loadMcpServersJson(): string {
+  if (!hasLS) return "";
+  const v = localStorage.getItem(MCP_KEY);
+  return typeof v === "string" ? v : "";
+}
+export const mcpServersJson = writable<string>(loadMcpServersJson());
+mcpServersJson.subscribe((s) => {
+  if (!hasLS) return;
+  try {
+    localStorage.setItem(MCP_KEY, s);
+  } catch {
+    /* ignore quota errors */
+  }
+});
+/** Parse the saved MCP JSON into a config object, or undefined if empty/invalid. */
+export function getMcpServers(): Record<string, unknown> | undefined {
+  const raw = get(mcpServersJson).trim();
+  if (!raw) return undefined;
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+/** Latest MCP server statuses for the selected session (via the `mcp_status` event). */
+export const mcpStatus = writable<McpStatusInfo[]>([]);
 
 // Per-worktree current model, persisted so a chat's model choice is sticky across
 // restarts. On a session's `models` event, App.svelte re-applies a persisted

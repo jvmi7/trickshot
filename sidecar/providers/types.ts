@@ -21,6 +21,8 @@ export interface ProviderContext {
   permissionMode?: PermissionMode;
   /** Optional text appended to the preset system prompt for custom behavior. */
   systemPromptAppend?: string;
+  /** Optional provider-specific MCP server config (opaque blob from the app). */
+  mcpServers?: Record<string, unknown>;
   /** Emit a wire event to the app. The provider never touches stdout directly.
    *  `onFlush` (optional) fires once the line has been handed to stdout — use it
    *  to exit cleanly without truncating the final line (process.exit doesn't
@@ -53,6 +55,10 @@ export interface AgentProvider {
   reconnectConnector(name: string): void;
   /** (Re-)emit the `commands` event (available slash commands). */
   publishCommands(): void;
+  /** (Re-)emit the `mcp_status` event (MCP server connection statuses). */
+  publishMcpStatus(): void;
+  /** Replace the live MCP server set, then refresh status. */
+  setMcpServers(servers: Record<string, unknown>): void;
   /** Answer a pending tool-permission request. Active when a non-bypass
    *  permissionMode is in effect; a no-op under the default full bypass. */
   replyPermission(id: string, behavior: "allow" | "deny", message?: string): void;

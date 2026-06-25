@@ -59,6 +59,12 @@ export interface SlashCommandInfo {
   description: string;
 }
 
+/** Connection status of one configured MCP server. */
+export interface McpStatusInfo {
+  name: string;
+  status: string;
+}
+
 /** Token + cost figures for one completed turn, mapped from the provider's
  *  end-of-turn result. All optional: a provider that doesn't report a field
  *  omits it, and the UI renders nothing for a missing field (never throws).
@@ -98,7 +104,11 @@ export type Inbound =
   | { kind: "reconnect_connector"; name: string }
   | { kind: "get_commands" }
   | { kind: "interrupt" }
-  | { kind: "rewind"; messageId: string };
+  | { kind: "rewind"; messageId: string }
+  // Provider-specific MCP server config (opaque blob, e.g. `.mcp.json`'s
+  // `mcpServers`). Applied live; `get_mcp_status` requests a status refresh.
+  | { kind: "set_mcp_servers"; servers: Record<string, unknown> }
+  | { kind: "get_mcp_status" };
 
 /** Provider-neutral permission modes (mirrors the Claude SDK's `PermissionMode`).
  *  `bypassPermissions` runs every tool without prompting (the historical
@@ -121,4 +131,6 @@ export type Outbound =
   // checkpoint). Emitted once the agent backend echoes the turn with its id.
   | { kind: "checkpoint"; id: string }
   // The session's available slash commands (on ready and after get_commands).
-  | { kind: "commands"; commands: SlashCommandInfo[] };
+  | { kind: "commands"; commands: SlashCommandInfo[] }
+  // MCP server connection statuses (on ready and after get_mcp_status / set_mcp_servers).
+  | { kind: "mcp_status"; servers: McpStatusInfo[] };

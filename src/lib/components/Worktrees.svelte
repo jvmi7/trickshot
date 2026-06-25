@@ -13,6 +13,7 @@
     permissionModeByWorktree,
     DEFAULT_PERMISSION_MODE,
     systemPromptAppend,
+    getMcpServers,
   } from "../stores";
   import * as api from "../api";
   import type { Worktree } from "../types";
@@ -95,6 +96,7 @@
         resume: get(sessionByWorktree)[wt.path],
         permissionMode: get(permissionModeByWorktree)[wt.path] ?? DEFAULT_PERMISSION_MODE,
         systemPromptAppend: get(systemPromptAppend),
+        mcpServers: getMcpServers(),
       });
       sessionStatus.update((s) => ({ ...s, [wt.path]: "ready" }));
     } catch (e) {

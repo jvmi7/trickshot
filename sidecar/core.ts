@@ -15,6 +15,17 @@ import { createInterface } from "node:readline";
 import type { Inbound, Outbound, PermissionMode } from "../shared/protocol";
 import { createProvider, DEFAULT_PROVIDER } from "./providers/registry";
 
+/** Parse the MCP_SERVERS env (a JSON object) into a config record, or undefined. */
+function parseMcpServers(raw: string | undefined): Record<string, unknown> | undefined {
+  if (!raw) return undefined;
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function run(cliPath: string) {
   // Serialize one compact object per line; the newline is the only framing.
   // `onFlush` fires once the chunk is flushed (lets a provider exit without
@@ -28,6 +39,7 @@ export function run(cliPath: string) {
     resumeSessionId: process.env.RESUME_SESSION || undefined,
     permissionMode: (process.env.PERMISSION_MODE as PermissionMode) || undefined,
     systemPromptAppend: process.env.SYSTEM_PROMPT_APPEND || undefined,
+    mcpServers: parseMcpServers(process.env.MCP_SERVERS),
     emit,
   });
 
@@ -65,6 +77,12 @@ export function run(cliPath: string) {
         break;
       case "get_commands":
         provider.publishCommands();
+        break;
+      case "get_mcp_status":
+        provider.publishMcpStatus();
+        break;
+      case "set_mcp_servers":
+        provider.setMcpServers(cmd.servers);
         break;
       case "interrupt":
         provider.interrupt();

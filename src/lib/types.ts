@@ -13,6 +13,7 @@ export type {
   ConnectorInfo,
   ConnectorTool,
   Inbound,
+  McpStatusInfo,
   ModelInfo,
   ModelRating,
   Outbound,

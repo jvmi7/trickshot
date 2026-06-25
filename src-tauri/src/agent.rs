@@ -40,6 +40,7 @@ pub fn start_session(
     resume: Option<String>,
     permission_mode: Option<String>,
     system_prompt_append: Option<String>,
+    mcp_servers: Option<String>,
     provider: Option<String>,
     permission_mode: Option<String>,
     state: State<'_, Sessions>,
@@ -74,6 +75,12 @@ pub fn start_session(
     if let Some(append) = system_prompt_append.as_deref() {
         if !append.is_empty() {
             command = command.env("SYSTEM_PROMPT_APPEND", append);
+        }
+    }
+    // Optional MCP server config (a JSON object string the sidecar parses).
+    if let Some(mcp) = mcp_servers.as_deref() {
+        if !mcp.is_empty() {
+            command = command.env("MCP_SERVERS", mcp);
         }
     }
 

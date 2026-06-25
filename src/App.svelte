@@ -33,6 +33,8 @@
     attachRewindId,
     availableCommands,
     systemPromptAppend,
+    mcpStatus,
+    getMcpServers,
   } from "./lib/stores";
 
   import { toolLabel, toolDetail } from "./lib/agentMessage";
@@ -127,6 +129,8 @@
           attachRewindId(worktree, evt.id);
         } else if (evt.kind === "commands") {
           availableCommands.set(evt.commands);
+        } else if (evt.kind === "mcp_status") {
+          mcpStatus.set(evt.servers);
         } else if (evt.kind === "error") {
           // Surface only. Status is deliberately NOT reset here: this channel is
           // shared by FATAL errors (an agent-loop throw, which then exits → the
@@ -218,6 +222,7 @@
               resume: get(sessionByWorktree)[sel],
               permissionMode: get(permissionModeByWorktree)[sel] ?? DEFAULT_PERMISSION_MODE,
               systemPromptAppend: get(systemPromptAppend),
+              mcpServers: getMcpServers(),
             });
             setStatus(sel, "ready");
           } catch {
