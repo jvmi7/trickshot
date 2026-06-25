@@ -5,6 +5,7 @@
   import { Switch } from "$lib/components/ui/switch";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
+  import { Textarea } from "$lib/components/ui/textarea";
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import * as api from "../api";
@@ -14,6 +15,7 @@
     FONTS,
     theme,
     THEMES,
+    systemPromptAppend,
     connectorsByWorktree,
     selectedWorktree,
     sessionStatus,
@@ -50,7 +52,7 @@
     const sel = $selectedWorktree;
     if (sel && !alive(sel)) {
       api
-        .startSession(sel, $sessionByWorktree[sel])
+        .startSession(sel, { resume: $sessionByWorktree[sel] })
         .then(() => setStatus(sel, "ready"))
         .catch(() => {});
     }
@@ -147,6 +149,18 @@
                 {/each}
               </Select.Content>
             </Select.Root>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <span class="text-sm text-muted-foreground">Custom system prompt</span>
+            <Textarea
+              bind:value={$systemPromptAppend}
+              rows={3}
+              placeholder="Appended to the default prompt (e.g. coding conventions)…"
+              class="resize-none text-sm"
+              aria-label="Custom system prompt append"
+            />
+            <span class="text-muted-foreground text-xs">Applies to newly started sessions.</span>
           </div>
         </div>
       </Tabs.Content>

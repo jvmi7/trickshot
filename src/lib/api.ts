@@ -65,21 +65,26 @@ export const worktreeMerge = (repoPath: string, branch: string) =>
 // Each worktree runs its own sidecar concurrently, keyed by its path.
 
 /** Start (or no-op if already running) the agent session for a worktree.
- *  Pass `resume` (a prior session id) to restore that session's context,
- *  `permissionMode` to set the initial tool-permission gate (defaults to
- *  bypassPermissions; a non-bypass value activates the Allow/Deny modal), and
- *  `provider` to pick a model-provider adapter (defaults to "claude"). */
+ *  Options: `resume` (a prior session id) restores that session's context;
+ *  `permissionMode` sets the initial tool-permission gate (default
+ *  bypassPermissions; a non-bypass value activates the Allow/Deny modal);
+ *  `systemPromptAppend` adds custom text to the preset system prompt; `provider`
+ *  picks a model-provider adapter (default "claude"). */
 export const startSession = (
   worktree: string,
-  resume?: string,
-  permissionMode?: PermissionMode,
-  provider?: string,
+  opts: {
+    resume?: string;
+    permissionMode?: PermissionMode;
+    systemPromptAppend?: string;
+    provider?: string;
+  } = {},
 ) =>
   invoke<void>("start_session", {
     worktree,
-    resume: resume ?? null,
-    permissionMode: permissionMode ?? null,
-    provider: provider ?? null,
+    resume: opts.resume ?? null,
+    permissionMode: opts.permissionMode ?? null,
+    systemPromptAppend: opts.systemPromptAppend ?? null,
+    provider: opts.provider ?? null,
   });
 
 /** Kill a worktree's agent session. */
@@ -129,6 +134,9 @@ export const toggleConnector = (worktree: string, name: string, enabled: boolean
 /** Reconnect an MCP connector (e.g. after a failure / needs-auth). */
 export const reconnectConnector = (worktree: string, name: string) =>
   send(worktree, { kind: "reconnect_connector", name });
+
+/** Ask a session to (re-)emit its `commands` event (available slash commands). */
+export const requestCommands = (worktree: string) => send(worktree, { kind: "get_commands" });
 
 /** Switch a worktree's tool-permission mode live (mid-session). */
 export const setPermissionMode = (worktree: string, mode: PermissionMode) =>

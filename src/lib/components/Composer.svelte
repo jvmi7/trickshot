@@ -6,6 +6,7 @@
     setStatus,
     startActivity,
     clearActivity,
+    availableCommands,
   } from "../stores";
   import { onDestroy } from "svelte";
   import * as api from "../api";
@@ -19,6 +20,7 @@
 
   let text = "";
   let focused = false;
+  let textareaEl: HTMLTextAreaElement | null = null;
 
   // Animated placeholder: "start cooking" deletes itself char-by-char on focus
   // (so the field reads empty when you click in); restored on blur if still empty.
@@ -51,6 +53,26 @@
   $: alive = status === "ready" || status === "busy";
   $: working = status === "busy";
   $: canSend = alive && !working && text.trim().length > 0;
+
+  // Slash-command palette: while typing a leading "/<name>" (no space yet), show
+  // matching session commands. Resiliently (re-)request the list when missing.
+  const requestedCmds = new Set<string>();
+  $: if (wt && alive && $availableCommands.length === 0 && !requestedCmds.has(wt)) {
+    requestedCmds.add(wt);
+    api.requestCommands(wt);
+  }
+  $: cmdQuery =
+    text.startsWith("/") && !text.slice(1).includes(" ") ? text.slice(1).toLowerCase() : null;
+  $: cmdMatches =
+    cmdQuery !== null
+      ? $availableCommands.filter((c) => c.name.toLowerCase().startsWith(cmdQuery)).slice(0, 8)
+      : [];
+  $: showPalette = focused && cmdMatches.length > 0;
+
+  function pickCommand(name: string) {
+    text = `/${name} `;
+    textareaEl?.focus();
+  }
 
   async function send() {
     const t = text.trim();
@@ -91,7 +113,27 @@
   }
 </script>
 
-<div class="composer">
+<div class="composer relative">
+  {#if showPalette}
+    <!-- Slash-command suggestions, floating above the input. mousedown+prevent
+         keeps the textarea focused so the click registers before blur hides it. -->
+    <div
+      class="bg-popover text-popover-foreground absolute bottom-full left-0 z-50 mb-2 max-h-64 w-72 overflow-auto rounded-md border shadow-md"
+    >
+      {#each cmdMatches as c (c.name)}
+        <button
+          type="button"
+          class="hover:bg-accent flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left"
+          on:mousedown|preventDefault={() => pickCommand(c.name)}
+        >
+          <span class="text-sm font-medium">/{c.name}</span>
+          {#if c.description}
+            <span class="text-muted-foreground line-clamp-1 text-xs">{c.description}</span>
+          {/if}
+        </button>
+      {/each}
+    </div>
+  {/if}
   <!-- Two rows: a terminal-style prompt on top — a borderless textarea that blends
        into the footer, with the send button — and the model selector below it. -->
   <div class="mb-2 flex items-start gap-2">
@@ -100,6 +142,7 @@
     <span class="composer-caret pt-2 leading-5" class:focused>&gt;</span>
     <Textarea
       bind:value={text}
+      bind:ref={textareaEl}
       onkeydown={onKeydown}
       onfocus={onFocus}
       onblur={onBlur}

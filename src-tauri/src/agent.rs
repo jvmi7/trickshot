@@ -39,6 +39,7 @@ pub fn start_session(
     worktree: String,
     resume: Option<String>,
     permission_mode: Option<String>,
+    system_prompt_append: Option<String>,
     provider: Option<String>,
     permission_mode: Option<String>,
     state: State<'_, Sessions>,
@@ -68,6 +69,12 @@ pub fn start_session(
     // the sidecar reads PERMISSION_MODE and defaults to bypassPermissions if unset.
     if let Some(mode) = permission_mode.as_deref() {
         command = command.env("PERMISSION_MODE", mode);
+    }
+    // Optional text appended to the preset system prompt for custom behavior.
+    if let Some(append) = system_prompt_append.as_deref() {
+        if !append.is_empty() {
+            command = command.env("SYSTEM_PROMPT_APPEND", append);
+        }
     }
 
     let (mut rx, child) = command.spawn().map_err(|e| e.to_string())?;

@@ -4,6 +4,7 @@ import type {
   ModelInfo,
   PermissionMode,
   Repo,
+  SlashCommandInfo,
   TranscriptMessage,
   TurnUsage,
   Worktree,
@@ -209,6 +210,10 @@ export function setTurnSummary(worktree: string, summary: TurnSummary) {
 // so it's a single global list; the *current* model is per-worktree.
 export const availableModels = writable<ModelInfo[]>([]);
 
+// Available slash commands for the selected worktree's session (provider-supplied
+// via the `commands` event). Global list; refreshed on session ready / get_commands.
+export const availableCommands = writable<SlashCommandInfo[]>([]);
+
 // Per-worktree current model, persisted so a chat's model choice is sticky across
 // restarts. On a session's `models` event, App.svelte re-applies a persisted
 // choice that differs from the sidecar default (see onModelsEvent there).
@@ -393,6 +398,25 @@ font.subscribe((f) => {
   if (!hasLS) return;
   try {
     localStorage.setItem(FONT_KEY, f);
+  } catch {
+    /* ignore quota errors */
+  }
+});
+
+// ---- Custom system-prompt append (global, persisted) ----
+// Appended to the `claude_code` preset system prompt at session start (applies to
+// NEW sessions; existing ones need a restart). Empty = no append.
+const SYS_PROMPT_KEY = "trickshot.systemPromptAppend";
+function loadSystemPromptAppend(): string {
+  if (!hasLS) return "";
+  const v = localStorage.getItem(SYS_PROMPT_KEY);
+  return typeof v === "string" ? v : "";
+}
+export const systemPromptAppend = writable<string>(loadSystemPromptAppend());
+systemPromptAppend.subscribe((s) => {
+  if (!hasLS) return;
+  try {
+    localStorage.setItem(SYS_PROMPT_KEY, s);
   } catch {
     /* ignore quota errors */
   }

@@ -19,6 +19,8 @@ export interface ProviderContext {
    *  A non-bypass value activates the canUseTool path so the app's Allow/Deny
    *  modal becomes a real kill-switch; switchable live via setPermissionMode. */
   permissionMode?: PermissionMode;
+  /** Optional text appended to the preset system prompt for custom behavior. */
+  systemPromptAppend?: string;
   /** Emit a wire event to the app. The provider never touches stdout directly.
    *  `onFlush` (optional) fires once the line has been handed to stdout — use it
    *  to exit cleanly without truncating the final line (process.exit doesn't
@@ -49,6 +51,8 @@ export interface AgentProvider {
   toggleConnector(name: string, enabled: boolean): void;
   /** Reconnect an MCP connector (e.g. after a failure), then re-emit `connectors`. */
   reconnectConnector(name: string): void;
+  /** (Re-)emit the `commands` event (available slash commands). */
+  publishCommands(): void;
   /** Answer a pending tool-permission request. Active when a non-bypass
    *  permissionMode is in effect; a no-op under the default full bypass. */
   replyPermission(id: string, behavior: "allow" | "deny", message?: string): void;

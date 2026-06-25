@@ -27,6 +27,7 @@ export function run(cliPath: string) {
     projectDir: process.env.PROJECT_DIR ?? process.cwd(),
     resumeSessionId: process.env.RESUME_SESSION || undefined,
     permissionMode: (process.env.PERMISSION_MODE as PermissionMode) || undefined,
+    systemPromptAppend: process.env.SYSTEM_PROMPT_APPEND || undefined,
     emit,
   });
 
@@ -61,6 +62,9 @@ export function run(cliPath: string) {
         break;
       case "reconnect_connector":
         provider.reconnectConnector(cmd.name);
+        break;
+      case "get_commands":
+        provider.publishCommands();
         break;
       case "interrupt":
         provider.interrupt();

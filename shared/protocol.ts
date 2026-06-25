@@ -53,6 +53,12 @@ export interface ConnectorInfo {
   tools: ConnectorTool[];
 }
 
+/** A slash command the current session offers (provider-supplied). */
+export interface SlashCommandInfo {
+  name: string;
+  description: string;
+}
+
 /** Token + cost figures for one completed turn, mapped from the provider's
  *  end-of-turn result. All optional: a provider that doesn't report a field
  *  omits it, and the UI renders nothing for a missing field (never throws).
@@ -90,6 +96,7 @@ export type Inbound =
   | { kind: "get_connectors" }
   | { kind: "toggle_connector"; name: string; enabled: boolean }
   | { kind: "reconnect_connector"; name: string }
+  | { kind: "get_commands" }
   | { kind: "interrupt" }
   | { kind: "rewind"; messageId: string };
 
@@ -112,4 +119,6 @@ export type Outbound =
   | { kind: "error"; error: string }
   // The provider-assigned id of a user turn, usable as a `rewind` target (file
   // checkpoint). Emitted once the agent backend echoes the turn with its id.
-  | { kind: "checkpoint"; id: string };
+  | { kind: "checkpoint"; id: string }
+  // The session's available slash commands (on ready and after get_commands).
+  | { kind: "commands"; commands: SlashCommandInfo[] };

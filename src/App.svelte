@@ -31,6 +31,8 @@
     mainView,
     bumpGitRefresh,
     attachRewindId,
+    availableCommands,
+    systemPromptAppend,
   } from "./lib/stores";
 
   import { toolLabel, toolDetail } from "./lib/agentMessage";
@@ -123,6 +125,8 @@
         } else if (evt.kind === "checkpoint") {
           // Tag the just-sent user turn with its rewindable checkpoint id.
           attachRewindId(worktree, evt.id);
+        } else if (evt.kind === "commands") {
+          availableCommands.set(evt.commands);
         } else if (evt.kind === "error") {
           // Surface only. Status is deliberately NOT reset here: this channel is
           // shared by FATAL errors (an agent-loop throw, which then exits → the
@@ -210,11 +214,11 @@
           // Pass the persisted session id so the agent's context resumes too.
           // The `ready`/`models` events flip status to ready and fill the catalog.
           try {
-            await startSession(
-              sel,
-              get(sessionByWorktree)[sel],
-              get(permissionModeByWorktree)[sel] ?? DEFAULT_PERMISSION_MODE,
-            );
+            await startSession(sel, {
+              resume: get(sessionByWorktree)[sel],
+              permissionMode: get(permissionModeByWorktree)[sel] ?? DEFAULT_PERMISSION_MODE,
+              systemPromptAppend: get(systemPromptAppend),
+            });
             setStatus(sel, "ready");
           } catch {
             // a real spawn failure surfaces via the agent-event error path

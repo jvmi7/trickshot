@@ -17,6 +17,7 @@ export type {
   ModelRating,
   Outbound,
   PermissionMode,
+  SlashCommandInfo,
   TurnUsage,
 } from "../../shared/protocol";
 

@@ -12,6 +12,7 @@
     setCenterView,
     permissionModeByWorktree,
     DEFAULT_PERMISSION_MODE,
+    systemPromptAppend,
   } from "../stores";
   import * as api from "../api";
   import type { Worktree } from "../types";
@@ -90,11 +91,11 @@
     try {
       // Resume this worktree's prior session (context) if we have one persisted,
       // applying its saved permission mode (default: bypassPermissions).
-      await api.startSession(
-        wt.path,
-        get(sessionByWorktree)[wt.path],
-        get(permissionModeByWorktree)[wt.path] ?? DEFAULT_PERMISSION_MODE,
-      );
+      await api.startSession(wt.path, {
+        resume: get(sessionByWorktree)[wt.path],
+        permissionMode: get(permissionModeByWorktree)[wt.path] ?? DEFAULT_PERMISSION_MODE,
+        systemPromptAppend: get(systemPromptAppend),
+      });
       sessionStatus.update((s) => ({ ...s, [wt.path]: "ready" }));
     } catch (e) {
       error = String(e);

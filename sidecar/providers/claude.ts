@@ -176,8 +176,16 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       resume: ctx.resumeSessionId || undefined,
       cwd: ctx.projectDir,
       pathToClaudeCodeExecutable: ctx.cliPath,
-      // Opt into Claude Code's system prompt (the SDK defaults to empty post-rename).
-      systemPrompt: { type: "preset", preset: "claude_code" },
+      // Load the user's + repo's settings (CLAUDE.md, .claude/commands, etc.) so
+      // the agent respects project conventions and offers project slash commands.
+      settingSources: ["user", "project"],
+      // Opt into Claude Code's system prompt (the SDK defaults to empty
+      // post-rename), with an optional per-session append for custom behavior.
+      systemPrompt: {
+        type: "preset",
+        preset: "claude_code",
+        ...(ctx.systemPromptAppend ? { append: ctx.systemPromptAppend } : {}),
+      },
       // Initial gate for tool use; switchable live via setPermissionMode. Under
       // bypassPermissions the SDK never calls canUseTool (the dormant default) —
       // but it still REQUIRES the explicit opt-in flag (SDK 0.3.185), so set it
@@ -246,15 +254,28 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
     ctx.emit({ kind: "connectors", servers });
   }
 
+  async function publishCommands() {
+    try {
+      const cmds = await q.supportedCommands();
+      ctx.emit({
+        kind: "commands",
+        commands: cmds.map((c) => ({ name: c.name, description: c.description ?? "" })),
+      });
+    } catch {
+      // supportedCommands is a control request; if unavailable, leave it empty
+    }
+  }
+
   return {
     id: "claude",
 
     start() {
       ctx.emit({ kind: "ready" });
-      // Best-effort broadcast; the UI also re-requests (get_models/get_connectors)
-      // in case this races ahead of the listener.
+      // Best-effort broadcast; the UI also re-requests (get_models/get_connectors/
+      // get_commands) in case this races ahead of the listener.
       void publishModels();
       void publishConnectors();
+      void publishCommands();
 
       // Drive the agent loop. With an open input queue this runs for the session's life.
       (async () => {
@@ -399,6 +420,10 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
           void publishConnectors();
         }
       })();
+    },
+
+    publishCommands() {
+      void publishCommands();
     },
 
     replyPermission(id, behavior, message) {
