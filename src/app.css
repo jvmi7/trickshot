@@ -490,7 +490,7 @@ body { margin: 0; }
 /* Custom scroll: the viewport clips, the inner content is transformed by
    customScroll (no native scroll). See src/lib/customScroll.ts. */
 .messages-viewport { flex: 1; min-height: 0; overflow: hidden; position: relative; }
-.messages { padding: 16px; display: flex; flex-direction: column; gap: 12px; will-change: transform; }
+.messages { padding: 16px; display: flex; flex-direction: column; gap: 22px; will-change: transform; }
 .empty { color: var(--app-dim); text-align: center; margin-top: 40px; }
 
 /* Top/bottom fade overlays — content fades in/out as it scrolls past the edges.
