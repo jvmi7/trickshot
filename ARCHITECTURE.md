@@ -60,6 +60,7 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 | sidecar → app | `checkpoint` | `{ id }` — the provider-assigned id of a user turn, stored on the `user_local` bubble as its `rewind` target |
 | sidecar → app | `commands` | `{ commands: {name,description}[] }` — available slash commands (on ready and after `get_commands`) |
 | sidecar → app | `mcp_status` | `{ servers: {name,status}[] }` — MCP server connection statuses |
+| sidecar → app | `notification` | `{ message, notificationType? }` — agent wants attention (from the Notification hook); the app raises an OS notification for a backgrounded worktree |
 | sidecar → app | `session` | `{ id }` — the resumable session id, emitted once the provider knows it |
 | sidecar → app | `message` | `{ message: AgentMessage }` — one neutral transcript event |
 | sidecar → app | `permission_request` | `{ id, tool, input }` — emitted by `canUseTool` when the mode isn't `bypassPermissions`; answered by `permission_reply` |
@@ -100,6 +101,7 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 | `start_session` | `worktree, resume?, permissionMode?, systemPromptAppend?, mcpServers?, provider?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` → `RESUME_SESSION` env. `permissionMode` → `PERMISSION_MODE` env (default `bypassPermissions`). `systemPromptAppend` → `SYSTEM_PROMPT_APPEND` env. `mcpServers` (JSON string) → `MCP_SERVERS` env. `provider` (default `claude`) → `AGENT_PROVIDER` env → which adapter the sidecar loads |
 | `send_to_session` | `worktree, payload` (JSON string) | `void` | Writes a line to that worktree's sidecar stdin |
 | `stop_session` | `worktree` | `void` | Kills that worktree's sidecar |
+| `notify` | `title, body` | `void` | Shows a desktop notification (tauri-plugin-notification) |
 
 Events: a single `agent-event` carrying `{ worktree, kind, data }`, where `kind` is `stdout` (a protocol line) | `stderr` | `error` | `terminated`. The frontend routes by `worktree`.
 

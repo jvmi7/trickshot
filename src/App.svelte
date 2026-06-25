@@ -1,7 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import { onAgentEvent, listWorktrees, setModel, startSession, toggleConnector } from "./lib/api";
+  import {
+    onAgentEvent,
+    listWorktrees,
+    setModel,
+    startSession,
+    toggleConnector,
+    notify,
+  } from "./lib/api";
   import {
     repos,
     worktreesByRepo,
@@ -35,7 +42,13 @@
     systemPromptAppend,
     mcpStatus,
     getMcpServers,
+    bumpUnread,
   } from "./lib/stores";
+
+  /** Basename of a worktree path, for notification labels. */
+  function shortName(path: string): string {
+    return path.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || path;
+  }
 
   import { toolLabel, toolDetail } from "./lib/agentMessage";
   import type { AgentMessage } from "./lib/types";
@@ -112,6 +125,12 @@
             if (m.usage) addTurnCost(worktree, m.usage);
             // The turn likely touched files — refresh an open git panel.
             bumpGitRefresh();
+            // If this worktree isn't the one on screen, flag it + notify so the
+            // user notices a background agent finishing.
+            if (worktree !== get(selectedWorktree)) {
+              bumpUnread(worktree);
+              void notify("Agent finished", shortName(worktree));
+            }
           } else if (m.type !== "system") {
             appendMessage(worktree, m);
           }
@@ -131,6 +150,12 @@
           availableCommands.set(evt.commands);
         } else if (evt.kind === "mcp_status") {
           mcpStatus.set(evt.servers);
+        } else if (evt.kind === "notification") {
+          // Agent wants attention — raise an OS notification if it's not the
+          // worktree currently on screen.
+          if (worktree !== get(selectedWorktree)) {
+            void notify(shortName(worktree), evt.message);
+          }
         } else if (evt.kind === "error") {
           // Surface only. Status is deliberately NOT reset here: this channel is
           // shared by FATAL errors (an agent-loop throw, which then exits → the

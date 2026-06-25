@@ -516,6 +516,9 @@ body { margin: 0; }
 .dot.busy { animation: dot-pulse 1.2s ease-in-out infinite; }
 @keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .wt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Sidebar activity badges: pending-permission flag + background unread count. */
+.wt-pending { flex-shrink: 0; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--base-warning, #d29922); }
+.wt-unread { flex-shrink: 0; min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border-radius: 8px; background: var(--app-accent); color: var(--app-bg); }
 
 /* ---- chat ---- */
 .chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }

@@ -163,6 +163,20 @@ export function setStatus(worktree: string, status: SessionStatus) {
   sessionStatus.update((m) => ({ ...m, [worktree]: status }));
 }
 
+// ---- Per-worktree unread activity (turns completed while not selected) ----
+// Drives a sidebar badge so background agents that finished are visible at a
+// glance. Bumped on a backgrounded `turn_end`; cleared when the worktree is opened.
+export const unreadByWorktree = writable<Record<string, number>>({});
+export function bumpUnread(worktree: string) {
+  unreadByWorktree.update((m) => ({ ...m, [worktree]: (m[worktree] ?? 0) + 1 }));
+}
+export function clearUnread(worktree: string) {
+  unreadByWorktree.update((m) => {
+    if (!m[worktree]) return m;
+    return { ...m, [worktree]: 0 };
+  });
+}
+
 // ---- Per-worktree agent activity (verbose loading state while a turn runs) ----
 export interface AgentActivity {
   label: string; // current action, e.g. "Running command", "Thinking"

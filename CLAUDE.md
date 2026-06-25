@@ -69,7 +69,8 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Git review (status/diff/stage/commit/push/merge) | `src-tauri/src/worktree.rs` (commands) + `src/lib/components/GitPanel.svelte` + `DiffView.svelte` (Chat/Changes toggle in `App.svelte`) |
 | Rust commands: agent lifecycle / git worktrees | `src-tauri/src/agent.rs`, `worktree.rs` |
 | Rust command registry (`generate_handler!`) | `src-tauri/src/lib.rs` |
-| Permission scope (shell:allow-spawn, sidecar) | `src-tauri/capabilities/default.json` |
+| Permission scope (shell:allow-spawn, sidecar, notification) | `src-tauri/capabilities/default.json` |
+| Notifications & background fleet (unread/pending badges) | `notify` command (`agent.rs`) + `api.notify` + `unreadByWorktree`/`pendingPermission` stores + `Worktrees.svelte` badges; Notification hook → `notification` event in `App.svelte` |
 | Sidecar/bundle config | `src-tauri/tauri.conf.json` |
 | Thin per-platform embed shims (~6-7 lines each) | `sidecar/agent.<platform>.ts` |
 | Sidecar compile script | `scripts/build-sidecar.sh` |

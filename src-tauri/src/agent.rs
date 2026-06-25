@@ -150,6 +150,19 @@ pub fn send_to_session(
     child.write(&bytes).map_err(|e| e.to_string())
 }
 
+/// Show a desktop notification (used to surface backgrounded-worktree activity
+/// while the user is focused elsewhere).
+#[tauri::command]
+pub fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|e| e.to_string())
+}
+
 /// Kill a worktree's sidecar (no-op if it isn't running).
 #[tauri::command]
 pub fn stop_session(worktree: String, state: State<'_, Sessions>) -> Result<(), String> {

@@ -18,6 +18,9 @@ import type {
 /** Native folder picker. Returns the chosen absolute path, or null if cancelled. */
 export const pickDirectory = () => invoke<string | null>("pick_directory");
 
+/** Show a desktop (OS) notification. */
+export const notify = (title: string, body: string) => invoke<void>("notify", { title, body });
+
 /** List all worktrees of a git repo (the first entry is the main worktree). */
 export const listWorktrees = (repoPath: string) =>
   invoke<Worktree[]>("list_worktrees", { repoPath });

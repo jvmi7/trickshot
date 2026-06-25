@@ -133,4 +133,7 @@ export type Outbound =
   // The session's available slash commands (on ready and after get_commands).
   | { kind: "commands"; commands: SlashCommandInfo[] }
   // MCP server connection statuses (on ready and after get_mcp_status / set_mcp_servers).
-  | { kind: "mcp_status"; servers: McpStatusInfo[] };
+  | { kind: "mcp_status"; servers: McpStatusInfo[] }
+  // The agent wants attention (e.g. needs input). The app may raise an OS
+  // notification, especially for a backgrounded (non-selected) worktree.
+  | { kind: "notification"; message: string; notificationType?: string };

@@ -14,6 +14,9 @@
     DEFAULT_PERMISSION_MODE,
     systemPromptAppend,
     getMcpServers,
+    unreadByWorktree,
+    clearUnread,
+    pendingPermission,
   } from "../stores";
   import * as api from "../api";
   import type { Worktree } from "../types";
@@ -89,6 +92,7 @@
   async function select(wt: Worktree) {
     selectedWorktree.set(wt.path);
     setCenterView("chat");
+    clearUnread(wt.path);
     try {
       // Resume this worktree's prior session (context) if we have one persisted,
       // applying its saved permission mode (default: bypassPermissions).
@@ -207,6 +211,12 @@
               <House class="wt-home" />
             {/if}
             <span class="wt-name">{wt.branch ?? "(detached)"}</span>
+            {#if $pendingPermission[wt.path]}
+              <span class="wt-pending" title="Waiting for permission">!</span>
+            {/if}
+            {#if ($unreadByWorktree[wt.path] ?? 0) > 0 && $selectedWorktree !== wt.path}
+              <span class="wt-unread" title="Finished while in background">{$unreadByWorktree[wt.path]}</span>
+            {/if}
             {#if !wt.is_main}
               <Button
                 variant="ghost"

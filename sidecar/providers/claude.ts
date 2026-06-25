@@ -203,6 +203,29 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       // MCP servers are a provider-specific config blob on the wire; the SDK
       // option is typed, so cast at this single boundary.
       ...(ctx.mcpServers ? { mcpServers: ctx.mcpServers as Record<string, McpServerConfig> } : {}),
+      // Surface agent "needs attention" notifications so the app can raise an OS
+      // notification for a backgrounded worktree.
+      hooks: {
+        Notification: [
+          {
+            hooks: [
+              async (input: unknown) => {
+                const i = input as {
+                  message?: string;
+                  title?: string;
+                  notification_type?: string;
+                };
+                ctx.emit({
+                  kind: "notification",
+                  message: i.message ?? i.title ?? "Agent notification",
+                  notificationType: i.notification_type,
+                });
+                return {};
+              },
+            ],
+          },
+        ],
+      },
     },
   });
 
