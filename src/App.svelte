@@ -8,6 +8,7 @@
     startSession,
     toggleConnector,
     notify,
+    worktreeStatus,
   } from "./lib/api";
   import {
     repos,
@@ -15,6 +16,7 @@
     selectedWorktree,
     appendMessage,
     pendingPermission,
+    pendingQuestion,
     setStatus,
     sidebarOpen,
     availableModels,
@@ -37,6 +39,9 @@
     DEFAULT_PERMISSION_MODE,
     mainView,
     bumpGitRefresh,
+    gitRefreshNonce,
+    setGitStat,
+    activeGitStat,
     attachRewindId,
     availableCommands,
     systemPromptAppend,
@@ -100,6 +105,27 @@
     window.addEventListener("pointerup", up);
   }
 
+  // Keep the selected worktree's change summary fresh so the header can show the
+  // Changes tab (only when dirty) with its +/- diffstat. Re-runs on selection and
+  // on gitRefreshNonce (bumped after a turn that likely touched files).
+  $effect(() => {
+    const wt = $selectedWorktree;
+    void $gitRefreshNonce;
+    if (!wt) return;
+    worktreeStatus(wt)
+      .then((s) =>
+        setGitStat(wt, { changed: s.files.length, insertions: s.insertions, deletions: s.deletions }),
+      )
+      // Non-git dirs / errors → treat as no changes (Worktrees surfaces real errors).
+      .catch(() => setGitStat(wt, { changed: 0, insertions: 0, deletions: 0 }));
+  });
+
+  // If the worktree on screen has no changes, don't strand the user on the (now
+  // hidden) Changes tab — fall back to chat.
+  $effect(() => {
+    if ($mainView === "changes" && ($activeGitStat?.changed ?? 0) === 0) mainView.set("chat");
+  });
+
   onMount(() => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
@@ -143,6 +169,11 @@
           pendingPermission.update((p) => ({
             ...p,
             [worktree]: { id: evt.id, tool: evt.tool, input: evt.input },
+          }));
+        } else if (evt.kind === "question_request") {
+          pendingQuestion.update((p) => ({
+            ...p,
+            [worktree]: { id: evt.id, questions: evt.questions },
           }));
         } else if (evt.kind === "checkpoint") {
           // Tag the just-sent user turn with its rewindable checkpoint id.
@@ -325,18 +356,30 @@
         {/if}
       </div>
       <div slot="actions" class="view-tabs">
-        <Button
-          size="sm"
-          variant={$mainView === "chat" ? "secondary" : "ghost"}
-          class="h-7 text-xs"
-          onclick={() => mainView.set("chat")}>Chat</Button
-        >
-        <Button
-          size="sm"
-          variant={$mainView === "changes" ? "secondary" : "ghost"}
-          class="h-7 text-xs"
-          onclick={() => mainView.set("changes")}>Changes</Button
-        >
+        {#if $centerView !== "settings"}
+          <Button
+            size="sm"
+            variant={$mainView === "chat" ? "secondary" : "ghost"}
+            class="h-7 text-xs"
+            onclick={() => mainView.set("chat")}>Chat</Button
+          >
+          {#if $activeGitStat && $activeGitStat.changed > 0}
+            <Button
+              size="sm"
+              variant={$mainView === "changes" ? "secondary" : "ghost"}
+              class="h-7 gap-1.5 text-xs"
+              onclick={() => mainView.set("changes")}
+            >
+              Changes
+              {#if $activeGitStat.insertions > 0}
+                <span class="diff-add">+{$activeGitStat.insertions}</span>
+              {/if}
+              {#if $activeGitStat.deletions > 0}
+                <span class="diff-del">−{$activeGitStat.deletions}</span>
+              {/if}
+            </Button>
+          {/if}
+        {/if}
       </div>
     </Header>
     <div class="content">

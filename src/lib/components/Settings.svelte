@@ -34,6 +34,20 @@
   const themeLabel = $derived(THEMES.find((t) => t.id === $theme)?.label ?? "Theme");
   const fontLabel = $derived(FONTS.find((f) => f.id === $font)?.label ?? "Font");
 
+  // Compact MCP status: "<N> servers · <n> connected · <n> needs-auth · …".
+  // The raw per-server list (one config can expose dozens) is too long to show
+  // inline, so collapse it to counts by status (most-common first).
+  const mcpSummary = $derived.by(() => {
+    const list = $mcpStatus;
+    if (!list.length) return "";
+    const counts: Record<string, number> = {};
+    for (const s of list) counts[s.status] = (counts[s.status] ?? 0) + 1;
+    const parts = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([status, n]) => `${n} ${status}`);
+    return `${list.length} server${list.length === 1 ? "" : "s"} · ${parts.join(" · ")}`;
+  });
+
   // Connectors are GLOBAL, but the live catalog + toggles need a running session.
   // View the selected worktree's session if alive, else any session that has
   // already reported connectors. Toggles persist globally and apply to every
@@ -151,7 +165,7 @@
       </Tabs.List>
 
       <Tabs.Content value="appearance" class="pt-4">
-        <div class="flex max-w-md flex-col gap-4">
+        <div class="flex flex-col gap-4">
           <div class="flex items-center justify-between gap-4">
             <span class="text-sm text-muted-foreground">Theme</span>
             <Select.Root type="single" value={$theme} onValueChange={(v) => v && theme.set(v)}>
@@ -192,9 +206,7 @@
             <div class="flex items-center justify-between">
               <span class="text-sm text-muted-foreground">MCP servers (JSON)</span>
               {#if $mcpStatus.length}
-                <span class="text-muted-foreground text-xs">
-                  {$mcpStatus.map((s) => `${s.name}: ${s.status}`).join(" · ")}
-                </span>
+                <span class="text-muted-foreground text-xs">{mcpSummary}</span>
               {/if}
             </div>
             <Textarea

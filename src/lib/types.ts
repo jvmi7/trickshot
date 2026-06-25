@@ -18,6 +18,8 @@ export type {
   ModelRating,
   Outbound,
   PermissionMode,
+  Question,
+  QuestionOption,
   SlashCommandInfo,
   TurnUsage,
 } from "../../shared/protocol";
@@ -60,6 +62,9 @@ export interface GitStatus {
   branch: string | null;
   ahead: number;
   behind: number;
+  /** Lines added/removed vs HEAD (staged + unstaged tracked changes). */
+  insertions: number;
+  deletions: number;
   files: GitFileStatus[];
 }
 

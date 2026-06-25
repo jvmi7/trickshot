@@ -94,6 +94,9 @@ export function run(cliPath: string) {
       case "permission_reply":
         provider.replyPermission(cmd.id, cmd.behavior, cmd.message);
         break;
+      case "question_reply":
+        provider.replyQuestion(cmd.id, cmd.answers);
+        break;
       default: {
         // Exhaustiveness guard: a new Inbound `kind` added to the protocol
         // without a case here is now a COMPILE error (the sidecar is typechecked

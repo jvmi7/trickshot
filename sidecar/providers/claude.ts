@@ -6,12 +6,15 @@
 
 import {
   type AgentDefinition,
+  createSdkMcpServer,
   type McpServerConfig,
   type PermissionResult,
   query,
   type SDKMessage,
   type SDKUserMessage,
+  tool,
 } from "@anthropic-ai/claude-agent-sdk";
+import { z } from "zod";
 import type {
   AgentMessage,
   ConnectorInfo,
@@ -23,6 +26,14 @@ import type { AgentProvider, ProviderContext } from "./types";
 
 // The default model a fresh session starts on (the UI can switch it per chat).
 const DEFAULT_MODEL = "claude-opus-4-8";
+
+// Always appended to the system prompt so the agent reaches for OUR question tool
+// FIRST, instead of trying the built-in AskUserQuestion, getting denied, and only
+// then falling back. (The built-in is also disallowed below as a hard backstop.)
+const ASK_USER_GUIDANCE =
+  "To ask the user a multiple-choice question, ALWAYS use the `mcp__trickshot__ask_user` " +
+  "tool. NEVER use the built-in `AskUserQuestion` tool — it is disabled in this environment, " +
+  "so attempting it only wastes a turn.";
 
 // A pushable async-iterable used as the streaming `prompt`. Never closed, so the
 // session stays open for a multi-turn chat.
@@ -153,6 +164,10 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
   // resolved by replyPermission with the user's PermissionResult.
   const pendingPermissions = new Map<string, (result: PermissionResult) => void>();
   let permId = 0;
+  // Resolvers for in-flight `ask_user` questions, keyed by a generated id. Parked
+  // by the tool handler (below), resolved by replyQuestion with the user's choices.
+  const pendingQuestions = new Map<string, (answers: string[][]) => void>();
+  let questionId = 0;
   let currentModel = DEFAULT_MODEL;
   let modelCatalog: ModelInfo[] = [];
   // Captured from the `system`/init message — the name+status fallback for the
@@ -178,6 +193,56 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       ctx.emit({ kind: "permission_request", id, tool: toolName, input });
     });
 
+  // Provider-neutral "ask the user a question" path. The built-in AskUserQuestion
+  // tool's answer channel isn't exposed to an SDK host, so we expose OUR OWN tool:
+  // its handler emits a neutral question_request, parks a resolver, and returns the
+  // user's choices as the tool result. The built-in is disallowed (see options) so
+  // structured questions always funnel through this UI. A new provider asks via its
+  // own mechanism but emits the SAME question_request — the UI is provider-neutral.
+  const askUserTool = tool(
+    "ask_user",
+    "Ask the user one or more multiple-choice questions and wait for their answer. " +
+      "Use this whenever you need the user to choose between options or make a decision " +
+      "before continuing.",
+    {
+      questions: z
+        .array(
+          z.object({
+            question: z.string().describe("The question to ask the user"),
+            header: z.string().optional().describe("A short label/chip (<= 12 chars)"),
+            options: z
+              .array(
+                z.object({
+                  label: z.string().describe("The option text the user picks"),
+                  description: z.string().optional().describe("What this option means"),
+                }),
+              )
+              .min(2)
+              .describe("At least two distinct choices"),
+            multiSelect: z.boolean().optional().describe("Allow choosing more than one option"),
+          }),
+        )
+        .min(1),
+    },
+    async (args) => {
+      const id = `q-${questionId++}`;
+      const answers = await new Promise<string[][]>((resolve) => {
+        pendingQuestions.set(id, resolve);
+        ctx.emit({ kind: "question_request", id, questions: args.questions });
+      });
+      // Hand the user's decision back to the model as the tool result text.
+      const text = args.questions
+        .map((qn, i) => `Q: ${qn.question}\nA: ${(answers[i] ?? []).join(", ") || "(no answer)"}`)
+        .join("\n\n");
+      return { content: [{ type: "text", text }] };
+    },
+  );
+  const trickshotServer = createSdkMcpServer({
+    name: "trickshot",
+    version: "1.0.0",
+    tools: [askUserTool],
+  });
+
   const q = query({
     prompt: turns,
     options: {
@@ -191,11 +256,12 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       // the agent respects project conventions and offers project slash commands.
       settingSources: ["user", "project"],
       // Opt into Claude Code's system prompt (the SDK defaults to empty
-      // post-rename), with an optional per-session append for custom behavior.
+      // post-rename). Always append the ask_user guidance; tack the user's custom
+      // append after it when present.
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
-        ...(ctx.systemPromptAppend ? { append: ctx.systemPromptAppend } : {}),
+        append: [ASK_USER_GUIDANCE, ctx.systemPromptAppend].filter(Boolean).join("\n\n"),
       },
       // Initial gate for tool use; switchable live via setPermissionMode. Under
       // bypassPermissions the SDK never calls canUseTool (the dormant default) —
@@ -210,9 +276,15 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       // Back up files before edits so a turn's changes can be reverted by
       // rewindFiles (the per-turn "rewind to here" checkpoint feature).
       enableFileCheckpointing: true,
-      // MCP servers are a provider-specific config blob on the wire; the SDK
-      // option is typed, so cast at this single boundary.
-      ...(ctx.mcpServers ? { mcpServers: ctx.mcpServers as Record<string, McpServerConfig> } : {}),
+      // MCP servers: the user's config blob (provider-specific; cast at this single
+      // boundary) PLUS our built-in `trickshot` server that hosts the `ask_user`
+      // tool. Disallow the built-in AskUserQuestion so structured questions always
+      // route through `ask_user` → the app's QuestionModal.
+      mcpServers: {
+        ...((ctx.mcpServers as Record<string, McpServerConfig>) ?? {}),
+        trickshot: trickshotServer,
+      },
+      disallowedTools: ["AskUserQuestion"],
       // User-defined subagents (Record<name, def>); same opaque-blob + cast as MCP.
       // (Repo .claude/agents are also loaded via settingSources.)
       ...(ctx.agents ? { agents: ctx.agents as Record<string, AgentDefinition> } : {}),
@@ -507,6 +579,15 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
           ? { behavior: "allow" }
           : { behavior: "deny", message: message || "Denied by the user." },
       );
+    },
+
+    replyQuestion(id, answers) {
+      // Settles the promise parked by the ask_user tool handler; the resolved
+      // answers become the tool result the agent reads.
+      const resolve = pendingQuestions.get(id);
+      if (!resolve) return;
+      pendingQuestions.delete(id);
+      resolve(answers);
     },
   };
 }

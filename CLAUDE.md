@@ -71,6 +71,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Rust command registry (`generate_handler!`) | `src-tauri/src/lib.rs` |
 | Permission scope (shell:allow-spawn, sidecar, notification) | `src-tauri/capabilities/default.json` |
 | Notifications & background fleet (unread/pending badges) | `notify` command (`agent.rs`) + `api.notify` + `unreadByWorktree`/`pendingPermission` stores + `Worktrees.svelte` badges; Notification hook → `notification` event in `App.svelte` |
+| Agent → user questions (provider-neutral) | `question_request`/`question_reply` (`shared/protocol.ts`) + `QuestionModal.svelte` + `pendingQuestion`/`activeQuestion` stores + `api.replyQuestion`; Claude raises via the built-in `ask_user` SDK MCP tool in `providers/claude.ts` (built-in `AskUserQuestion` disallowed). A new provider emits the SAME `question_request` |
 | Sidecar/bundle config | `src-tauri/tauri.conf.json` |
 | Thin per-platform embed shims (~6-7 lines each) | `sidecar/agent.<platform>.ts` |
 | Sidecar compile script | `scripts/build-sidecar.sh` |
@@ -118,7 +119,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 
 - DO write **every NEW** component with runes (`$state`, `$derived`, `$props`, `$effect`) + snippets — never template a new component off a legacy one. Legacy syntax (`export let`, `$:`, `<slot>`) is **debt, not an equal option**: the target is 100% runes. When you edit a legacy file, convert the whole file to runes in that pass if it's small; otherwise match its existing mode for a minimal edit. NEVER mix runes and legacy in ONE component. Track progress in the migration list below.
 - **Migration tracker** (so you don't have to re-derive each component's mode). Migrate a file when you're already editing it; don't churn the others just to convert.
-  - ✅ **Runes** (don't regress to legacy): `Settings`, `ModelSelector`, `LoadingState`, `PermissionModal`, `ScrollIndicator`, `HeaderIconButton`, and all `ui/*`.
+  - ✅ **Runes** (don't regress to legacy): `Settings`, `ModelSelector`, `LoadingState`, `PermissionModal`, `QuestionModal`, `ScrollIndicator`, `HeaderIconButton`, and all `ui/*`.
   - ⏳ **Legacy, to migrate**: `Header` (uses `<slot>` → convert to snippet props; this is the load-bearing one since `App.svelte` consumes it via `slot="left"`), `Worktrees`, `Composer`, `Chat`, `Message`, `Collapsible`.
   - ◐ **App.svelte** is runes-leaning but consumes `Header`'s legacy slots via `slot="left"`; flip it together with `Header`.
 - DO route all transcript writes through `stores.appendMessage(worktree, msg)` / `resetTranscript(worktree)` (they assign the stable `__key` and batch per worktree). DON'T mutate the `transcripts` map directly — `resetTranscript` also drops the un-flushed buffer so a recreated worktree can't inherit stale messages.

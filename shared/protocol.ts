@@ -65,6 +65,25 @@ export interface McpStatusInfo {
   status: string;
 }
 
+/** One selectable choice in a {@link Question}. */
+export interface QuestionOption {
+  label: string;
+  description?: string;
+}
+
+/** A structured question the agent asks the user, mapped from the provider's
+ *  native "ask the user" mechanism (for Claude: the `ask_user` tool). Neutral on
+ *  the wire so ANY provider can raise one and the same UI answers it. */
+export interface Question {
+  /** The question text. */
+  question: string;
+  /** Optional short label (a chip/tag header, e.g. "Auth method"). */
+  header?: string;
+  options: QuestionOption[];
+  /** Allow choosing more than one option. */
+  multiSelect?: boolean;
+}
+
 /** Token + cost figures for one completed turn, mapped from the provider's
  *  end-of-turn result. All optional: a provider that doesn't report a field
  *  omits it, and the UI renders nothing for a missing field (never throws).
@@ -110,7 +129,10 @@ export type Inbound =
   // Provider-specific MCP server config (opaque blob, e.g. `.mcp.json`'s
   // `mcpServers`). Applied live; `get_mcp_status` requests a status refresh.
   | { kind: "set_mcp_servers"; servers: Record<string, unknown> }
-  | { kind: "get_mcp_status" };
+  | { kind: "get_mcp_status" }
+  // Answer to a `question_request`: per-question, the chosen option labels (one
+  // for single-select, one-or-more for multiSelect). Order mirrors `questions`.
+  | { kind: "question_reply"; id: string; answers: string[][] };
 
 /** Provider-neutral permission modes (mirrors the Claude SDK's `PermissionMode`).
  *  `bypassPermissions` runs every tool without prompting (the historical
@@ -138,4 +160,7 @@ export type Outbound =
   | { kind: "mcp_status"; servers: McpStatusInfo[] }
   // The agent wants attention (e.g. needs input). The app may raise an OS
   // notification, especially for a backgrounded (non-selected) worktree.
-  | { kind: "notification"; message: string; notificationType?: string };
+  | { kind: "notification"; message: string; notificationType?: string }
+  // The agent is asking the user a structured question; the app shows a modal
+  // and answers with `question_reply`. Provider-neutral (see Question).
+  | { kind: "question_request"; id: string; questions: Question[] };

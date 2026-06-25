@@ -4,6 +4,7 @@ import type {
   McpStatusInfo,
   ModelInfo,
   PermissionMode,
+  Question,
   Repo,
   SlashCommandInfo,
   TranscriptMessage,
@@ -15,6 +16,12 @@ export interface PermissionReq {
   id: string;
   tool: string;
   input: unknown;
+}
+
+/** A pending `ask_user` question for a worktree (answered via QuestionModal). */
+export interface QuestionReq {
+  id: string;
+  questions: Question[];
 }
 
 /** A worktree's agent session lifecycle:
@@ -70,6 +77,19 @@ export const mainView = writable<"chat" | "changes">("chat");
 export const gitRefreshNonce = writable<number>(0);
 export function bumpGitRefresh() {
   gitRefreshNonce.update((n) => n + 1);
+}
+
+/** Per-worktree change summary (changed-file count + diffstat). Populated by
+ *  App.svelte from `worktree_status` on selection / gitRefreshNonce; drives the
+ *  header's Changes tab — shown only when `changed > 0`, with the +/- counts. */
+export interface GitStat {
+  changed: number;
+  insertions: number;
+  deletions: number;
+}
+export const gitStatByWorktree = writable<Record<string, GitStat>>({});
+export function setGitStat(worktree: string, stat: GitStat) {
+  gitStatByWorktree.update((m) => ({ ...m, [worktree]: stat }));
 }
 
 /** The chat's custom "scroll" position — a global cursor into the transcript.
@@ -652,6 +672,9 @@ export function attachRewindId(worktree: string, id: string) {
 // ---- Per-worktree pending permission (dormant under bypassPermissions) ----
 export const pendingPermission = writable<Record<string, PermissionReq | null>>({});
 
+// ---- Per-worktree pending question (the agent's `ask_user`) ----
+export const pendingQuestion = writable<Record<string, QuestionReq | null>>({});
+
 // ---- Derived views for the currently selected worktree ----
 export const activeMessages = derived([transcripts, selectedWorktree], ([$t, $sel]) =>
   $sel ? ($t[$sel] ?? []) : [],
@@ -728,6 +751,10 @@ export const renderedGroups = derived(renderedMessages, ($msgs): RenderedGroup[]
 export const activePending = derived([pendingPermission, selectedWorktree], ([$p, $sel]) =>
   $sel ? ($p[$sel] ?? null) : null,
 );
+/** The selected worktree's pending question (null when none). */
+export const activeQuestion = derived([pendingQuestion, selectedWorktree], ([$q, $sel]) =>
+  $sel ? ($q[$sel] ?? null) : null,
+);
 /** The current model of the selected worktree's chat (null until its session
  *  reports a `models` event). */
 export const activeModel = derived([modelByWorktree, selectedWorktree], ([$m, $sel]) =>
@@ -744,6 +771,10 @@ export const activeSummary = derived([turnSummary, selectedWorktree], ([$s, $sel
 /** The selected worktree's running cost/token total (null until a turn completes). */
 export const activeCost = derived([costByWorktree, selectedWorktree], ([$c, $sel]) =>
   $sel ? ($c[$sel] ?? null) : null,
+);
+/** The selected worktree's change summary (null until fetched / when none). */
+export const activeGitStat = derived([gitStatByWorktree, selectedWorktree], ([$m, $sel]) =>
+  $sel ? ($m[$sel] ?? null) : null,
 );
 /** The session default when a worktree has no explicit choice — preserves the
  *  historical silent-run behavior so enabling prompts is opt-in. */

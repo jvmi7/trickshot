@@ -45,6 +45,7 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 |---|---|---|
 | app → sidecar | `user_turn` | `{ text }` |
 | app → sidecar | `permission_reply` | `{ id, behavior, message? }` — answers a `permission_request` (active when the mode isn't `bypassPermissions`) |
+| app → sidecar | `question_reply` | `{ id, answers }` — answers a `question_request`; `answers[i]` is the chosen option labels for question `i` |
 | app → sidecar | `set_model` | `{ model }` — switch the chat's model; sidecar confirms by re-emitting `models` |
 | app → sidecar | `set_permission_mode` | `{ mode }` — switch tool-permission mode live (`default`/`acceptEdits`/`plan`/`bypassPermissions`) |
 | app → sidecar | `get_models` | — request a (re-)emit of `models`; the UI's resilient path since the ready-time broadcast can race the listener |
@@ -64,6 +65,7 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 | sidecar → app | `session` | `{ id }` — the resumable session id, emitted once the provider knows it |
 | sidecar → app | `message` | `{ message: AgentMessage }` — one neutral transcript event |
 | sidecar → app | `permission_request` | `{ id, tool, input }` — emitted by `canUseTool` when the mode isn't `bypassPermissions`; answered by `permission_reply` |
+| sidecar → app | `question_request` | `{ id, questions }` — the agent asks structured multiple-choice questions (Claude: via the `ask_user` tool); `QuestionModal.svelte` answers with `question_reply` |
 | sidecar → app | `models` | `{ models: {value,displayName,description?,meta?}[], current }` — catalog + current (on ready and after `set_model`); `meta` is provider-supplied comparison pips |
 | sidecar → app | `connectors` | `{ servers: {name,status,scope?,error?,tools:{name,description?,readOnly?,destructive?}[]}[] }` — MCP connectors + their tools/status (on ready and after a toggle/reconnect) |
 | sidecar → app | `error` | `{ error }` |

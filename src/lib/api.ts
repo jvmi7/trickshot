@@ -113,6 +113,11 @@ export const replyPermission = (
   message?: string,
 ) => send(worktree, { kind: "permission_reply", id, behavior, message });
 
+/** Answer a pending question (the agent's `ask_user`) with the user's choices —
+ *  per question, the chosen option labels (one for single-select, more for multi). */
+export const replyQuestion = (worktree: string, id: string, answers: string[][]) =>
+  send(worktree, { kind: "question_reply", id, answers });
+
 /** Interrupt a worktree's agent mid-task. */
 export const interruptAgent = (worktree: string) => send(worktree, { kind: "interrupt" });
 

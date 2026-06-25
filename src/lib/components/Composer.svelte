@@ -33,7 +33,7 @@
     phTimer = setInterval(() => {
       ph = ph.slice(0, -1);
       if (!ph) clearInterval(phTimer);
-    }, 15);
+    }, 9);
   }
   function onBlur() {
     focused = false;
@@ -44,9 +44,15 @@
     phTimer = setInterval(() => {
       ph = PLACEHOLDER.slice(0, ph.length + 1);
       if (ph === PLACEHOLDER) clearInterval(phTimer);
-    }, 15);
+    }, 9);
   }
   onDestroy(() => clearInterval(phTimer));
+
+  // The animated placeholder is rendered as our own overlay (not the native
+  // `placeholder` attr) so a blinking caret can ride the END of the backspacing
+  // text and settle at the start once it's empty. While that caret shows, the
+  // real textarea caret is hidden so there aren't two.
+  $: showPhCaret = alive && focused && text === "";
 
   $: wt = $selectedWorktree;
   $: status = wt ? $sessionStatus[wt] : undefined;
@@ -140,17 +146,27 @@
     <!-- pt-2/leading-5 match the textarea's top padding + line-height so the
          caret lines up with the FIRST line as the box grows (not centered). -->
     <span class="composer-caret pt-2 leading-5" class:focused>&gt;</span>
-    <Textarea
-      bind:value={text}
-      bind:ref={textareaEl}
-      onkeydown={onKeydown}
-      onfocus={onFocus}
-      onblur={onBlur}
-      disabled={!alive}
-      placeholder={alive ? ph : "Select a worktree to start"}
-      rows={2}
-      class="max-h-48 min-h-[3.25rem] flex-1 resize-none rounded-none border-0 bg-transparent px-0 pt-2 pb-1 caret-primary shadow-none outline-none transition-colors placeholder:transition-colors hover:text-foreground hover:placeholder:text-foreground focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
-    />
+    <!-- The textarea's native placeholder is suppressed; the animated placeholder
+         (with its trailing caret) is the overlay below, kept pixel-aligned with
+         the textarea's text by matching its padding/leading/size. -->
+    <div class="group relative flex-1">
+      <Textarea
+        bind:value={text}
+        bind:ref={textareaEl}
+        onkeydown={onKeydown}
+        onfocus={onFocus}
+        onblur={onBlur}
+        disabled={!alive}
+        rows={2}
+        class="max-h-48 min-h-[3.25rem] w-full resize-none rounded-none border-0 bg-transparent px-0 pt-2 pb-1 shadow-none outline-none transition-colors hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent {showPhCaret ? 'caret-transparent' : 'caret-primary'}"
+      />
+      {#if text === ""}
+        <div
+          class="text-muted-foreground group-hover:text-foreground pointer-events-none absolute inset-0 pt-2 text-base whitespace-pre transition-colors select-none md:text-sm"
+          aria-hidden="true"
+        >{alive ? ph : "Select a worktree to start"}{#if showPhCaret}<span class="ph-caret"></span>{/if}</div>
+      {/if}
+    </div>
     {#if working}
       <Button variant="ghost" size="icon" class="size-9 shrink-0 self-center rounded-full" title="Stop" aria-label="Stop" onclick={stop}>
         <Square class="size-3.5 fill-current" />

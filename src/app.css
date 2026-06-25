@@ -17,6 +17,19 @@
   &[data-closed] { @slot; }
 }
 
+/* Same mismatch for Tabs: the generated `ui/tabs` trigger styles its selected
+   state via the `data-active:` variant, but bits-ui 2.18.1 stamps
+   `data-state="active"/"inactive"` — so without these the active tab is
+   indistinguishable from the inactive ones. Map both spellings. */
+@custom-variant data-active {
+  &[data-state="active"] { @slot; }
+  &[data-active] { @slot; }
+}
+@custom-variant data-inactive {
+  &[data-state="inactive"] { @slot; }
+  &[data-inactive] { @slot; }
+}
+
 /* ============================================================
    Google Sans Code — the app's global typeface (self-hosted so
    the packaged desktop app needs no network). Variable weight
@@ -413,6 +426,10 @@ body { margin: 0; }
 .app-header .spacer { flex: 1; }
 /* Chat/Changes segmented toggle in the header's actions slot. */
 .view-tabs { display: flex; gap: 4px; }
+/* Diffstat counts on the header's Changes tab (added green / removed red,
+   matching DiffView's line colors). */
+.diff-add { color: var(--base-success); font-variant-numeric: tabular-nums; }
+.diff-del { color: var(--destructive); font-variant-numeric: tabular-nums; }
 
 /* ---- floating top-bar icon buttons (HeaderIconButton.svelte): the sidebar
    toggle (left, past the macOS traffic lights so it survives the sidebar
@@ -731,8 +748,25 @@ body { margin: 0; }
 }
 .composer-caret.focused { color: var(--app-accent); }
 
+/* Caret that rides the end of the animated placeholder as it types/backspaces,
+   matching the real textarea caret (color + blink) so the handoff is seamless. */
+.ph-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--primary);
+  animation: ph-caret-blink 1s step-end infinite;
+}
+
 }
 /* end @layer components */
+
+@keyframes ph-caret-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
 
 /* Tokenized modal scrim — overrides the shadcn dialog-overlay's hardcoded
    `bg-black/10` so the scrim follows the theme. Unlayered so it beats

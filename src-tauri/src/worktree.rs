@@ -215,7 +215,32 @@ pub struct WorktreeStatus {
     pub branch: Option<String>,
     pub ahead: i32,
     pub behind: i32,
+    /// Lines added/removed vs HEAD (staged + unstaged tracked changes).
+    pub insertions: i32,
+    pub deletions: i32,
     pub files: Vec<FileStatus>,
+}
+
+/// Insertions/deletions vs HEAD (`git diff HEAD --shortstat`). Best-effort: a
+/// repo with no commits (no HEAD) or any git error yields (0, 0).
+fn diff_shortstat(worktree_path: &str) -> (i32, i32) {
+    let Ok(out) = git(worktree_path, &["diff", "HEAD", "--shortstat"]) else {
+        return (0, 0);
+    };
+    // e.g. ` 3 files changed, 12 insertions(+), 4 deletions(-)`
+    let (mut ins, mut del) = (0, 0);
+    for part in out.split(',') {
+        let p = part.trim();
+        let Some(n) = p.split_whitespace().next().and_then(|t| t.parse::<i32>().ok()) else {
+            continue;
+        };
+        if p.contains("insertion") {
+            ins = n;
+        } else if p.contains("deletion") {
+            del = n;
+        }
+    }
+    (ins, del)
 }
 
 /// Parsed `git status --porcelain=v1 --branch` for a worktree.
@@ -270,10 +295,13 @@ pub fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> 
         });
     }
 
+    let (insertions, deletions) = diff_shortstat(&worktree_path);
     Ok(WorktreeStatus {
         branch,
         ahead,
         behind,
+        insertions,
+        deletions,
         files,
     })
 }

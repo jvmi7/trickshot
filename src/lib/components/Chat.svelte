@@ -10,6 +10,7 @@
   import ToolGroup from "./ToolGroup.svelte";
   import Composer from "./Composer.svelte";
   import PermissionModal from "./PermissionModal.svelte";
+  import QuestionModal from "./QuestionModal.svelte";
   import ScrollIndicator from "./ScrollIndicator.svelte";
   import LoadingState from "./LoadingState.svelte";
 
@@ -48,4 +49,5 @@
   <LoadingState />
   <Composer />
   <PermissionModal />
+  <QuestionModal />
 </div>

@@ -64,6 +64,8 @@ export interface AgentProvider {
   /** Answer a pending tool-permission request. Active when a non-bypass
    *  permissionMode is in effect; a no-op under the default full bypass. */
   replyPermission(id: string, behavior: "allow" | "deny", message?: string): void;
+  /** Answer a pending `question_request` with the user's per-question choices. */
+  replyQuestion(id: string, answers: string[][]): void;
 }
 
 export type ProviderFactory = (ctx: ProviderContext) => AgentProvider;

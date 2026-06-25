@@ -24,9 +24,8 @@
 
 {#if m.type === "user_local"}
   <div class="msg user">
-    <div class="role">
-      you
-      {#if m.rewindId}
+    {#if m.rewindId}
+      <div class="role">
         <button
           class="rewind-btn"
           title="Rewind file changes to here"
@@ -34,8 +33,8 @@
         >
           <Undo2 class="size-3" />
         </button>
-      {/if}
-    </div>
+      </div>
+    {/if}
     <div class="body">{m.text}</div>
   </div>
 {:else if m.type === "assistant"}
