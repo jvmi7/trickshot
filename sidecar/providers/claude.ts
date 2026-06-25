@@ -76,6 +76,21 @@ function ratings(value: string, displayName: string): ModelInfo["meta"] {
   ];
 }
 
+// Shape of one Claude content block as it crosses the native->neutral seam. The
+// SDK types `message.content` as loose `unknown`; the String()/typeof guards in
+// toNeutral validate each field at runtime, so this confined type just removes the
+// implicit `any` from the block iteration (matches the file's other confined casts).
+type ContentBlock = {
+  type?: string;
+  text?: unknown;
+  id?: unknown;
+  name?: unknown;
+  input?: unknown;
+  tool_use_id?: unknown;
+  content?: unknown;
+  is_error?: unknown;
+};
+
 // Map one Claude SDKMessage into zero or more neutral AgentMessages.
 // Exported for unit testing (the native->neutral mapping is core correctness).
 export function toNeutral(msg: SDKMessage): AgentMessage[] {
@@ -86,7 +101,7 @@ export function toNeutral(msg: SDKMessage): AgentMessage[] {
   switch (msg.type) {
     case "assistant": {
       const content = (msg as { message?: { content?: unknown } }).message?.content;
-      const blocks = Array.isArray(content) ? content : [];
+      const blocks = (Array.isArray(content) ? content : []) as ContentBlock[];
       const out: AgentMessage[] = [];
       for (const b of blocks) {
         if (b?.type === "text" && typeof b.text === "string") {
@@ -105,7 +120,7 @@ export function toNeutral(msg: SDKMessage): AgentMessage[] {
     }
     case "user": {
       const content = (msg as { message?: { content?: unknown } }).message?.content;
-      const blocks = Array.isArray(content) ? content : [];
+      const blocks = (Array.isArray(content) ? content : []) as ContentBlock[];
       const out: AgentMessage[] = [];
       for (const b of blocks) {
         if (b?.type === "tool_result") {
@@ -362,6 +377,8 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
     if (servers.length === 0 && initServers.length > 0) {
       servers = initServers.map((s) => ({
         name: s.name,
+        // Cast WHY: init reports status as a plain string; the `|| "connected"`
+        // fallback guards a value outside the ConnectorInfo["status"] union.
         status: (s.status as ConnectorInfo["status"]) || "connected",
         tools: [],
       }));

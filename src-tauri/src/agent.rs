@@ -94,6 +94,9 @@ pub fn start_session(
     }
 
     let (mut rx, child) = command.spawn().map_err(|e| e.to_string())?;
+    // Capture this child's pid so the reader task can prove it still owns the map
+    // entry before removing it on exit (see the identity-checked cleanup below).
+    let pid = child.pid();
     map.insert(worktree.clone(), child);
     drop(map);
 
@@ -128,9 +131,15 @@ pub fn start_session(
             let _ = handle.emit("agent-event", evt);
         }
         // Clean up on ANY loop exit (Terminated OR channel close), so a dead
-        // session never leaves a stale key that would block restarting it.
+        // session never leaves a stale key that would block restarting it. Remove
+        // ONLY if our child still owns the entry: a stop_session + start_session
+        // race can replace it with a fresh child (different pid) before we reach
+        // here, and an unconditional remove would orphan that live sidecar.
         if let Some(state) = handle.try_state::<Sessions>() {
-            state.lock().remove(&key);
+            let mut map = state.lock();
+            if map.get(&key).map(|c| c.pid()) == Some(pid) {
+                map.remove(&key);
+            }
         }
         let _ = handle.emit(
             "agent-event",
