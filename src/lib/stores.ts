@@ -59,6 +59,17 @@ export function setSidebarWidth(w: number) {
   sidebarWidth.set(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(w))));
 }
 
+/** Which view the main pane shows for the selected worktree: the chat transcript
+ *  or the git "changes" (diff) panel. Ephemeral UI state. */
+export const mainView = writable<"chat" | "changes">("chat");
+
+/** Bumped to ask an open GitPanel to re-fetch status/diff (e.g. after a turn that
+ *  likely touched files). A monotonic counter the panel watches. */
+export const gitRefreshNonce = writable<number>(0);
+export function bumpGitRefresh() {
+  gitRefreshNonce.update((n) => n + 1);
+}
+
 /** The chat's custom "scroll" position — a global cursor into the transcript.
  *  The chat pane never natively scrolls; `customScroll` drives this instead
  *  and the ScrollIndicator reflects it. `progress` is 0 (top) … 1 (bottom),

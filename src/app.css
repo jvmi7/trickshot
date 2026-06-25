@@ -411,6 +411,8 @@ body { margin: 0; }
      on screen is the sidebar's full-height right border. */
 }
 .app-header .spacer { flex: 1; }
+/* Chat/Changes segmented toggle in the header's actions slot. */
+.view-tabs { display: flex; gap: 4px; }
 
 /* ---- floating top-bar icon buttons (HeaderIconButton.svelte): the sidebar
    toggle (left, past the macOS traffic lights so it survives the sidebar

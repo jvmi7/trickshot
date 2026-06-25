@@ -18,6 +18,13 @@ pub fn run() {
             worktree::list_worktrees,
             worktree::create_worktree,
             worktree::remove_worktree,
+            worktree::worktree_status,
+            worktree::worktree_diff,
+            worktree::worktree_stage,
+            worktree::worktree_unstage,
+            worktree::worktree_commit,
+            worktree::worktree_push,
+            worktree::worktree_merge,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

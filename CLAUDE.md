@@ -66,6 +66,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | shadcn-svelte primitives (the UI building blocks) | `src/lib/components/ui/` |
 | `cn()` + shadcn type helpers | `src/lib/utils.ts` |
 | shadcn config (aliases, base color) | `components.json` |
+| Git review (status/diff/stage/commit/push/merge) | `src-tauri/src/worktree.rs` (commands) + `src/lib/components/GitPanel.svelte` + `DiffView.svelte` (Chat/Changes toggle in `App.svelte`) |
 | Rust commands: agent lifecycle / git worktrees | `src-tauri/src/agent.rs`, `worktree.rs` |
 | Rust command registry (`generate_handler!`) | `src-tauri/src/lib.rs` |
 | Permission scope (shell:allow-spawn, sidecar) | `src-tauri/capabilities/default.json` |

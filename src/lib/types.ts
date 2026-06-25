@@ -44,6 +44,23 @@ export interface Repo {
   name: string;
 }
 
+/** One changed path in a worktree (mirrors the Rust `FileStatus`). `index` and
+ *  `worktree` are the staged/unstaged sides of `git status`'s XY code. */
+export interface GitFileStatus {
+  path: string;
+  index: string;
+  worktree: string;
+  staged: boolean;
+}
+
+/** A worktree's working-tree status (mirrors the Rust `WorktreeStatus`). */
+export interface GitStatus {
+  branch: string | null;
+  ahead: number;
+  behind: number;
+  files: GitFileStatus[];
+}
+
 /** Envelope for a worktree-tagged agent event on the `agent-event` channel
  *  (mirrors the Rust `AgentEvent` struct in agent.rs). */
 export interface AgentEnvelope {

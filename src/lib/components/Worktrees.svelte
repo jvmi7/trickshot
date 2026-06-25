@@ -130,6 +130,20 @@
     e.stopPropagation();
     error = "";
     try {
+      // Guard against silently discarding uncommitted work (we force-remove below).
+      try {
+        const st = await api.worktreeStatus(wt.path);
+        if (
+          st.files.length > 0 &&
+          !confirm(
+            `"${wt.branch ?? wt.path}" has ${st.files.length} uncommitted change${st.files.length === 1 ? "" : "s"}. Remove anyway and discard them?`,
+          )
+        ) {
+          return;
+        }
+      } catch {
+        // status check failed (e.g. not a git dir) — proceed with removal
+      }
       await api.stopSession(wt.path);
       await api.removeWorktree(repoPath, wt.path, true);
       resetTranscript(wt.path);

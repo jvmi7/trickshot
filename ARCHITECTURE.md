@@ -84,7 +84,13 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 | `list_worktrees` | `repoPath` | `Worktree[]` | First entry is main |
 | `create_worktree` | `repoPath, branch, baseRef?` | `Worktree` | Creates branch if new; one-click primitive |
 | `remove_worktree` | `repoPath, worktreePath, force` | `void` | Branch left intact |
-| `start_session` | `worktree, resume?, provider?, permissionMode?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` = a prior session id → `RESUME_SESSION` env. `provider` (default `claude`) → `AGENT_PROVIDER` env → which adapter the sidecar loads. `permissionMode` → `AGENT_PERMISSION` env (omit = full bypass; a value like `default` activates the Allow/Deny modal) |
+| `worktree_status` | `worktreePath` | `GitStatus` | Parsed `git status --porcelain=v1 --branch` (branch, ahead/behind, changed files) |
+| `worktree_diff` | `worktreePath, file?, base?` | `string` | Unified diff vs `base` (default HEAD); untracked files fall back to a `--no-index` all-add diff |
+| `worktree_stage` / `worktree_unstage` | `worktreePath, paths` | `void` | Empty `paths` = all (`git add -A` / `git restore --staged .`) |
+| `worktree_commit` | `worktreePath, message` | `string` | Commits staged changes (git stdout) |
+| `worktree_push` | `worktreePath, setUpstream` | `string` | `setUpstream` pushes `-u origin <branch>` |
+| `worktree_merge` | `repoPath, branch` | `string` | Merges `branch` into the branch checked out at `repoPath` |
+| `start_session` | `worktree, resume?, permissionMode?, provider?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` → `RESUME_SESSION` env. `permissionMode` → `PERMISSION_MODE` env (default `bypassPermissions`). `provider` (default `claude`) → `AGENT_PROVIDER` env → which adapter the sidecar loads |
 | `send_to_session` | `worktree, payload` (JSON string) | `void` | Writes a line to that worktree's sidecar stdin |
 | `stop_session` | `worktree` | `void` | Kills that worktree's sidecar |
 

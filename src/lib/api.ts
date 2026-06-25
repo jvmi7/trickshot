@@ -4,7 +4,14 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AgentEnvelope, Inbound, Outbound, PermissionMode, Worktree } from "./types";
+import type {
+  AgentEnvelope,
+  GitStatus,
+  Inbound,
+  Outbound,
+  PermissionMode,
+  Worktree,
+} from "./types";
 
 // ---- Repository / worktree commands -------------------------------------
 
@@ -22,6 +29,37 @@ export const createWorktree = (repoPath: string, branch: string, baseRef?: strin
 /** Remove a worktree (does not delete its branch). */
 export const removeWorktree = (repoPath: string, worktreePath: string, force = false) =>
   invoke<void>("remove_worktree", { repoPath, worktreePath, force });
+
+// ---- Git review (status / diff / stage / commit / push / merge) ----------
+
+/** Parsed working-tree status (branch, ahead/behind, changed files). */
+export const worktreeStatus = (worktreePath: string) =>
+  invoke<GitStatus>("worktree_status", { worktreePath });
+
+/** Unified diff of uncommitted changes vs `base` (default HEAD), optionally for
+ *  one file. Falls back to an all-addition diff for an untracked file. */
+export const worktreeDiff = (worktreePath: string, file?: string, base?: string) =>
+  invoke<string>("worktree_diff", { worktreePath, file: file ?? null, base: base ?? null });
+
+/** Stage paths (empty list = stage everything). */
+export const worktreeStage = (worktreePath: string, paths: string[] = []) =>
+  invoke<void>("worktree_stage", { worktreePath, paths });
+
+/** Unstage paths (empty list = unstage everything). */
+export const worktreeUnstage = (worktreePath: string, paths: string[] = []) =>
+  invoke<void>("worktree_unstage", { worktreePath, paths });
+
+/** Commit staged changes; returns git's stdout. */
+export const worktreeCommit = (worktreePath: string, message: string) =>
+  invoke<string>("worktree_commit", { worktreePath, message });
+
+/** Push the current branch (`setUpstream` pushes `-u origin <branch>`). */
+export const worktreePush = (worktreePath: string, setUpstream = false) =>
+  invoke<string>("worktree_push", { worktreePath, setUpstream });
+
+/** Merge `branch` into the branch checked out at `repoPath` (the main worktree). */
+export const worktreeMerge = (repoPath: string, branch: string) =>
+  invoke<string>("worktree_merge", { repoPath, branch });
 
 // ---- Per-worktree agent sessions ----------------------------------------
 // Each worktree runs its own sidecar concurrently, keyed by its path.

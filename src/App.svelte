@@ -28,6 +28,8 @@
     addTurnCost,
     permissionModeByWorktree,
     DEFAULT_PERMISSION_MODE,
+    mainView,
+    bumpGitRefresh,
   } from "./lib/stores";
 
   import { toolLabel, toolDetail } from "./lib/agentMessage";
@@ -51,6 +53,7 @@
   import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import Chat from "./lib/components/Chat.svelte";
+  import GitPanel from "./lib/components/GitPanel.svelte";
   import Settings from "./lib/components/Settings.svelte";
   import { Button } from "./lib/components/ui/button";
   import * as Tooltip from "./lib/components/ui/tooltip";
@@ -102,6 +105,8 @@
             clearActivity(worktree);
             // Fold the turn's token/cost figures into the worktree's running total.
             if (m.usage) addTurnCost(worktree, m.usage);
+            // The turn likely touched files — refresh an open git panel.
+            bumpGitRefresh();
           } else if (m.type !== "system") {
             appendMessage(worktree, m);
           }
@@ -279,10 +284,26 @@
           <span class="dim">select or create a worktree on the left</span>
         {/if}
       </div>
+      <div slot="actions" class="view-tabs">
+        <Button
+          size="sm"
+          variant={$mainView === "chat" ? "secondary" : "ghost"}
+          class="h-7 text-xs"
+          onclick={() => mainView.set("chat")}>Chat</Button
+        >
+        <Button
+          size="sm"
+          variant={$mainView === "changes" ? "secondary" : "ghost"}
+          class="h-7 text-xs"
+          onclick={() => mainView.set("changes")}>Changes</Button
+        >
+      </div>
     </Header>
     <div class="content">
       {#if $centerView === "settings"}
         <Settings />
+      {:else if $mainView === "changes"}
+        <GitPanel />
       {:else}
         <Chat />
       {/if}
