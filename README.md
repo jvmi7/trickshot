@@ -1,6 +1,46 @@
 # trickshot
 
-A Tauri v2 desktop shell around the **Claude Agent SDK**, with **one-click git worktree** support. The Rust backend spawns a Bun-compiled sidecar that runs the agent; the Svelte frontend renders the conversation and approves tool use. This is an **MVP scaffold** — the plumbing is complete and the UI is intentionally minimal so you can build on top of it.
+A desktop GUI for the **Claude Agent SDK** with **first-class git-worktree** support. Run a Claude coding agent against any local repo, spin up isolated worktrees per task, and keep a live agent session running in each one — concurrently — from a single window.
+
+Built as three processes over one event stream: a **Tauri 2** Rust core, a **Svelte 5 / TypeScript** webview, and a **Bun-compiled sidecar** that wraps `@anthropic-ai/claude-agent-sdk`. It authenticates through your existing **Claude Code login** — there is no API key to manage.
+
+## What it does
+
+### Repositories & git worktrees
+- **Add any local git repo** to the sidebar (native folder picker). Its worktrees are read live from `git worktree list` — git is always the source of truth, never a stale cached list.
+- **Create a worktree in one click**: type a branch name and press Enter. trickshot runs `git worktree add` under `../.<repo>-worktrees/<branch>` (creating the branch if needed) and selects it.
+- Worktrees let you run several tasks against the same repo in parallel, each on its own branch and working tree, with no stashing or branch-switching.
+
+### Concurrent per-worktree agent sessions
+- **Selecting a worktree activates its agent session** — there's no manual start/stop. Each worktree runs **its own sidecar process**, and sessions keep running when you switch, so you can hold multiple live chats at once.
+- The agent runs with Claude Code's system prompt and tools, in the worktree's directory, via the embedded native `claude` binary.
+- Sessions are unbounded by design (Conductor-style); each is a real ~280MB process, so many open worktrees mean real RAM.
+
+### The chat
+- **Streaming responses** with Markdown rendering for assistant prose.
+- **Tool activity, condensed**: consecutive tool calls collapse into a single expandable group; results fold into their call; large tool inputs/outputs are truncated with a reveal toggle so the transcript stays readable.
+- **A live "what's happening" footer** while the agent works (current action + elapsed time), replaced on completion by an end-of-turn summary (e.g. *"Cooked in 17s · 4 steps"*).
+- **Interrupt** a turn mid-flight from the composer.
+- Transcripts are **windowed and batched** for performance, and **persist across restarts** (chat history is restored, and the agent's *context* resumes via the SDK session id).
+
+### Model switching
+- Pick the model **per worktree** from the in-chat selector; the catalog and provider-supplied comparison ratings come from the agent itself. Your choice is sticky per worktree across restarts. Default model: `claude-opus-4-8`.
+
+### Connectors & tools (MCP)
+- A dedicated **Connectors** tab in Settings shows **every MCP connector the agent can use**, its live status (`connected` / `needs-auth` / `failed` / `pending` / `disabled`), and the tools each one exposes (flagged read-only or destructive).
+- **Enable or disable any connector live** — no restart — and **reconnect** failed ones; failure reasons are shown inline.
+- Preferences are **global** (one set across every repo) and persisted, then re-applied automatically to each session as it starts. This is your visibility-and-control surface for "what is actually turned on."
+- Note: connectors marked `needs-auth` (OAuth integrations) must be authorized in Claude Code itself — that browser flow can't be completed from the sidecar.
+
+### Appearance
+- A **Settings page** (opened from the sidebar foot, it replaces the chat pane) with **Appearance** and **Connectors** tabs.
+- **Themes**: Terracotta (default), Ocean, Forest — each a full palette swap. **Fonts**: Sans Code (default), WenKai Mono, Comic Sans, IBM Plex Mono, Helvetica. Both persist.
+
+### Tool permissions
+- By default the agent runs with `bypassPermissions` — tools execute automatically without prompting. The full **Allow/Deny** approval modal is wired and becomes a real kill-switch the moment a non-bypass permission mode is used (see `ARCHITECTURE.md` → conversation flow).
+
+### Persistence
+Repos, the selected worktree, each worktree's model, theme, font, the rendered transcript, and the resumable agent session id all persist to `localStorage`. The worktree list itself is always re-read from git on launch.
 
 ## Prerequisites
 
@@ -28,11 +68,10 @@ bun run dev                      # launches the Tauri app (uses your Claude Code
 
 ## Using it
 
-1. **+ Add repository** (bottom of the sidebar) opens a native folder picker; choose a git repo. Its worktrees populate from `git worktree list` (git is the source of truth).
-2. **+** on a repo row creates a worktree: type a branch name and press **Enter** → `git worktree add` under `../.<repo>-worktrees/<branch>`, then the new worktree is selected. Or click any existing worktree row to select it.
-3. **Selecting a worktree activates its agent session** (no manual start/stop) — each selected worktree runs its own sidecar concurrently, so you can switch between live chats. Type in the composer to chat.
-
-> Tools run automatically: the sidecar uses `permissionMode: "bypassPermissions"`, so the agent never pauses for approval and the Allow/Deny modal stays dormant. The permission plumbing is retained for when bypass is disabled — see `ARCHITECTURE.md` → conversation flow.
+1. **+ Add repository** (bottom of the sidebar) → pick a git repo. Its worktrees populate from git.
+2. **+** on a repo row → type a branch name, press **Enter** to create a worktree, or click any existing worktree row to select it.
+3. Selecting a worktree **starts its agent session**; type in the composer to chat. Switch worktrees freely — each session keeps running.
+4. **Settings** (bottom of the sidebar) opens the Appearance / Connectors page in place of the chat; pick a worktree again to return to its chat.
 
 ## Release / cross-compilation
 
@@ -46,23 +85,27 @@ bun build sidecar/agent.darwin-arm64.ts --compile --target=bun-darwin-arm64 \
 
 Then `bun run build`. On macOS the Bun binary must be codesigned with JIT entitlements before Tauri signs/notarizes the `.app` (see `ARCHITECTURE.md` → Packaging). On x64 Linux/Windows, ship the `-baseline` Bun target for older CPUs.
 
-## Where to build your UI
+## Extending it
+
+trickshot is also a clean foundation to build on — the seams are deliberate:
 
 - **`src/lib/api.ts`** — the typed command + event surface. Import from here; don't call `invoke`/`listen` directly.
-- **`src/lib/stores.ts`** — Svelte stores for session/worktree state.
-- **`src/lib/components/`** — minimal components to replace/extend.
-- **`shared/protocol.ts`** — the provider-neutral, line-delimited JSON wire unions (`Inbound`/`Outbound`/`AgentMessage`/`ModelInfo`), imported by **both** the webview (`src/lib/types.ts`) and the sidecar (`sidecar/core.ts`).
+- **`src/lib/stores.ts`** — Svelte stores for session/worktree/UI state.
+- **`src/lib/components/`** — the feature components (chat, composer, settings, …).
+- **`shared/protocol.ts`** — the provider-neutral, line-delimited JSON wire unions (`Inbound`/`Outbound`/`AgentMessage`/`ConnectorInfo`/`ModelInfo`), imported by **both** the webview (`src/lib/types.ts`) and the sidecar (`sidecar/core.ts`).
 - **`sidecar/providers/`** — pluggable model-provider adapters (`claude.ts` is the first). Add a provider by implementing `AgentProvider` and mapping its native events to the neutral `AgentMessage` schema — no UI or protocol change. See `ARCHITECTURE.md` → Providers.
 - **`src/lib/types.ts`** — the app-side protocol surface (`Worktree`, `Repo`, `AgentEnvelope`) + the re-exported wire types.
 
 ## Checks
 
 ```bash
-bun run check     # svelte-check typecheck
-bun run lint      # Biome lint + format check (TS/JS/JSON)
-bun run format    # Biome autofix + format
+bun run check          # svelte-check typecheck (webview)
+bun run check:sidecar  # tsc typecheck of the Bun sidecar + shared protocol
+bun run test           # bun test (TS unit tests)
+bun run lint           # Biome lint + format check (TS/JS/JSON)
+bun run format         # Biome autofix + format
 ```
 
-CI (`.github/workflows/ci.yml`) runs these plus `bun run build:sidecar`, `cargo fmt --check`, and `cargo clippy` on every push/PR — the safety net for the hand-mirrored protocol (see `CLAUDE.md` → SYNC RULE).
+CI (`.github/workflows/ci.yml`) runs these plus `bun run build:sidecar`, a full app build, `cargo fmt --check`, `cargo clippy`, and `cargo test` on every push/PR — the safety net for the hand-mirrored protocol (see `CLAUDE.md` → SYNC RULE).
 
 See `ARCHITECTURE.md` for the full end-to-end map and the Rust command reference.
