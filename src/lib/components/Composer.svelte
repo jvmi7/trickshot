@@ -14,7 +14,7 @@
   import { Textarea } from "$lib/components/ui/textarea";
   import ModelSelector from "./ModelSelector.svelte";
   import PermissionModeSelector from "./PermissionModeSelector.svelte";
-  import CostIndicator from "./CostIndicator.svelte";
+  import UsageIndicator from "./UsageIndicator.svelte";
   import Square from "@lucide/svelte/icons/square";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
 
@@ -180,6 +180,6 @@
   <div class="flex items-center gap-2">
     <PermissionModeSelector />
     <ModelSelector />
-    <CostIndicator />
+    <UsageIndicator />
   </div>
 </div>

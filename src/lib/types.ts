@@ -68,6 +68,20 @@ export interface GitStatus {
   files: GitFileStatus[];
 }
 
+/** One Claude subscription usage window (mirrors the Rust `UsageWindow`).
+ *  `utilization` is a percent (0–100); both fields may be absent. */
+export interface UsageWindow {
+  utilization: number | null;
+  resets_at: string | null;
+}
+
+/** Subscription usage windows from the `get_usage` command (mirrors the Rust
+ *  `UsageInfo`): the rolling ~5-hour session window + the weekly window. */
+export interface UsageInfo {
+  five_hour: UsageWindow | null;
+  seven_day: UsageWindow | null;
+}
+
 /** Envelope for a worktree-tagged agent event on the `agent-event` channel
  *  (mirrors the Rust `AgentEvent` struct in agent.rs). */
 export interface AgentEnvelope {

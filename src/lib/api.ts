@@ -10,6 +10,7 @@ import type {
   Inbound,
   Outbound,
   PermissionMode,
+  UsageInfo,
   Worktree,
 } from "./types";
 
@@ -20,6 +21,10 @@ export const pickDirectory = () => invoke<string | null>("pick_directory");
 
 /** Show a desktop (OS) notification. */
 export const notify = (title: string, body: string) => invoke<void>("notify", { title, body });
+
+/** The Claude subscription usage windows (rolling 5-hour + weekly). Rejects when
+ *  unavailable (not logged in, token expired, rate limited); callers throttle. */
+export const getUsage = () => invoke<UsageInfo>("get_usage");
 
 /** List all worktrees of a git repo (the first entry is the main worktree). */
 export const listWorktrees = (repoPath: string) =>

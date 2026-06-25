@@ -1,4 +1,5 @@
 mod agent;
+mod usage;
 mod worktree;
 
 use agent::Sessions;
@@ -27,6 +28,7 @@ pub fn run() {
             worktree::worktree_commit,
             worktree::worktree_push,
             worktree::worktree_merge,
+            usage::get_usage,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

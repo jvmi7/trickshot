@@ -19,6 +19,10 @@ tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Subscription-usage endpoint (src/usage.rs). rustls avoids an OpenSSL build dep;
+# `json` pulls the response-deserialization helper.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # Release builds default to an unoptimized, unstripped binary; for a shipped
 # desktop app, optimize for size and strip symbols.

@@ -34,7 +34,7 @@
     globalConnectorPrefs,
     centerView,
     setCenterView,
-    addTurnCost,
+    refreshUsage,
     permissionModeByWorktree,
     DEFAULT_PERMISSION_MODE,
     mainView,
@@ -130,6 +130,9 @@
     let unlisten: (() => void) | undefined;
     let cancelled = false;
 
+    // Populate the subscription-usage chip on launch (throttled thereafter).
+    refreshUsage();
+
     onAgentEvent(
       (worktree, evt) => {
         if (evt.kind === "message") {
@@ -148,8 +151,9 @@
               setTurnSummary(worktree, { seconds, steps: act.steps });
             }
             clearActivity(worktree);
-            // Fold the turn's token/cost figures into the worktree's running total.
-            if (m.usage) addTurnCost(worktree, m.usage);
+            // A turn just consumed subscription budget — refresh the usage
+            // windows (throttled; the endpoint is rate-limited, see stores).
+            refreshUsage();
             // The turn likely touched files — refresh an open git panel.
             bumpGitRefresh();
             // If this worktree isn't the one on screen, flag it + notify so the

@@ -1,4 +1,5 @@
 import { derived, get, writable } from "svelte/store";
+import * as api from "./api";
 import type {
   ConnectorInfo,
   McpStatusInfo,
@@ -8,7 +9,7 @@ import type {
   Repo,
   SlashCommandInfo,
   TranscriptMessage,
-  TurnUsage,
+  UsageInfo,
   Worktree,
 } from "./types";
 
@@ -378,62 +379,54 @@ export function setGlobalConnectorPref(name: string, enabled: boolean) {
   globalConnectorPrefs.update((m) => ({ ...m, [name]: enabled }));
 }
 
-// ---- Per-worktree cost + token usage (accumulated per turn, persisted) ----
-// Each `turn_end` carries the turn's token/cost figures (see TurnUsage); we sum
-// them per worktree for a running session total. `costUsd` is a client-side
-// estimate (per the SDK), surfaced as such in the UI.
-export interface WorktreeCost {
-  costUsd: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheCreationTokens: number;
-  turns: number;
-}
-const ZERO_COST: WorktreeCost = {
-  costUsd: 0,
-  inputTokens: 0,
-  outputTokens: 0,
-  cacheReadTokens: 0,
-  cacheCreationTokens: 0,
-  turns: 0,
-};
-const COST_KEY = "trickshot.costByWorktree";
-function loadCostByWorktree(): Record<string, WorktreeCost> {
-  if (!hasLS) return {};
+// ---- Subscription usage windows (account-global, throttled fetch) ----
+// The rolling ~5-hour session window + the weekly window from `get_usage` (the
+// undocumented /usage endpoint). Account-wide, NOT per-worktree. The endpoint is
+// aggressively rate-limited, so `refreshUsage()` is event-driven (session start,
+// turn end) and throttled to at most once per USAGE_REFRESH_MS — never polled.
+// The last value is persisted so the chip shows immediately (cached) on launch.
+const USAGE_KEY = "trickshot.usageLimits";
+const USAGE_REFRESH_MS = 90_000;
+function loadUsage(): UsageInfo | null {
+  if (!hasLS) return null;
   try {
-    const v = JSON.parse(localStorage.getItem(COST_KEY) ?? "{}");
-    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+    const v = JSON.parse(localStorage.getItem(USAGE_KEY) ?? "null");
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as UsageInfo) : null;
   } catch {
-    return {};
+    return null;
   }
 }
-export const costByWorktree = writable<Record<string, WorktreeCost>>(loadCostByWorktree());
-costByWorktree.subscribe((c) => {
+export const usageLimits = writable<UsageInfo | null>(loadUsage());
+usageLimits.subscribe((u) => {
   if (!hasLS) return;
   try {
-    localStorage.setItem(COST_KEY, JSON.stringify(c));
+    localStorage.setItem(USAGE_KEY, JSON.stringify(u));
   } catch {
     /* ignore quota errors */
   }
 });
-/** Fold one turn's usage into a worktree's running total (missing fields count
- *  as zero, so a provider that omits a figure simply doesn't move it). */
-export function addTurnCost(worktree: string, usage: TurnUsage) {
-  costByWorktree.update((c) => {
-    const cur = c[worktree] ?? ZERO_COST;
-    return {
-      ...c,
-      [worktree]: {
-        costUsd: cur.costUsd + (usage.costUsd ?? 0),
-        inputTokens: cur.inputTokens + (usage.inputTokens ?? 0),
-        outputTokens: cur.outputTokens + (usage.outputTokens ?? 0),
-        cacheReadTokens: cur.cacheReadTokens + (usage.cacheReadTokens ?? 0),
-        cacheCreationTokens: cur.cacheCreationTokens + (usage.cacheCreationTokens ?? 0),
-        turns: cur.turns + 1,
-      },
-    };
-  });
+/** Last fetch error (stale token, rate limit, offline), shown in the tooltip. */
+export const usageError = writable<string | null>(null);
+
+let usageLastFetch = 0;
+let usageInFlight = false;
+/** Refresh the usage windows, throttled. `force` bypasses the interval (e.g. a
+ *  manual refresh) but never overlaps an in-flight request. Failures land in
+ *  `usageError` and leave the last good value in place — the endpoint is best
+ *  effort, so a transient 429/401 must not blank the chip. */
+export async function refreshUsage(force = false) {
+  if (usageInFlight) return;
+  if (!force && Date.now() - usageLastFetch < USAGE_REFRESH_MS) return;
+  usageInFlight = true;
+  try {
+    usageLimits.set(await api.getUsage());
+    usageError.set(null);
+    usageLastFetch = Date.now();
+  } catch (e) {
+    usageError.set(e instanceof Error ? e.message : String(e));
+  } finally {
+    usageInFlight = false;
+  }
 }
 
 // ---- Per-worktree permission mode (persisted) ----
@@ -770,10 +763,6 @@ export const activeActivity = derived([worktreeActivity, selectedWorktree], ([$a
 /** The selected worktree's last-completed-turn summary (null until a turn ends). */
 export const activeSummary = derived([turnSummary, selectedWorktree], ([$s, $sel]) =>
   $sel ? ($s[$sel] ?? null) : null,
-);
-/** The selected worktree's running cost/token total (null until a turn completes). */
-export const activeCost = derived([costByWorktree, selectedWorktree], ([$c, $sel]) =>
-  $sel ? ($c[$sel] ?? null) : null,
 );
 /** The selected worktree's change summary (null until fetched / when none). */
 export const activeGitStat = derived([gitStatByWorktree, selectedWorktree], ([$m, $sel]) =>
