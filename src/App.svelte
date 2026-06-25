@@ -42,6 +42,7 @@
     systemPromptAppend,
     mcpStatus,
     getMcpServers,
+    getAgents,
     bumpUnread,
   } from "./lib/stores";
 
@@ -248,6 +249,7 @@
               permissionMode: get(permissionModeByWorktree)[sel] ?? DEFAULT_PERMISSION_MODE,
               systemPromptAppend: get(systemPromptAppend),
               mcpServers: getMcpServers(),
+              agents: getAgents(),
             });
             setStatus(sel, "ready");
           } catch {

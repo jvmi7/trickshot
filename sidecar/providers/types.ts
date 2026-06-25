@@ -23,6 +23,8 @@ export interface ProviderContext {
   systemPromptAppend?: string;
   /** Optional provider-specific MCP server config (opaque blob from the app). */
   mcpServers?: Record<string, unknown>;
+  /** Optional provider-specific subagent definitions (opaque blob from the app). */
+  agents?: Record<string, unknown>;
   /** Emit a wire event to the app. The provider never touches stdout directly.
    *  `onFlush` (optional) fires once the line has been handed to stdout — use it
    *  to exit cleanly without truncating the final line (process.exit doesn't

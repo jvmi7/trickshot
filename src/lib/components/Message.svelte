@@ -39,7 +39,8 @@
     <div class="body">{m.text}</div>
   </div>
 {:else if m.type === "assistant"}
-  <div class="msg assistant">
+  <div class="msg assistant" class:subagent={m.parentId}>
+    {#if m.parentId}<div class="role">subagent</div>{/if}
     <div class="body"><Markdown text={m.text} /></div>
   </div>
 {:else if m.type === "system"}
@@ -73,6 +74,12 @@
   .rewind-btn:hover {
     color: var(--app-text, var(--foreground));
     background: var(--app-hover, var(--accent));
+  }
+  /* Subagent turns: indented under their spawning Agent tool call with a rail. */
+  .msg.subagent {
+    margin-left: 16px;
+    padding-left: 10px;
+    border-left: 2px solid var(--app-border, var(--border));
   }
 </style>
 

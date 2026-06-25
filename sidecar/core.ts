@@ -15,8 +15,8 @@ import { createInterface } from "node:readline";
 import type { Inbound, Outbound, PermissionMode } from "../shared/protocol";
 import { createProvider, DEFAULT_PROVIDER } from "./providers/registry";
 
-/** Parse the MCP_SERVERS env (a JSON object) into a config record, or undefined. */
-function parseMcpServers(raw: string | undefined): Record<string, unknown> | undefined {
+/** Parse a JSON-object env var (MCP servers / agent defs) into a record, or undefined. */
+function parseJsonObject(raw: string | undefined): Record<string, unknown> | undefined {
   if (!raw) return undefined;
   try {
     const v = JSON.parse(raw);
@@ -39,7 +39,8 @@ export function run(cliPath: string) {
     resumeSessionId: process.env.RESUME_SESSION || undefined,
     permissionMode: (process.env.PERMISSION_MODE as PermissionMode) || undefined,
     systemPromptAppend: process.env.SYSTEM_PROMPT_APPEND || undefined,
-    mcpServers: parseMcpServers(process.env.MCP_SERVERS),
+    mcpServers: parseJsonObject(process.env.MCP_SERVERS),
+    agents: parseJsonObject(process.env.AGENTS),
     emit,
   });
 

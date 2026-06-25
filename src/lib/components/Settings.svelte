@@ -25,6 +25,7 @@
     setGlobalConnectorPref,
     mcpServersJson,
     mcpStatus,
+    agentsJson,
   } from "../stores";
 
   let mcpError = $state("");
@@ -220,6 +221,20 @@
                 Apply
               </Button>
             </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <span class="text-sm text-muted-foreground">Subagents (JSON)</span>
+            <Textarea
+              bind:value={$agentsJson}
+              rows={4}
+              placeholder={'{\n  "reviewer": { "description": "Reviews code", "prompt": "You are a strict reviewer.", "tools": ["Read", "Grep"] }\n}'}
+              class="resize-none font-mono text-xs"
+              aria-label="Subagent definitions JSON"
+            />
+            <span class="text-muted-foreground text-xs">
+              Applies to new sessions; repo <code>.claude/agents</code> load automatically.
+            </span>
           </div>
         </div>
       </Tabs.Content>

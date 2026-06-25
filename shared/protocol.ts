@@ -84,11 +84,13 @@ export interface TurnUsage {
  *  shapes). One message per semantic event: assistant prose, a tool call, a
  *  tool result, a session notice, or the end-of-turn marker (which also carries
  *  optional token/cost usage for the turn). */
+// `parentId` (when set) is the id of the `Agent` tool call that spawned a
+// subagent — present on messages a subagent produced, so the UI can nest them.
 export type AgentMessage =
   | { type: "system"; text: string }
-  | { type: "assistant"; text: string }
-  | { type: "tool_call"; id: string; name: string; input: unknown }
-  | { type: "tool_result"; id: string; content: string; isError?: boolean }
+  | { type: "assistant"; text: string; parentId?: string }
+  | { type: "tool_call"; id: string; name: string; input: unknown; parentId?: string }
+  | { type: "tool_result"; id: string; content: string; isError?: boolean; parentId?: string }
   | { type: "turn_end"; usage?: TurnUsage };
 
 /** Messages flowing FROM the app TO the sidecar (sent as a JSON string via the

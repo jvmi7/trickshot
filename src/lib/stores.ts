@@ -261,6 +261,37 @@ export function getMcpServers(): Record<string, unknown> | undefined {
 /** Latest MCP server statuses for the selected session (via the `mcp_status` event). */
 export const mcpStatus = writable<McpStatusInfo[]>([]);
 
+// ---- Subagent definitions ----
+// Optional user-defined subagents as JSON (Record<name, {description, prompt,
+// model?, tools?, ...}>), edited in Settings and applied at session start.
+// Repo `.claude/agents` are also loaded automatically via settingSources.
+const AGENTS_KEY = "trickshot.agentsJson";
+function loadAgentsJson(): string {
+  if (!hasLS) return "";
+  const v = localStorage.getItem(AGENTS_KEY);
+  return typeof v === "string" ? v : "";
+}
+export const agentsJson = writable<string>(loadAgentsJson());
+agentsJson.subscribe((s) => {
+  if (!hasLS) return;
+  try {
+    localStorage.setItem(AGENTS_KEY, s);
+  } catch {
+    /* ignore quota errors */
+  }
+});
+/** Parse the saved subagents JSON into a config object, or undefined if empty/invalid. */
+export function getAgents(): Record<string, unknown> | undefined {
+  const raw = get(agentsJson).trim();
+  if (!raw) return undefined;
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // Per-worktree current model, persisted so a chat's model choice is sticky across
 // restarts. On a session's `models` event, App.svelte re-applies a persisted
 // choice that differs from the sidecar default (see onModelsEvent there).

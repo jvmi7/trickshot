@@ -14,6 +14,7 @@
     DEFAULT_PERMISSION_MODE,
     systemPromptAppend,
     getMcpServers,
+    getAgents,
     unreadByWorktree,
     clearUnread,
     pendingPermission,
@@ -101,6 +102,7 @@
         permissionMode: get(permissionModeByWorktree)[wt.path] ?? DEFAULT_PERMISSION_MODE,
         systemPromptAppend: get(systemPromptAppend),
         mcpServers: getMcpServers(),
+        agents: getAgents(),
       });
       sessionStatus.update((s) => ({ ...s, [wt.path]: "ready" }));
     } catch (e) {

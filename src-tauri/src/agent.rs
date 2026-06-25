@@ -33,6 +33,9 @@ struct AgentEvent {
 
 /// Start a sidecar for `worktree` (cwd = the worktree path). Idempotent: a
 /// no-op if one is already running for that worktree.
+// Many optional knobs (resume, permission mode, system-prompt append, MCP
+// servers, subagents, provider) ride in as separate Tauri command args.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn start_session(
     app: AppHandle,
@@ -41,8 +44,8 @@ pub fn start_session(
     permission_mode: Option<String>,
     system_prompt_append: Option<String>,
     mcp_servers: Option<String>,
+    agents: Option<String>,
     provider: Option<String>,
-    permission_mode: Option<String>,
     state: State<'_, Sessions>,
 ) -> Result<(), String> {
     // Hold the lock across spawn+insert so two concurrent calls can't both pass
@@ -81,6 +84,12 @@ pub fn start_session(
     if let Some(mcp) = mcp_servers.as_deref() {
         if !mcp.is_empty() {
             command = command.env("MCP_SERVERS", mcp);
+        }
+    }
+    // Optional subagent definitions (a JSON object string the sidecar parses).
+    if let Some(a) = agents.as_deref() {
+        if !a.is_empty() {
+            command = command.env("AGENTS", a);
         }
     }
 

@@ -80,6 +80,7 @@ export const startSession = (
     permissionMode?: PermissionMode;
     systemPromptAppend?: string;
     mcpServers?: Record<string, unknown>;
+    agents?: Record<string, unknown>;
     provider?: string;
   } = {},
 ) =>
@@ -89,6 +90,7 @@ export const startSession = (
     permissionMode: opts.permissionMode ?? null,
     systemPromptAppend: opts.systemPromptAppend ?? null,
     mcpServers: opts.mcpServers ? JSON.stringify(opts.mcpServers) : null,
+    agents: opts.agents ? JSON.stringify(opts.agents) : null,
     provider: opts.provider ?? null,
   });
 

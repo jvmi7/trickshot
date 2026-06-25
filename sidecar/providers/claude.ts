@@ -5,6 +5,7 @@
 // provider: implement AgentProvider, emit neutral messages, register it.
 
 import {
+  type AgentDefinition,
   type McpServerConfig,
   type PermissionResult,
   query,
@@ -67,6 +68,10 @@ function ratings(value: string, displayName: string): ModelInfo["meta"] {
 // Map one Claude SDKMessage into zero or more neutral AgentMessages.
 // Exported for unit testing (the native->neutral mapping is core correctness).
 export function toNeutral(msg: SDKMessage): AgentMessage[] {
+  // Non-null when the message came from a subagent (the spawning Agent tool's
+  // id), forwarded thanks to forwardSubagentText. Lets the UI nest subagent work.
+  const parentId = (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id || undefined;
+  const sub = parentId ? { parentId } : {};
   switch (msg.type) {
     case "assistant": {
       const content = (msg as { message?: { content?: unknown } }).message?.content;
@@ -74,13 +79,14 @@ export function toNeutral(msg: SDKMessage): AgentMessage[] {
       const out: AgentMessage[] = [];
       for (const b of blocks) {
         if (b?.type === "text" && typeof b.text === "string") {
-          out.push({ type: "assistant", text: b.text });
+          out.push({ type: "assistant", text: b.text, ...sub });
         } else if (b?.type === "tool_use") {
           out.push({
             type: "tool_call",
             id: String(b.id ?? ""),
             name: String(b.name ?? ""),
             input: b.input,
+            ...sub,
           });
         }
       }
@@ -97,6 +103,7 @@ export function toNeutral(msg: SDKMessage): AgentMessage[] {
             id: String(b.tool_use_id ?? ""),
             content: typeof b.content === "string" ? b.content : JSON.stringify(b.content, null, 2),
             isError: b.is_error === true,
+            ...sub,
           });
         }
       }
@@ -127,7 +134,10 @@ export function toNeutral(msg: SDKMessage): AgentMessage[] {
         numTurns: r.num_turns,
         durationMs: r.duration_ms,
       };
-      return [{ type: "turn_end", usage }];
+      // Attach usage only when the result actually carried figures; a bare result
+      // (e.g. the error subtype) maps to a plain turn_end (usage is optional).
+      const hasUsage = Object.values(usage).some((v) => v !== undefined);
+      return [hasUsage ? { type: "turn_end", usage } : { type: "turn_end" }];
     }
     default:
       // `system`/init carries the session id (handled in the loop); stream/partial
@@ -203,6 +213,12 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       // MCP servers are a provider-specific config blob on the wire; the SDK
       // option is typed, so cast at this single boundary.
       ...(ctx.mcpServers ? { mcpServers: ctx.mcpServers as Record<string, McpServerConfig> } : {}),
+      // User-defined subagents (Record<name, def>); same opaque-blob + cast as MCP.
+      // (Repo .claude/agents are also loaded via settingSources.)
+      ...(ctx.agents ? { agents: ctx.agents as Record<string, AgentDefinition> } : {}),
+      // Forward subagent text/thinking as messages tagged with parent_tool_use_id
+      // so the UI can render a nested subagent transcript (not just a heartbeat).
+      forwardSubagentText: true,
       // Surface agent "needs attention" notifications so the app can raise an OS
       // notification for a backgrounded worktree.
       hooks: {
