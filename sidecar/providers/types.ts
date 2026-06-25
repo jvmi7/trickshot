@@ -4,7 +4,7 @@
 // model provider = implement `AgentProvider` + register it in `registry.ts` —
 // nothing else in the app or protocol changes.
 
-import type { Outbound } from "../../shared/protocol";
+import type { Outbound, PermissionMode } from "../../shared/protocol";
 
 /** What the host hands a provider when constructing it. */
 export interface ProviderContext {
@@ -14,11 +14,11 @@ export interface ProviderContext {
   projectDir: string;
   /** Prior session id to resume; provider-specific, may be ignored. */
   resumeSessionId?: string;
-  /** How the agent treats tool permissions. Default (unset) = full bypass, the
-   *  shipped behavior. A non-bypass value activates the canUseTool path so the
-   *  app's Allow/Deny modal becomes a real kill-switch. Set by Rust via the
-   *  AGENT_PERMISSION env (see core.ts). */
-  permissionMode?: string;
+  /** Initial permission mode for tool use, set per-worktree by Rust via the
+   *  PERMISSION_MODE env (see core.ts) and defaulting to bypassPermissions.
+   *  A non-bypass value activates the canUseTool path so the app's Allow/Deny
+   *  modal becomes a real kill-switch; switchable live via setPermissionMode. */
+  permissionMode?: PermissionMode;
   /** Emit a wire event to the app. The provider never touches stdout directly.
    *  `onFlush` (optional) fires once the line has been handed to stdout — use it
    *  to exit cleanly without truncating the final line (process.exit doesn't
@@ -35,6 +35,8 @@ export interface AgentProvider {
   pushTurn(text: string): void;
   /** Switch model, then re-emit `models` with the confirmed `current`. */
   setModel(model: string): void;
+  /** Switch the permission mode for subsequent tool use (live, mid-session). */
+  setPermissionMode(mode: PermissionMode): void;
   /** Interrupt the in-flight turn. */
   interrupt(): void;
   /** (Re-)emit the `models` event (catalog + current). */

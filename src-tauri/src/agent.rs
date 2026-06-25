@@ -38,6 +38,7 @@ pub fn start_session(
     app: AppHandle,
     worktree: String,
     resume: Option<String>,
+    permission_mode: Option<String>,
     provider: Option<String>,
     permission_mode: Option<String>,
     state: State<'_, Sessions>,
@@ -63,10 +64,10 @@ pub fn start_session(
     if let Some(id) = resume.as_deref() {
         command = command.env("RESUME_SESSION", id);
     }
-    // Tool-permission mode. Unset = the sidecar's default (full bypass). A value
-    // like "default"/"dontAsk" activates the Allow/Deny path (see providers).
+    // Initial tool-permission mode (default/acceptEdits/plan/bypassPermissions);
+    // the sidecar reads PERMISSION_MODE and defaults to bypassPermissions if unset.
     if let Some(mode) = permission_mode.as_deref() {
-        command = command.env("AGENT_PERMISSION", mode);
+        command = command.env("PERMISSION_MODE", mode);
     }
 
     let (mut rx, child) = command.spawn().map_err(|e| e.to_string())?;

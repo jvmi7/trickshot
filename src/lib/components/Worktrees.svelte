@@ -10,6 +10,8 @@
     sessionByWorktree,
     forgetWorktreeSession,
     setCenterView,
+    permissionModeByWorktree,
+    DEFAULT_PERMISSION_MODE,
   } from "../stores";
   import * as api from "../api";
   import type { Worktree } from "../types";
@@ -86,8 +88,13 @@
     selectedWorktree.set(wt.path);
     setCenterView("chat");
     try {
-      // Resume this worktree's prior session (context) if we have one persisted.
-      await api.startSession(wt.path, get(sessionByWorktree)[wt.path]);
+      // Resume this worktree's prior session (context) if we have one persisted,
+      // applying its saved permission mode (default: bypassPermissions).
+      await api.startSession(
+        wt.path,
+        get(sessionByWorktree)[wt.path],
+        get(permissionModeByWorktree)[wt.path] ?? DEFAULT_PERMISSION_MODE,
+      );
       sessionStatus.update((s) => ({ ...s, [wt.path]: "ready" }));
     } catch (e) {
       error = String(e);

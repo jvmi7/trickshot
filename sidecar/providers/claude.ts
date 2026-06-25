@@ -5,14 +5,18 @@
 // provider: implement AgentProvider, emit neutral messages, register it.
 
 import {
-  type CanUseTool,
-  type PermissionMode,
   type PermissionResult,
   query,
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentMessage, ConnectorInfo, ModelInfo } from "../../shared/protocol";
+import type {
+  AgentMessage,
+  ConnectorInfo,
+  ModelInfo,
+  PermissionMode,
+  TurnUsage,
+} from "../../shared/protocol";
 import type { AgentProvider, ProviderContext } from "./types";
 
 // The default model a fresh session starts on (the UI can switch it per chat).
@@ -97,8 +101,33 @@ export function toNeutral(msg: SDKMessage): AgentMessage[] {
       }
       return out;
     }
-    case "result":
-      return [{ type: "turn_end" }];
+    case "result": {
+      // The result message ends a turn and carries cumulative token/cost figures
+      // for it. Read defensively (the error subtype may omit some fields) and map
+      // to the neutral TurnUsage; `total_cost_usd` is a client-side estimate.
+      const r = msg as {
+        total_cost_usd?: number;
+        num_turns?: number;
+        duration_ms?: number;
+        usage?: {
+          input_tokens?: number;
+          output_tokens?: number;
+          cache_read_input_tokens?: number;
+          cache_creation_input_tokens?: number;
+        };
+      };
+      const u = r.usage ?? {};
+      const usage: TurnUsage = {
+        inputTokens: u.input_tokens,
+        outputTokens: u.output_tokens,
+        cacheReadTokens: u.cache_read_input_tokens,
+        cacheCreationTokens: u.cache_creation_input_tokens,
+        costUsd: r.total_cost_usd,
+        numTurns: r.num_turns,
+        durationMs: r.duration_ms,
+      };
+      return [{ type: "turn_end", usage }];
+    }
     default:
       // `system`/init carries the session id (handled in the loop); stream/partial
       // internal types render nothing.
@@ -108,7 +137,11 @@ export function toNeutral(msg: SDKMessage): AgentMessage[] {
 
 export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
   const turns = makeQueue<SDKUserMessage>();
-  const pendingPermissions = new Map<string, (reply: PermissionResult) => void>();
+  // Resolvers for in-flight permission prompts, keyed by a generated request id.
+  // Populated by canUseTool when the mode is anything other than bypassPermissions;
+  // resolved by replyPermission with the user's PermissionResult.
+  const pendingPermissions = new Map<string, (result: PermissionResult) => void>();
+  let permId = 0;
   let currentModel = DEFAULT_MODEL;
   let modelCatalog: ModelInfo[] = [];
   // Captured from the `system`/init message — the name+status fallback for the
@@ -117,29 +150,21 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
   let lastSession = ctx.resumeSessionId ?? "";
   let dead = false;
 
-  // Default is full bypass (the shipped behavior). A non-bypass AGENT_PERMISSION
-  // value (plumbed by Rust start_session) routes tool use through canUseTool, so
-  // the app's Allow/Deny modal becomes a real kill-switch instead of dormant.
-  const permissionMode = (ctx.permissionMode as PermissionMode) || "bypassPermissions";
+  // Historical default is bypassPermissions (silent tool use); the app overrides
+  // it per-worktree via the PERMISSION_MODE env (read into ctx by core.ts).
+  const initialPermissionMode: PermissionMode = ctx.permissionMode ?? "bypassPermissions";
 
-  // Bridge the SDK's permission callback onto the neutral protocol: emit a
-  // permission_request, park the resolver, and let `replyPermission` settle it.
-  // Only wired in when NOT bypassing (see options below), so default behavior is
-  // byte-identical to before.
-  const canUseTool: CanUseTool = (toolName, input, { toolUseID, signal }) =>
+  // Gate one tool call. The SDK calls this ONLY when the active permission mode
+  // requires approval (never under bypassPermissions). We surface the request to
+  // the app and await the user's reply via the pendingPermissions resolver.
+  const canUseTool = (
+    toolName: string,
+    input: Record<string, unknown>,
+  ): Promise<PermissionResult> =>
     new Promise<PermissionResult>((resolve) => {
-      pendingPermissions.set(toolUseID, resolve);
-      // Don't leak a hung promise if the turn is interrupted before the user answers.
-      signal.addEventListener(
-        "abort",
-        () => {
-          if (pendingPermissions.delete(toolUseID)) {
-            resolve({ behavior: "deny", message: "Interrupted." });
-          }
-        },
-        { once: true },
-      );
-      ctx.emit({ kind: "permission_request", id: toolUseID, tool: toolName, input });
+      const id = `perm-${permId++}`;
+      pendingPermissions.set(id, resolve);
+      ctx.emit({ kind: "permission_request", id, tool: toolName, input });
     });
 
   const q = query({
@@ -153,13 +178,16 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       pathToClaudeCodeExecutable: ctx.cliPath,
       // Opt into Claude Code's system prompt (the SDK defaults to empty post-rename).
       systemPrompt: { type: "preset", preset: "claude_code" },
-      permissionMode,
-      // bypassPermissions is a deliberate, dangerous default for this local tool;
-      // the SDK now *requires* the explicit opt-in flag for it. Any other mode
-      // funnels through canUseTool -> the Allow/Deny modal.
-      ...(permissionMode === "bypassPermissions"
+      // Initial gate for tool use; switchable live via setPermissionMode. Under
+      // bypassPermissions the SDK never calls canUseTool (the dormant default) —
+      // but it still REQUIRES the explicit opt-in flag (SDK 0.3.185), so set it
+      // when starting in bypass. canUseTool stays wired regardless so a live
+      // switch into a prompting mode actually surfaces the Allow/Deny modal.
+      permissionMode: initialPermissionMode,
+      canUseTool,
+      ...(initialPermissionMode === "bypassPermissions"
         ? { allowDangerouslySkipPermissions: true }
-        : { canUseTool }),
+        : {}),
     },
   });
 
@@ -285,6 +313,14 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
           ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) });
         }
       })();
+    },
+
+    setPermissionMode(mode) {
+      // setPermissionMode is a streaming-mode control request (async). Fire and
+      // forget; surface failures as a stream error rather than throwing.
+      void q.setPermissionMode(mode).catch((e) => {
+        ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) });
+      });
     },
 
     interrupt() {

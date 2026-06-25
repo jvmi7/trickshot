@@ -12,7 +12,7 @@
 //   stdout (sidecar -> app):  Outbound  { kind: "ready" | "session" | "message" | "models" | "error" | ... }
 
 import { createInterface } from "node:readline";
-import type { Inbound, Outbound } from "../shared/protocol";
+import type { Inbound, Outbound, PermissionMode } from "../shared/protocol";
 import { createProvider, DEFAULT_PROVIDER } from "./providers/registry";
 
 export function run(cliPath: string) {
@@ -26,7 +26,7 @@ export function run(cliPath: string) {
     cliPath,
     projectDir: process.env.PROJECT_DIR ?? process.cwd(),
     resumeSessionId: process.env.RESUME_SESSION || undefined,
-    permissionMode: process.env.AGENT_PERMISSION || undefined,
+    permissionMode: (process.env.PERMISSION_MODE as PermissionMode) || undefined,
     emit,
   });
 
@@ -46,6 +46,9 @@ export function run(cliPath: string) {
         break;
       case "set_model":
         provider.setModel(cmd.model);
+        break;
+      case "set_permission_mode":
+        provider.setPermissionMode(cmd.mode);
         break;
       case "get_models":
         provider.publishModels();

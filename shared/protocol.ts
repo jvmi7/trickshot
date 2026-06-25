@@ -53,16 +53,31 @@ export interface ConnectorInfo {
   tools: ConnectorTool[];
 }
 
+/** Token + cost figures for one completed turn, mapped from the provider's
+ *  end-of-turn result. All optional: a provider that doesn't report a field
+ *  omits it, and the UI renders nothing for a missing field (never throws).
+ *  `costUsd` is a client-side estimate, not authoritative billing. */
+export interface TurnUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  costUsd?: number;
+  numTurns?: number;
+  durationMs?: number;
+}
+
 /** Provider-neutral transcript event. Every provider adapter maps its native
  *  output into these; the UI renders ONLY these (never provider-specific
  *  shapes). One message per semantic event: assistant prose, a tool call, a
- *  tool result, a session notice, or the end-of-turn marker. */
+ *  tool result, a session notice, or the end-of-turn marker (which also carries
+ *  optional token/cost usage for the turn). */
 export type AgentMessage =
   | { type: "system"; text: string }
   | { type: "assistant"; text: string }
   | { type: "tool_call"; id: string; name: string; input: unknown }
   | { type: "tool_result"; id: string; content: string; isError?: boolean }
-  | { type: "turn_end" };
+  | { type: "turn_end"; usage?: TurnUsage };
 
 /** Messages flowing FROM the app TO the sidecar (sent as a JSON string via the
  *  `send_to_session` Tauri command). Provider-agnostic. */
@@ -70,11 +85,18 @@ export type Inbound =
   | { kind: "user_turn"; text: string }
   | { kind: "permission_reply"; id: string; behavior: "allow" | "deny"; message?: string }
   | { kind: "set_model"; model: string }
+  | { kind: "set_permission_mode"; mode: PermissionMode }
   | { kind: "get_models" }
   | { kind: "get_connectors" }
   | { kind: "toggle_connector"; name: string; enabled: boolean }
   | { kind: "reconnect_connector"; name: string }
   | { kind: "interrupt" };
+
+/** Provider-neutral permission modes (mirrors the Claude SDK's `PermissionMode`).
+ *  `bypassPermissions` runs every tool without prompting (the historical
+ *  default); the others route tool use through `canUseTool` → a
+ *  `permission_request` the UI answers with `permission_reply`. */
+export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
 
 /** Messages flowing FROM the sidecar TO the app. `message` carries the neutral
  *  `AgentMessage`; `session` reports the (provider-specific) resumable session

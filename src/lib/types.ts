@@ -16,6 +16,8 @@ export type {
   ModelInfo,
   ModelRating,
   Outbound,
+  PermissionMode,
+  TurnUsage,
 } from "../../shared/protocol";
 
 /** A rendered transcript entry: a provider-neutral `AgentMessage`, or a UI-only

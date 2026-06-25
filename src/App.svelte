@@ -25,6 +25,9 @@
     globalConnectorPrefs,
     centerView,
     setCenterView,
+    addTurnCost,
+    permissionModeByWorktree,
+    DEFAULT_PERMISSION_MODE,
   } from "./lib/stores";
 
   import { toolLabel, toolDetail } from "./lib/agentMessage";
@@ -97,6 +100,8 @@
               setTurnSummary(worktree, { seconds, steps: act.steps });
             }
             clearActivity(worktree);
+            // Fold the turn's token/cost figures into the worktree's running total.
+            if (m.usage) addTurnCost(worktree, m.usage);
           } else if (m.type !== "system") {
             appendMessage(worktree, m);
           }
@@ -196,7 +201,11 @@
           // Pass the persisted session id so the agent's context resumes too.
           // The `ready`/`models` events flip status to ready and fill the catalog.
           try {
-            await startSession(sel, get(sessionByWorktree)[sel]);
+            await startSession(
+              sel,
+              get(sessionByWorktree)[sel],
+              get(permissionModeByWorktree)[sel] ?? DEFAULT_PERMISSION_MODE,
+            );
             setStatus(sel, "ready");
           } catch {
             // a real spawn failure surfaces via the agent-event error path

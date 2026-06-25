@@ -12,6 +12,8 @@
   import { Button } from "$lib/components/ui/button";
   import { Textarea } from "$lib/components/ui/textarea";
   import ModelSelector from "./ModelSelector.svelte";
+  import PermissionModeSelector from "./PermissionModeSelector.svelte";
+  import CostIndicator from "./CostIndicator.svelte";
   import Square from "@lucide/svelte/icons/square";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
 
@@ -116,7 +118,9 @@
       </Button>
     {/if}
   </div>
-  <div class="flex">
+  <div class="flex items-center gap-2">
+    <PermissionModeSelector />
     <ModelSelector />
+    <CostIndicator />
   </div>
 </div>

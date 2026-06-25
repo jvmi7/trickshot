@@ -1,5 +1,13 @@
 import { derived, writable } from "svelte/store";
-import type { ConnectorInfo, ModelInfo, Repo, TranscriptMessage, Worktree } from "./types";
+import type {
+  ConnectorInfo,
+  ModelInfo,
+  PermissionMode,
+  Repo,
+  TranscriptMessage,
+  TurnUsage,
+  Worktree,
+} from "./types";
 
 export interface PermissionReq {
   id: string;
@@ -253,6 +261,100 @@ export function setGlobalConnectorPref(name: string, enabled: boolean) {
   globalConnectorPrefs.update((m) => ({ ...m, [name]: enabled }));
 }
 
+// ---- Per-worktree cost + token usage (accumulated per turn, persisted) ----
+// Each `turn_end` carries the turn's token/cost figures (see TurnUsage); we sum
+// them per worktree for a running session total. `costUsd` is a client-side
+// estimate (per the SDK), surfaced as such in the UI.
+export interface WorktreeCost {
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  turns: number;
+}
+const ZERO_COST: WorktreeCost = {
+  costUsd: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreationTokens: 0,
+  turns: 0,
+};
+const COST_KEY = "trickshot.costByWorktree";
+function loadCostByWorktree(): Record<string, WorktreeCost> {
+  if (!hasLS) return {};
+  try {
+    const v = JSON.parse(localStorage.getItem(COST_KEY) ?? "{}");
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+export const costByWorktree = writable<Record<string, WorktreeCost>>(loadCostByWorktree());
+costByWorktree.subscribe((c) => {
+  if (!hasLS) return;
+  try {
+    localStorage.setItem(COST_KEY, JSON.stringify(c));
+  } catch {
+    /* ignore quota errors */
+  }
+});
+/** Fold one turn's usage into a worktree's running total (missing fields count
+ *  as zero, so a provider that omits a figure simply doesn't move it). */
+export function addTurnCost(worktree: string, usage: TurnUsage) {
+  costByWorktree.update((c) => {
+    const cur = c[worktree] ?? ZERO_COST;
+    return {
+      ...c,
+      [worktree]: {
+        costUsd: cur.costUsd + (usage.costUsd ?? 0),
+        inputTokens: cur.inputTokens + (usage.inputTokens ?? 0),
+        outputTokens: cur.outputTokens + (usage.outputTokens ?? 0),
+        cacheReadTokens: cur.cacheReadTokens + (usage.cacheReadTokens ?? 0),
+        cacheCreationTokens: cur.cacheCreationTokens + (usage.cacheCreationTokens ?? 0),
+        turns: cur.turns + 1,
+      },
+    };
+  });
+}
+
+// ---- Per-worktree permission mode (persisted) ----
+// Controls how the agent's tool use is gated. `bypassPermissions` (the historical
+// default) runs every tool silently; the others route tool use through the
+// Allow/Deny modal. Applied at session start (PERMISSION_MODE env) and switched
+// live via the `set_permission_mode` command.
+const PERM_MODE_KEY = "trickshot.permissionModeByWorktree";
+const PERMISSION_MODES: PermissionMode[] = ["bypassPermissions", "acceptEdits", "default", "plan"];
+function loadPermissionModeByWorktree(): Record<string, PermissionMode> {
+  if (!hasLS) return {};
+  try {
+    const v = JSON.parse(localStorage.getItem(PERM_MODE_KEY) ?? "{}");
+    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+    const out: Record<string, PermissionMode> = {};
+    for (const [k, mode] of Object.entries(v)) {
+      if (PERMISSION_MODES.includes(mode as PermissionMode)) out[k] = mode as PermissionMode;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+export const permissionModeByWorktree = writable<Record<string, PermissionMode>>(
+  loadPermissionModeByWorktree(),
+);
+permissionModeByWorktree.subscribe((m) => {
+  if (!hasLS) return;
+  try {
+    localStorage.setItem(PERM_MODE_KEY, JSON.stringify(m));
+  } catch {
+    /* ignore quota errors */
+  }
+});
+export function setWorktreePermissionMode(worktree: string, mode: PermissionMode) {
+  permissionModeByWorktree.update((m) => ({ ...m, [worktree]: mode }));
+}
+
 // ---- Font ----
 export interface FontOption {
   id: string;
@@ -496,4 +598,17 @@ export const activeActivity = derived([worktreeActivity, selectedWorktree], ([$a
 /** The selected worktree's last-completed-turn summary (null until a turn ends). */
 export const activeSummary = derived([turnSummary, selectedWorktree], ([$s, $sel]) =>
   $sel ? ($s[$sel] ?? null) : null,
+);
+/** The selected worktree's running cost/token total (null until a turn completes). */
+export const activeCost = derived([costByWorktree, selectedWorktree], ([$c, $sel]) =>
+  $sel ? ($c[$sel] ?? null) : null,
+);
+/** The session default when a worktree has no explicit choice — preserves the
+ *  historical silent-run behavior so enabling prompts is opt-in. */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "bypassPermissions";
+export { PERMISSION_MODES };
+/** The selected worktree's permission mode (falls back to the default). */
+export const activePermissionMode = derived(
+  [permissionModeByWorktree, selectedWorktree],
+  ([$m, $sel]) => ($sel ? ($m[$sel] ?? DEFAULT_PERMISSION_MODE) : DEFAULT_PERMISSION_MODE),
 );

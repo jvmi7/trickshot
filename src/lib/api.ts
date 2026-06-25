@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AgentEnvelope, Inbound, Outbound, Worktree } from "./types";
+import type { AgentEnvelope, Inbound, Outbound, PermissionMode, Worktree } from "./types";
 
 // ---- Repository / worktree commands -------------------------------------
 
@@ -28,20 +28,20 @@ export const removeWorktree = (repoPath: string, worktreePath: string, force = f
 
 /** Start (or no-op if already running) the agent session for a worktree.
  *  Pass `resume` (a prior session id) to restore that session's context,
- *  `provider` to pick a model-provider adapter (defaults to "claude"), and
- *  `permissionMode` to override tool-permission handling (omit = full bypass,
- *  the default; a value like "default" activates the Allow/Deny modal). */
+ *  `permissionMode` to set the initial tool-permission gate (defaults to
+ *  bypassPermissions; a non-bypass value activates the Allow/Deny modal), and
+ *  `provider` to pick a model-provider adapter (defaults to "claude"). */
 export const startSession = (
   worktree: string,
   resume?: string,
+  permissionMode?: PermissionMode,
   provider?: string,
-  permissionMode?: string,
 ) =>
   invoke<void>("start_session", {
     worktree,
     resume: resume ?? null,
-    provider: provider ?? null,
     permissionMode: permissionMode ?? null,
+    provider: provider ?? null,
   });
 
 /** Kill a worktree's agent session. */
@@ -87,6 +87,10 @@ export const toggleConnector = (worktree: string, name: string, enabled: boolean
 /** Reconnect an MCP connector (e.g. after a failure / needs-auth). */
 export const reconnectConnector = (worktree: string, name: string) =>
   send(worktree, { kind: "reconnect_connector", name });
+
+/** Switch a worktree's tool-permission mode live (mid-session). */
+export const setPermissionMode = (worktree: string, mode: PermissionMode) =>
+  send(worktree, { kind: "set_permission_mode", mode });
 
 // ---- Event stream --------------------------------------------------------
 
