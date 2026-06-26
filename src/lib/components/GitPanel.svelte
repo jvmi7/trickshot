@@ -88,9 +88,18 @@
     }
   }
 
-  const stage = (f: GitFileStatus) => run(() => api.worktreeStage(wt as string, [f.path]));
-  const unstage = (f: GitFileStatus) => run(() => api.worktreeUnstage(wt as string, [f.path]));
-  const stageAll = () => run(() => api.worktreeStage(wt as string, []));
+  const stage = (f: GitFileStatus) => {
+    const w = wt;
+    if (w) run(() => api.worktreeStage(w, [f.path]));
+  };
+  const unstage = (f: GitFileStatus) => {
+    const w = wt;
+    if (w) run(() => api.worktreeUnstage(w, [f.path]));
+  };
+  const stageAll = () => {
+    const w = wt;
+    if (w) run(() => api.worktreeStage(w, []));
+  };
 
   function commit() {
     const w = wt;
