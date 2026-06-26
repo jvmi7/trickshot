@@ -154,6 +154,149 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* Geist — Vercel's typeface (https://vercel.com/font). Self-hosted variable
+   font, weight 100–900, no italic; latin + latin-ext. */
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/geist-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/geist-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Mulish — Google Fonts (https://fonts.google.com/specimen/Mulish). Self-hosted
+   variable font, weight 200–1000; latin + latin-ext, roman + italic. */
+@font-face {
+  font-family: "Mulish";
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/mulish-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Mulish";
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/mulish-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Mulish";
+  font-style: italic;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/mulish-latin-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Mulish";
+  font-style: italic;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/mulish-latin-ext-italic.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Lexend — Google Fonts (https://fonts.google.com/specimen/Lexend). Self-hosted
+   variable font, weight 100–900, no italic; latin + latin-ext. */
+@font-face {
+  font-family: "Lexend";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/lexend-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Lexend";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/lexend-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Nunito — Google Fonts (https://fonts.google.com/specimen/Nunito). Self-hosted
+   variable font, weight 200–1000; latin + latin-ext, roman + italic. */
+@font-face {
+  font-family: "Nunito";
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/nunito-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Nunito";
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/nunito-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Nunito";
+  font-style: italic;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/nunito-latin-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Nunito";
+  font-style: italic;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/nunito-latin-ext-italic.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* SN Pro — Google Fonts (https://fonts.google.com/specimen/SN+Pro). Self-hosted
+   variable font, weight 200–900; latin + latin-ext, roman + italic. */
+@font-face {
+  font-family: "SN Pro";
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("./fonts/sn-pro-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "SN Pro";
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("./fonts/sn-pro-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "SN Pro";
+  font-style: italic;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("./fonts/sn-pro-latin-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "SN Pro";
+  font-style: italic;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("./fonts/sn-pro-latin-ext-italic.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 /* Switchable UI font. --app-font is the active stack; <html data-font="…">
    overrides it (see stores.ts › font). Both --font-sans/--font-mono and the
    bespoke :root font-family derive from it, so everything follows. */
@@ -163,12 +306,22 @@
   --font-comic: "Comic Sans MS", "Comic Sans", ui-rounded, cursive;
   --font-ibm: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --font-helvetica: "Helvetica Self", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-geist: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mulish: "Mulish", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-lexend: "Lexend", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-nunito: "Nunito", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sn-pro: "SN Pro", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --app-font: var(--font-sans-code);
 }
 [data-font="wenkai"] { --app-font: var(--font-wenkai); }
 [data-font="comic"] { --app-font: var(--font-comic); }
 [data-font="ibm"] { --app-font: var(--font-ibm); }
 [data-font="helvetica"] { --app-font: var(--font-helvetica); }
+[data-font="geist"] { --app-font: var(--font-geist); }
+[data-font="mulish"] { --app-font: var(--font-mulish); }
+[data-font="lexend"] { --app-font: var(--font-lexend); }
+[data-font="nunito"] { --app-font: var(--font-nunito); }
+[data-font="sn-pro"] { --app-font: var(--font-sn-pro); }
 
 /* ============================================================
    THEME ENGINE — semantic base palette (the SINGLE source of
@@ -388,8 +541,9 @@
      theme-CONSTANT, so building code color on them looked identical everywhere).
      Never hardcode a hex here. */
   --app-code: var(--base-accent);
-  --app-code-bg: color-mix(in srgb, var(--base-accent) 13%, var(--base-surface-raised));
-  --app-code-border: color-mix(in srgb, var(--base-accent) 28%, var(--base-border));
+  /* Neutral raised surface — no accent tint, no border (the accent TEXT color is
+     enough to set inline code apart from prose). */
+  --app-code-bg: var(--base-surface-raised);
   /* Max width of the chat reading column (messages + loading + composer); it
      centers in the pane when wider. */
   --chat-col: 740px;
@@ -613,18 +767,42 @@ body { margin: 0; }
   box-shadow: 0 0 8px var(--base-accent);
 }
 
+/* Shared "bubble" surface — the user message bubble AND the composer input use
+   the SAME gradient + faint outline + radius, so the input matches the chat
+   (edit here once and both follow). Vertical gradient: top and bottom share the
+   lighter color, with a darker band through the middle; the rise back up happens
+   unevenly — held dark until ~3/4 down, then a shallow gradient back to the top
+   color at the bottom edge. Token-based so it tracks the theme. */
+.msg.user .body,
+.composer-input {
+  border-radius: 16px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--app-bg) 22%, var(--app-panel)) 0%,
+    color-mix(in srgb, var(--app-bg) 75%, var(--app-panel)) 50%,
+    color-mix(in srgb, var(--app-bg) 75%, var(--app-panel)) 72%,
+    color-mix(in srgb, var(--app-bg) 22%, var(--app-panel)) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--app-text) 10%, transparent);
+}
 /* All messages share ONE left-aligned column (no left/right split). The user's
-   own messages get a subtle, theme-tinted container so they read distinctly from
-   the assistant's plain prose; the box hugs its content (inline-block). */
+   own messages get the bubble surface above so they read distinctly from the
+   assistant's plain prose; the box hugs its content. */
 .msg.user .body {
   display: block;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--app-accent) 12%, var(--app-panel));
-  border: 1px solid color-mix(in srgb, var(--app-accent) 20%, var(--app-border));
-  color: var(--app-text);
+  padding: 12px 16px;
+  /* Slightly grey, not pure white — softened toward the bubble background. */
+  color: color-mix(in srgb, var(--app-text) 90%, var(--app-bg));
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* Composer input: same bubble surface, laid out as [textarea | send button].
+   The selector row below stays OUTSIDE this surface. */
+.composer-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 6px 8px 6px 16px;
 }
 /* ---- rendered markdown (assistant prose; see Markdown.svelte). Tight vertical
    rhythm so a chat bubble reads as one block; code stays monospace regardless of
@@ -650,7 +828,7 @@ body { margin: 0; }
 .markdown code {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.9em; color: var(--app-code);
-  background: var(--app-code-bg); border: 1px solid var(--app-code-border);
+  background: var(--app-code-bg);
   border-radius: 4px; padding: 0.1em 0.35em;
 }
 /* Fenced block: surface panel so code/diagrams read as a distinct unit. A bordered
@@ -738,16 +916,6 @@ body { margin: 0; }
   right: 32px;
   border-top: 1px solid var(--app-border);
 }
-/* Terminal prompt caret: muted when the input is blurred, accent when focused. */
-.composer-caret {
-  font-weight: 600;
-  line-height: 1;
-  color: var(--app-dim);
-  user-select: none;
-  transition: color 0.15s ease;
-}
-.composer-caret.focused { color: var(--app-accent); }
-
 /* Caret that rides the end of the animated placeholder as it types/backspaces,
    matching the real textarea caret (color + blink) so the handoff is seamless. */
 .ph-caret {

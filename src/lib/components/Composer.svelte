@@ -1,12 +1,12 @@
 <script lang="ts">
   import {
-    appendMessage,
     selectedWorktree,
     sessionStatus,
     setStatus,
-    startActivity,
     clearActivity,
     availableCommands,
+    submitUserTurn,
+    composerPrefill,
   } from "../stores";
   import { onDestroy } from "svelte";
   import * as api from "../api";
@@ -22,9 +22,9 @@
   let focused = false;
   let textareaEl: HTMLTextAreaElement | null = null;
 
-  // Animated placeholder: "start cooking" deletes itself char-by-char on focus
+  // Animated placeholder: "Start building..." deletes itself char-by-char on focus
   // (so the field reads empty when you click in); restored on blur if still empty.
-  const PLACEHOLDER = "start cooking";
+  const PLACEHOLDER = "Start building...";
   let ph = PLACEHOLDER;
   let phTimer: ReturnType<typeof setInterval> | undefined;
   function onFocus() {
@@ -80,28 +80,22 @@
     textareaEl?.focus();
   }
 
-  async function send() {
+  function send() {
     const t = text.trim();
     if (!t || !wt || working) return;
-    // Snapshot the target: send() is async and `wt` is reactive, so the user can
-    // switch worktrees during the await. Every read below must refer to the
-    // worktree this turn was actually sent to, not the now-selected one.
-    const sendWt = wt;
-    // Optimistically render the user's own turn; mark the session working until
-    // the turn's `result` message arrives (App.svelte flips it back to running).
-    appendMessage(sendWt, { type: "user_local", text: t });
-    setStatus(sendWt, "busy");
-    startActivity(sendWt);
     text = "";
-    try {
-      await api.sendUserTurn(sendWt, t);
-    } catch (e) {
-      // The IPC write was rejected (e.g. the session isn't running) — surface it
-      // and unstick the UI instead of spinning `busy` on a turn that never landed.
-      appendMessage(sendWt, { type: "error", error: `failed to send: ${e}` });
-      setStatus(sendWt, "ready");
-      clearActivity(sendWt);
-    }
+    // submitUserTurn does the optimistic bubble + status + IPC + error handling
+    // (shared with the suggestion chips, so the flow stays identical).
+    void submitUserTurn(wt, t);
+  }
+
+  // A picked suggestion lands in the editable input (focus so the user can edit
+  // immediately). React per-nonce so re-picking the same text still applies.
+  let lastPrefillNonce = 0;
+  $: if ($composerPrefill.nonce !== lastPrefillNonce) {
+    lastPrefillNonce = $composerPrefill.nonce;
+    text = $composerPrefill.text;
+    textareaEl?.focus();
   }
 
   function stop() {
@@ -140,12 +134,9 @@
       {/each}
     </div>
   {/if}
-  <!-- Two rows: a terminal-style prompt on top — a borderless textarea that blends
-       into the footer, with the send button — and the model selector below it. -->
-  <div class="mb-2 flex items-start gap-2">
-    <!-- pt-2/leading-5 match the textarea's top padding + line-height so the
-         caret lines up with the FIRST line as the box grows (not centered). -->
-    <span class="composer-caret pt-2 leading-5" class:focused>&gt;</span>
+  <!-- The input area: a bubble-styled surface (matches the chat bubbles) holding a
+       borderless textarea + the send button. The selector row sits below it. -->
+  <div class="composer-input mb-2">
     <!-- The textarea's native placeholder is suppressed; the animated placeholder
          (with its trailing caret) is the overlay below, kept pixel-aligned with
          the textarea's text by matching its padding/leading/size. -->
@@ -158,21 +149,21 @@
         onblur={onBlur}
         disabled={!alive}
         rows={2}
-        class="max-h-48 min-h-[3.25rem] w-full resize-none rounded-none border-0 bg-transparent px-0 pt-2 pb-1 shadow-none outline-none transition-colors hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent {showPhCaret ? 'caret-transparent' : 'caret-primary'}"
+        class="max-h-48 min-h-[3.25rem] w-full resize-none rounded-none border-0 bg-transparent px-0 pt-2 pb-1 text-base md:text-base shadow-none outline-none transition-colors hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent {showPhCaret ? 'caret-transparent' : 'caret-primary'}"
       />
       {#if text === ""}
         <div
-          class="text-muted-foreground group-hover:text-foreground pointer-events-none absolute inset-0 pt-2 text-base whitespace-pre transition-colors select-none md:text-sm"
+          class="text-muted-foreground group-hover:text-foreground pointer-events-none absolute inset-0 pt-2 text-base whitespace-pre transition-colors select-none"
           aria-hidden="true"
         >{alive ? ph : "Select a worktree to start"}{#if showPhCaret}<span class="ph-caret"></span>{/if}</div>
       {/if}
     </div>
     {#if working}
-      <Button variant="ghost" size="icon" class="size-9 shrink-0 self-center rounded-full" title="Stop" aria-label="Stop" onclick={stop}>
+      <Button variant="secondary" size="icon" class="size-9 shrink-0 rounded-full" title="Stop" aria-label="Stop" onclick={stop}>
         <Square class="size-3.5 fill-current" />
       </Button>
     {:else}
-      <Button variant="ghost" size="icon" class="size-9 shrink-0 self-center rounded-full" title="Send" aria-label="Send" onclick={send} disabled={!canSend}>
+      <Button variant="default" size="icon" class="size-9 shrink-0 rounded-full" title="Send" aria-label="Send" onclick={send} disabled={!canSend}>
         <ArrowUp class="size-5" />
       </Button>
     {/if}

@@ -9,6 +9,7 @@
     toggleConnector,
     notify,
     worktreeStatus,
+    requestSuggestions,
   } from "./lib/api";
   import {
     repos,
@@ -35,6 +36,9 @@
     centerView,
     setCenterView,
     refreshUsage,
+    setSuggestions,
+    clearSuggestions,
+    recentConversation,
     permissionModeByWorktree,
     DEFAULT_PERMISSION_MODE,
     mainView,
@@ -161,6 +165,13 @@
             if (worktree !== get(selectedWorktree)) {
               bumpUnread(worktree);
               void notify("Agent finished", shortName(worktree));
+            } else {
+              // Offer suggested next replies for the on-screen chat only — it's a
+              // cheap extra model call, so don't spend it on background worktrees.
+              // Clear the old set first so stale chips don't linger while we wait.
+              clearSuggestions(worktree);
+              const convo = recentConversation(worktree);
+              if (convo) requestSuggestions(worktree, convo);
             }
           } else if (m.type !== "system") {
             appendMessage(worktree, m);
@@ -179,6 +190,9 @@
             ...p,
             [worktree]: { id: evt.id, questions: evt.questions },
           }));
+        } else if (evt.kind === "suggestions") {
+          // Suggested next replies arrived (answer to a `suggest` request).
+          setSuggestions(worktree, evt.suggestions);
         } else if (evt.kind === "checkpoint") {
           // Tag the just-sent user turn with its rewindable checkpoint id.
           attachRewindId(worktree, evt.id);

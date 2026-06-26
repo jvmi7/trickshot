@@ -126,6 +126,11 @@ export const replyQuestion = (worktree: string, id: string, answers: string[][])
 /** Interrupt a worktree's agent mid-task. */
 export const interruptAgent = (worktree: string) => send(worktree, { kind: "interrupt" });
 
+/** Ask the agent to generate suggested next replies for the recent conversation.
+ *  Answered async via a `suggestions` event on the agent stream. */
+export const requestSuggestions = (worktree: string, conversation: string) =>
+  send(worktree, { kind: "suggest", conversation });
+
 /** Revert file changes made after a given user turn (its checkpoint id). */
 export const rewind = (worktree: string, messageId: string) =>
   send(worktree, { kind: "rewind", messageId });

@@ -66,6 +66,10 @@ export interface AgentProvider {
   replyPermission(id: string, behavior: "allow" | "deny", message?: string): void;
   /** Answer a pending `question_request` with the user's per-question choices. */
   replyQuestion(id: string, answers: string[][]): void;
+  /** Generate short suggested NEXT user replies for the given recent-conversation
+   *  text and emit them as a `suggestions` event. Best-effort: a failure emits an
+   *  empty list, never throws. Runs as a one-shot call independent of the main loop. */
+  suggest(conversation: string): void;
 }
 
 export type ProviderFactory = (ctx: ProviderContext) => AgentProvider;

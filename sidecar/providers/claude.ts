@@ -27,6 +27,36 @@ import type { AgentProvider, ProviderContext } from "./types";
 // The default model a fresh session starts on (the UI can switch it per chat).
 const DEFAULT_MODEL = "claude-opus-4-8";
 
+// Suggested-reply generation runs on a cheap, fast model — it's a tiny text task,
+// not agent work, and must not burn Opus budget. "haiku" is a Claude Code alias
+// that resolves to the latest Haiku.
+const SUGGEST_MODEL = "haiku";
+const SUGGEST_SYSTEM =
+  "You generate short suggested NEXT messages the USER might send to a coding agent, " +
+  "given the recent conversation. Write them in the user's first-person voice (e.g. " +
+  '"Add tests for this", "Explain the tradeoff"). Each must be concise (<= 8 words), ' +
+  "distinct, and a plausible immediate follow-up. Output ONLY a JSON array of exactly 2 " +
+  "strings — no prose, no markdown, no code fences.";
+
+/** Parse the model's reply into at most 2 short suggestion strings. Tolerates a
+ *  ```json fence and trailing prose; returns [] on anything unparseable (the UI
+ *  renders nothing rather than throwing — best-effort feature). */
+function parseSuggestions(raw: string): string[] {
+  const fenced = raw.match(/\[[\s\S]*\]/); // first JSON-array-looking span
+  if (!fenced) return [];
+  try {
+    const arr = JSON.parse(fenced[0]);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((s): s is string => typeof s === "string")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 2);
+  } catch {
+    return [];
+  }
+}
+
 // Always appended to the system prompt so the agent reaches for OUR question tool
 // FIRST, instead of trying the built-in AskUserQuestion, getting denied, and only
 // then falling back. (The built-in is also disallowed below as a hard backstop.)
@@ -190,6 +220,9 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
   let initServers: { name: string; status: string }[] = [];
   let lastSession = ctx.resumeSessionId ?? "";
   let dead = false;
+  // In-flight suggestion request; aborted when superseded or when the user sends
+  // a turn (they've moved on, so a late suggestion is stale).
+  let suggestAbort: AbortController | null = null;
 
   // Historical default is bypassPermissions (silent tool use); the app overrides
   // it per-worktree via the PERMISSION_MODE env (read into ctx by core.ts).
@@ -478,6 +511,9 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
 
     pushTurn(text) {
       if (dead) return; // the loop has exited; nothing will consume this turn
+      // The user is responding now — any in-flight suggestion is stale.
+      suggestAbort?.abort();
+      suggestAbort = null;
       turns.push({
         type: "user",
         message: { role: "user", content: String(text ?? "") },
@@ -605,6 +641,50 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       if (!resolve) return;
       pendingQuestions.delete(id);
       resolve(answers);
+    },
+
+    suggest(conversation) {
+      // Supersede any in-flight request, then run a SEPARATE one-shot query — NOT
+      // the main `q` loop (that has tools/context and would pollute the chat).
+      // Cheap model, no tools, single turn. Fail-soft: emit [] on any error so the
+      // UI just shows nothing (the stream must never break on this best-effort path).
+      suggestAbort?.abort();
+      const abort = new AbortController();
+      suggestAbort = abort;
+      void (async () => {
+        let text = "";
+        try {
+          const sq = query({
+            prompt: `Recent conversation:\n\n${conversation}\n\nSuggest 2 next messages I might send.`,
+            options: {
+              model: SUGGEST_MODEL,
+              cwd: ctx.projectDir,
+              pathToClaudeCodeExecutable: ctx.cliPath,
+              systemPrompt: { type: "preset", preset: "claude_code", append: SUGGEST_SYSTEM },
+              // Pure text task: no tools, no MCP, one turn, full silent bypass.
+              allowedTools: [],
+              permissionMode: "bypassPermissions",
+              allowDangerouslySkipPermissions: true,
+              maxTurns: 1,
+              abortController: abort,
+            },
+          });
+          for await (const m of sq) {
+            if (m.type === "assistant") {
+              const content = (m as { message?: { content?: unknown } }).message?.content;
+              for (const b of (Array.isArray(content) ? content : []) as ContentBlock[]) {
+                if (b?.type === "text" && typeof b.text === "string") text += b.text;
+              }
+            }
+          }
+        } catch {
+          // Aborted, network, model, or parse upstream — fall through to [].
+        }
+        // Drop the result if a newer request (or a user turn) superseded this one.
+        if (suggestAbort !== abort || abort.signal.aborted) return;
+        suggestAbort = null;
+        ctx.emit({ kind: "suggestions", suggestions: parseSuggestions(text) });
+      })();
     },
   };
 }

@@ -9,6 +9,7 @@
   import Message from "./Message.svelte";
   import ToolGroup from "./ToolGroup.svelte";
   import Composer from "./Composer.svelte";
+  import Suggestions from "./Suggestions.svelte";
   import PermissionModal from "./PermissionModal.svelte";
   import QuestionModal from "./QuestionModal.svelte";
   import ScrollIndicator from "./ScrollIndicator.svelte";
@@ -47,6 +48,7 @@
   </div>
 
   <LoadingState />
+  <Suggestions />
   <Composer />
   <PermissionModal />
   <QuestionModal />

@@ -465,6 +465,26 @@ export function setWorktreePermissionMode(worktree: string, mode: PermissionMode
   permissionModeByWorktree.update((m) => ({ ...m, [worktree]: mode }));
 }
 
+// ---- Suggested replies (per-worktree, ephemeral; NOT persisted) ----
+// Short "what to send next" options the agent generates after a turn (see the
+// `suggest`/`suggestions` protocol kinds). Cleared when the user sends anything.
+export const suggestionsByWorktree = writable<Record<string, string[]>>({});
+export function setSuggestions(worktree: string, list: string[]) {
+  suggestionsByWorktree.update((s) => ({ ...s, [worktree]: list }));
+}
+export function clearSuggestions(worktree: string) {
+  suggestionsByWorktree.update((s) => (s[worktree]?.length ? { ...s, [worktree]: [] } : s));
+}
+
+// Drop text into the composer's editable input (picking a suggestion lands here so
+// the user can edit it before sending, rather than it firing off immediately). The
+// monotonic nonce lets the Composer react to each request — even re-picking the
+// same text — without it being a persisted value.
+export const composerPrefill = writable<{ text: string; nonce: number }>({ text: "", nonce: 0 });
+export function prefillComposer(text: string) {
+  composerPrefill.update((p) => ({ text, nonce: p.nonce + 1 }));
+}
+
 // ---- Font ----
 export interface FontOption {
   id: string;
@@ -479,6 +499,11 @@ export const FONTS: FontOption[] = [
   { id: "comic", label: "Comic Sans" },
   { id: "ibm", label: "IBM Plex Mono" },
   { id: "helvetica", label: "Helvetica" },
+  { id: "geist", label: "Geist" },
+  { id: "mulish", label: "Mulish" },
+  { id: "lexend", label: "Lexend" },
+  { id: "nunito", label: "Nunito" },
+  { id: "sn-pro", label: "SN Pro" },
 ];
 const FONT_KEY = "trickshot.font";
 function loadFont(): string {
@@ -665,6 +690,40 @@ export function attachRewindId(worktree: string, id: string) {
   });
 }
 
+/** Send a user turn to a worktree's agent: optimistically render the `user_local`
+ *  bubble, mark the session busy, clear any stale suggestions, then fire the IPC
+ *  (unsticking the UI if it's rejected). The ONE place a user turn is submitted —
+ *  the Composer and the suggestion chips both route through here. Callers guard
+ *  against sending while busy / with empty text. */
+export async function submitUserTurn(worktree: string, text: string) {
+  const t = text.trim();
+  if (!t) return;
+  appendMessage(worktree, { type: "user_local", text: t });
+  setStatus(worktree, "busy");
+  startActivity(worktree);
+  clearSuggestions(worktree);
+  try {
+    await api.sendUserTurn(worktree, t);
+  } catch (e) {
+    appendMessage(worktree, { type: "error", error: `failed to send: ${e}` });
+    setStatus(worktree, "ready");
+    clearActivity(worktree);
+  }
+}
+
+/** Build a compact recent-conversation string (user + assistant turns only) to
+ *  seed suggestion generation. Includes the un-flushed buffer so the just-ended
+ *  turn is present. Caps length so the cheap suggest model stays cheap. */
+export function recentConversation(worktree: string, maxMessages = 8, maxChars = 400): string {
+  const all = (get(transcripts)[worktree] ?? []).concat(_buffers[worktree] ?? []);
+  const lines: string[] = [];
+  for (const m of all) {
+    if (m.type === "user_local") lines.push(`User: ${m.text.slice(0, maxChars)}`);
+    else if (m.type === "assistant") lines.push(`Assistant: ${m.text.slice(0, maxChars)}`);
+  }
+  return lines.slice(-maxMessages).join("\n");
+}
+
 // ---- Per-worktree pending permission (dormant under bypassPermissions) ----
 export const pendingPermission = writable<Record<string, PermissionReq | null>>({});
 
@@ -767,6 +826,10 @@ export const activeSummary = derived([turnSummary, selectedWorktree], ([$s, $sel
 /** The selected worktree's change summary (null until fetched / when none). */
 export const activeGitStat = derived([gitStatByWorktree, selectedWorktree], ([$m, $sel]) =>
   $sel ? ($m[$sel] ?? null) : null,
+);
+/** The selected worktree's suggested next replies (empty when none). */
+export const activeSuggestions = derived([suggestionsByWorktree, selectedWorktree], ([$s, $sel]) =>
+  $sel ? ($s[$sel] ?? []) : [],
 );
 /** The session default when a worktree has no explicit choice — preserves the
  *  historical silent-run behavior so enabling prompts is opt-in. */

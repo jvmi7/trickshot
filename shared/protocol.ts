@@ -132,7 +132,11 @@ export type Inbound =
   | { kind: "get_mcp_status" }
   // Answer to a `question_request`: per-question, the chosen option labels (one
   // for single-select, one-or-more for multiSelect). Order mirrors `questions`.
-  | { kind: "question_reply"; id: string; answers: string[][] };
+  | { kind: "question_reply"; id: string; answers: string[][] }
+  // Ask the provider to generate short suggested NEXT user replies for the given
+  // recent-conversation text. Answered async with a `suggestions` Outbound. Runs
+  // as a SEPARATE cheap one-shot call, not through the main agent loop.
+  | { kind: "suggest"; conversation: string };
 
 /** Provider-neutral permission modes (mirrors the Claude SDK's `PermissionMode`).
  *  `bypassPermissions` runs every tool without prompting (the historical
@@ -163,4 +167,8 @@ export type Outbound =
   | { kind: "notification"; message: string; notificationType?: string }
   // The agent is asking the user a structured question; the app shows a modal
   // and answers with `question_reply`. Provider-neutral (see Question).
-  | { kind: "question_request"; id: string; questions: Question[] };
+  | { kind: "question_request"; id: string; questions: Question[] }
+  // Suggested next user replies (answer to a `suggest` request). Provider-neutral;
+  // empty array = none available (the UI renders nothing). The UI shows these as
+  // pick-to-send chips alongside a "type your own" option.
+  | { kind: "suggestions"; suggestions: string[] };
