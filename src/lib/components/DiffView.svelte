@@ -56,8 +56,8 @@
     padding: 0 8px;
   }
   .add {
-    background: color-mix(in oklch, var(--app-success, #2ea043) 16%, transparent);
-    color: var(--app-success, #2ea043);
+    background: color-mix(in oklch, var(--base-success) 16%, transparent);
+    color: var(--base-success);
   }
   .del {
     background: color-mix(in oklch, var(--destructive) 16%, transparent);

@@ -243,7 +243,7 @@
     flex-direction: column;
     width: 280px;
     flex-shrink: 0;
-    border-right: 1px solid var(--app-border, var(--border));
+    border-right: 1px solid var(--app-border);
     min-height: 0;
   }
   .git-head {
@@ -251,7 +251,7 @@
     align-items: center;
     gap: 6px;
     padding: 8px 8px 8px 12px;
-    border-bottom: 1px solid var(--app-border, var(--border));
+    border-bottom: 1px solid var(--app-border);
   }
   .git-branch {
     font-size: 12px;
@@ -289,7 +289,7 @@
   }
   .wt-file.active,
   .wt-file:hover {
-    background: var(--app-hover, var(--accent));
+    background: var(--app-panel);
   }
   .wt-file-main {
     display: flex;
@@ -314,7 +314,7 @@
     color: var(--app-dim);
   }
   .wt-badge.staged {
-    color: var(--app-success, #2ea043);
+    color: var(--base-success);
   }
   .wt-path {
     font-size: 12px;
@@ -328,7 +328,7 @@
     flex-direction: column;
     gap: 6px;
     padding: 8px;
-    border-top: 1px solid var(--app-border, var(--border));
+    border-top: 1px solid var(--app-border);
   }
   .git-commit-row {
     display: flex;

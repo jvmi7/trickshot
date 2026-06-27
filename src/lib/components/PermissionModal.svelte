@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { activePending, selectedWorktree, pendingPermission } from "../stores";
+  import { activePending, selectedWorktree, setPendingPermission } from "../stores";
   import * as api from "../api";
   import * as Dialog from "$lib/components/ui/dialog";
   import { Button } from "$lib/components/ui/button";
@@ -9,7 +9,7 @@
     const wt = $selectedWorktree;
     if (!p || !wt) return;
     api.replyPermission(wt, p.id, behavior);
-    pendingPermission.update((m) => ({ ...m, [wt]: null }));
+    setPendingPermission(wt, null);
   }
 
   // Closing the dialog (Esc / overlay / ✕) is treated as a deny — the safe default.

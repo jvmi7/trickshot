@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { activeQuestion, selectedWorktree, pendingQuestion } from "../stores";
+  import { activeQuestion, selectedWorktree, setPendingQuestion } from "../stores";
   import * as api from "../api";
   import * as Dialog from "$lib/components/ui/dialog";
   import { Button } from "$lib/components/ui/button";
@@ -34,7 +34,7 @@
   );
 
   function clear(wt: string) {
-    pendingQuestion.update((m) => ({ ...m, [wt]: null }));
+    setPendingQuestion(wt, null);
   }
   function submit() {
     const q = $activeQuestion;

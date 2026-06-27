@@ -18,9 +18,9 @@
   // Edge fades are purely positional (not tied to active scrolling): show the top
   // fade whenever there's content scrolled off above, the bottom fade whenever
   // there's more below. A small px threshold avoids a hairline fade at the ends.
-  $: scrollPx = $scrollCursor.progress * $scrollCursor.max;
-  $: topFade = scrollPx > 2;
-  $: bottomFade = $scrollCursor.max - scrollPx > 2;
+  const scrollPx = $derived($scrollCursor.progress * $scrollCursor.max);
+  const topFade = $derived(scrollPx > 2);
+  const bottomFade = $derived($scrollCursor.max - scrollPx > 2);
 </script>
 
 <div class="chat">

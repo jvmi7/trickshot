@@ -608,9 +608,7 @@ html, body {
 .icon-chrome-btn:hover { background: var(--app-panel-2); color: var(--app-text); }
 .icon-chrome-btn svg { display: block; width: 13px; height: 13px; }
 /* Header chrome buttons add absolute positioning over the overlay titlebar. */
-.header-icon-btn { position: absolute; top: 4px; z-index: 20; }
-.header-icon-btn--left { left: 74px; }
-.header-icon-btn--right { right: 4px; }
+.header-icon-btn { position: absolute; top: 4px; left: 74px; z-index: 20; }
 
 /* ---- sidebar column: full-height, right border is the sole divider ---- */
 .sidebar {
@@ -692,7 +690,7 @@ html, body {
 @keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .wt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Sidebar activity badges: pending-permission flag + background unread count. */
-.wt-pending { flex-shrink: 0; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--base-warning, #d29922); }
+.wt-pending { flex-shrink: 0; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--base-warning); }
 .wt-unread { flex-shrink: 0; min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border-radius: 8px; background: var(--app-accent); color: var(--app-bg); }
 
 /* ---- chat ---- */

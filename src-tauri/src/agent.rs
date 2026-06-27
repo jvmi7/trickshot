@@ -3,20 +3,40 @@ use std::sync::{Mutex, MutexGuard};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::process::{Command, CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 /// One sidecar process per worktree, keyed by worktree path. Worktrees run
 /// concurrently — each keeps its own live agent.
 #[derive(Default)]
-pub struct Sessions(pub Mutex<HashMap<String, CommandChild>>);
+pub struct Sessions(Mutex<HashMap<String, CommandChild>>);
 
 impl Sessions {
     /// Lock, recovering from poisoning. The map of children is plain data and
     /// is safe to use even if a thread panicked while holding the lock; without
-    /// this, one panic-under-lock would brick the whole agent subsystem.
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, CommandChild>> {
+    /// this, one panic-under-lock would brick the whole agent subsystem. The ONE
+    /// way to lock `Sessions` — every caller (including the lib.rs exit handler)
+    /// goes through here so the poison-recovery is never re-hand-rolled.
+    pub(crate) fn lock(&self) -> MutexGuard<'_, HashMap<String, CommandChild>> {
         self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+/// Set `key` to `val` on a sidecar command when present (used for the always-set
+/// optional knobs). Returns the command so calls chain off the builder.
+fn env_opt(cmd: Command, key: &str, val: Option<&str>) -> Command {
+    match val {
+        Some(v) => cmd.env(key, v),
+        None => cmd,
+    }
+}
+
+/// Like `env_opt`, but also skips an empty string (for the JSON-blob / free-text
+/// knobs where "" means "unset", not "set to empty").
+fn env_nonempty(cmd: Command, key: &str, val: Option<&str>) -> Command {
+    match val {
+        Some(v) if !v.is_empty() => cmd.env(key, v),
+        _ => cmd,
     }
 }
 
@@ -56,7 +76,7 @@ pub fn start_session(
         return Ok(());
     }
 
-    let mut command = app
+    let command = app
         .shell()
         .sidecar("agent")
         .map_err(|e| e.to_string())?
@@ -64,34 +84,21 @@ pub fn start_session(
         // Which provider adapter the sidecar loads (see sidecar/providers).
         // Defaults to "claude" in the sidecar when unset.
         .env("AGENT_PROVIDER", provider.as_deref().unwrap_or("claude"));
-    // Resume a prior agent session (restores its context) when the UI has a
-    // persisted id for this worktree; the sidecar reads RESUME_SESSION.
-    if let Some(id) = resume.as_deref() {
-        command = command.env("RESUME_SESSION", id);
-    }
-    // Initial tool-permission mode (default/acceptEdits/plan/bypassPermissions);
-    // the sidecar reads PERMISSION_MODE and defaults to bypassPermissions if unset.
-    if let Some(mode) = permission_mode.as_deref() {
-        command = command.env("PERMISSION_MODE", mode);
-    }
-    // Optional text appended to the preset system prompt for custom behavior.
-    if let Some(append) = system_prompt_append.as_deref() {
-        if !append.is_empty() {
-            command = command.env("SYSTEM_PROMPT_APPEND", append);
-        }
-    }
-    // Optional MCP server config (a JSON object string the sidecar parses).
-    if let Some(mcp) = mcp_servers.as_deref() {
-        if !mcp.is_empty() {
-            command = command.env("MCP_SERVERS", mcp);
-        }
-    }
-    // Optional subagent definitions (a JSON object string the sidecar parses).
-    if let Some(a) = agents.as_deref() {
-        if !a.is_empty() {
-            command = command.env("AGENTS", a);
-        }
-    }
+    // Optional knobs, each forwarded as a sidecar env var. resume/permission_mode
+    // are set whenever present; the JSON-blob / free-text knobs also skip "".
+    //   RESUME_SESSION      — resume a prior agent session (restores its context)
+    //   PERMISSION_MODE     — default/acceptEdits/plan/bypassPermissions (sidecar defaults to bypass)
+    //   SYSTEM_PROMPT_APPEND — extra text appended to the preset system prompt
+    //   MCP_SERVERS / AGENTS — JSON object strings the sidecar parses
+    let command = env_opt(command, "RESUME_SESSION", resume.as_deref());
+    let command = env_opt(command, "PERMISSION_MODE", permission_mode.as_deref());
+    let command = env_nonempty(
+        command,
+        "SYSTEM_PROMPT_APPEND",
+        system_prompt_append.as_deref(),
+    );
+    let command = env_nonempty(command, "MCP_SERVERS", mcp_servers.as_deref());
+    let command = env_nonempty(command, "AGENTS", agents.as_deref());
 
     let (mut rx, child) = command.spawn().map_err(|e| e.to_string())?;
     // Capture this child's pid so the reader task can prove it still owns the map

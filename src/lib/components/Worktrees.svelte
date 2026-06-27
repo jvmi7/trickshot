@@ -1,25 +1,26 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { get } from "svelte/store";
   import {
     repos,
+    addRepo,
     worktreesByRepo,
+    setWorktrees,
+    addWorktree,
+    removeWorktreeFromRepo,
     selectedWorktree,
     sessionStatus,
+    setStatus,
+    clearStatus,
+    ensureSession,
     resetTranscript,
-    sessionByWorktree,
     forgetWorktreeSession,
     setCenterView,
-    permissionModeByWorktree,
-    DEFAULT_PERMISSION_MODE,
-    systemPromptAppend,
-    getMcpServers,
-    getAgents,
     unreadByWorktree,
     clearUnread,
     pendingPermission,
   } from "../stores";
   import * as api from "../api";
+  import { basename } from "../utils";
   import type { Worktree } from "../types";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -30,36 +31,24 @@
   import Plus from "@lucide/svelte/icons/plus";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
 
-  let creatingFor: string | null = null; // repo path the inline create field is open for
-  let collapsed: Record<string, boolean> = {}; // repo paths whose worktree list is folded
+  let creatingFor = $state<string | null>(null); // repo path the inline create field is open for
+  let collapsed = $state<Record<string, boolean>>({}); // repo paths whose worktree list is folded
   function toggleRepo(path: string) {
     collapsed = { ...collapsed, [path]: !collapsed[path] };
   }
-  let newBranch = "";
-  let creating = false;
-  let error = "";
+  let newBranch = $state("");
+  let creating = $state(false);
+  let error = $state("");
   // null (not undefined): Input's `ref` is $bindable(null); Svelte throws on
   // bind:ref={undefined} when the bindable has a fallback value.
-  let branchInput: HTMLInputElement | null = null;
+  let branchInput = $state<HTMLInputElement | null>(null);
 
-  function repoName(path: string): string {
-    return path.replace(/[\/\\]+$/, "").split(/[\/\\]/).pop() || path;
-  }
-
-  function pruneStatus(paths: string[]) {
-    sessionStatus.update((s) => {
-      const next = { ...s };
-      for (const p of paths) delete next[p];
-      return next;
-    });
-  }
-
-  async function addRepo() {
+  async function pickAndAddRepo() {
     error = "";
     try {
       const p = await api.pickDirectory();
       if (!p) return;
-      repos.update((rs) => (rs.some((r) => r.path === p) ? rs : [...rs, { path: p, name: repoName(p) }]));
+      addRepo({ path: p, name: basename(p) });
       await refresh(p);
     } catch (e) {
       error = String(e);
@@ -69,7 +58,7 @@
   async function refresh(repoPath: string) {
     try {
       const wts = await api.listWorktrees(repoPath);
-      worktreesByRepo.update((m) => ({ ...m, [repoPath]: wts }));
+      setWorktrees(repoPath, wts);
     } catch (e) {
       error = String(e);
     }
@@ -84,14 +73,8 @@
     try {
       // Resume this worktree's prior session (context) if we have one persisted,
       // applying its saved permission mode (default: bypassPermissions).
-      await api.startSession(wt.path, {
-        resume: get(sessionByWorktree)[wt.path],
-        permissionMode: get(permissionModeByWorktree)[wt.path] ?? DEFAULT_PERMISSION_MODE,
-        systemPromptAppend: get(systemPromptAppend),
-        mcpServers: getMcpServers(),
-        agents: getAgents(),
-      });
-      sessionStatus.update((s) => ({ ...s, [wt.path]: "ready" }));
+      await ensureSession(wt.path);
+      setStatus(wt.path, "ready");
     } catch (e) {
       error = String(e);
     }
@@ -111,7 +94,7 @@
     error = "";
     try {
       const wt = await api.createWorktree(repoPath, branch);
-      worktreesByRepo.update((m) => ({ ...m, [repoPath]: [...(m[repoPath] ?? []), wt] }));
+      addWorktree(repoPath, wt);
       creatingFor = null;
       newBranch = "";
       await select(wt);
@@ -144,11 +127,8 @@
       await api.removeWorktree(repoPath, wt.path, true);
       resetTranscript(wt.path);
       forgetWorktreeSession(wt.path);
-      pruneStatus([wt.path]);
-      worktreesByRepo.update((m) => ({
-        ...m,
-        [repoPath]: (m[repoPath] ?? []).filter((w) => w.path !== wt.path),
-      }));
+      clearStatus(wt.path);
+      removeWorktreeFromRepo(repoPath, wt.path);
       if ($selectedWorktree === wt.path) selectedWorktree.set(null);
     } catch (err) {
       error = String(err);
@@ -162,7 +142,7 @@
     <Tooltip.Root>
       <Tooltip.Trigger>
         {#snippet child({ props })}
-          <IconButton {...props} aria-label="Add repository" onclick={addRepo}>
+          <IconButton {...props} aria-label="Add repository" onclick={pickAndAddRepo}>
             <FolderPlus />
           </IconButton>
         {/snippet}

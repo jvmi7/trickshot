@@ -6,6 +6,7 @@
     clearActivity,
     availableCommands,
     submitUserTurn,
+    requestOnce,
   } from "../stores";
   import { onDestroy } from "svelte";
   import * as api from "../api";
@@ -17,10 +18,10 @@
   import Square from "@lucide/svelte/icons/square";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
 
-  let text = "";
-  let focused = false;
-  let textareaEl: HTMLTextAreaElement | null = null;
-  let phEl: HTMLDivElement | null = null;
+  let text = $state("");
+  let focused = $state(false);
+  let textareaEl = $state<HTMLTextAreaElement | null>(null);
+  let phEl = $state<HTMLDivElement | null>(null);
 
   // Animated placeholder: "Start building..." deletes itself char-by-char on focus
   // (so the field reads empty when you click in); restored on blur if still empty.
@@ -28,8 +29,8 @@
   // How long the highlighted chunk stays selected before it's deleted — brief, so
   // the highlight registers without a noticeable pause before the backspace.
   const HIGHLIGHT_MS = 95;
-  let ph = PLACEHOLDER; // visible (left) placeholder text, backspaced char-by-char
-  let phSel = ""; // the highlighted right-hand chunk (shown, then deleted in one go)
+  let ph = $state(PLACEHOLDER); // visible (left) placeholder text, backspaced char-by-char
+  let phSel = $state(""); // the highlighted right-hand chunk (shown, then deleted in one go)
   let phTimer: ReturnType<typeof setInterval> | undefined; // backspace / type-back loop
   let phSelTimer: ReturnType<typeof setTimeout> | undefined; // delay before deleting phSel
 
@@ -100,32 +101,34 @@
   }
   onDestroy(clearPhTimers);
 
+  const wt = $derived($selectedWorktree);
+  const status = $derived(wt ? $sessionStatus[wt] : undefined);
+  const alive = $derived(status === "ready" || status === "busy");
+  const working = $derived(status === "busy");
+  const canSend = $derived(alive && !working && text.trim().length > 0);
+
   // The animated placeholder is rendered as our own overlay (not the native
   // `placeholder` attr) so a blinking caret can ride the END of the backspacing
   // text and settle at the start once it's empty. While that caret shows, the
   // real textarea caret is hidden so there aren't two.
-  $: showPhCaret = alive && focused && text === "";
-
-  $: wt = $selectedWorktree;
-  $: status = wt ? $sessionStatus[wt] : undefined;
-  $: alive = status === "ready" || status === "busy";
-  $: working = status === "busy";
-  $: canSend = alive && !working && text.trim().length > 0;
+  const showPhCaret = $derived(alive && focused && text === "");
 
   // Slash-command palette: while typing a leading "/<name>" (no space yet), show
   // matching session commands. Resiliently (re-)request the list when missing.
-  const requestedCmds = new Set<string>();
-  $: if (wt && alive && $availableCommands.length === 0 && !requestedCmds.has(wt)) {
-    requestedCmds.add(wt);
-    api.requestCommands(wt);
-  }
-  $: cmdQuery =
-    text.startsWith("/") && !text.slice(1).includes(" ") ? text.slice(1).toLowerCase() : null;
-  $: cmdMatches =
+  $effect(() => {
+    if (wt && alive && $availableCommands.length === 0) {
+      requestOnce(wt, "commands", api.requestCommands);
+    }
+  });
+  const cmdQuery = $derived(
+    text.startsWith("/") && !text.slice(1).includes(" ") ? text.slice(1).toLowerCase() : null,
+  );
+  const cmdMatches = $derived(
     cmdQuery !== null
       ? $availableCommands.filter((c) => c.name.toLowerCase().startsWith(cmdQuery)).slice(0, 8)
-      : [];
-  $: showPalette = focused && cmdMatches.length > 0;
+      : [],
+  );
+  const showPalette = $derived(focused && cmdMatches.length > 0);
 
   function pickCommand(name: string) {
     text = `/${name} `;
@@ -167,7 +170,10 @@
         <button
           type="button"
           class="hover:bg-accent flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left"
-          on:mousedown|preventDefault={() => pickCommand(c.name)}
+          onmousedown={(e) => {
+            e.preventDefault();
+            pickCommand(c.name);
+          }}
         >
           <span class="text-sm font-medium">/{c.name}</span>
           {#if c.description}

@@ -37,8 +37,7 @@ pub fn run() {
             // (large) per-worktree agent processes.
             if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
                 if let Some(state) = app_handle.try_state::<Sessions>() {
-                    let mut map = state.0.lock().unwrap_or_else(|e| e.into_inner());
-                    for (_, child) in map.drain() {
+                    for (_, child) in state.lock().drain() {
                         let _ = child.kill();
                     }
                 }

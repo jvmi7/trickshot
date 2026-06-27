@@ -55,9 +55,7 @@ export interface AgentProvider {
   reconnectConnector(name: string): void;
   /** (Re-)emit the `commands` event (available slash commands). */
   publishCommands(): void;
-  /** (Re-)emit the `mcp_status` event (MCP server connection statuses). */
-  publishMcpStatus(): void;
-  /** Replace the live MCP server set, then refresh status. */
+  /** Replace the live MCP server set, then re-emit `mcp_status`. */
   setMcpServers(servers: Record<string, unknown>): void;
   /** Answer a pending tool-permission request. Active when a non-bypass
    *  permissionMode is in effect; a no-op under the default full bypass. */
