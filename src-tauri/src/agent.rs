@@ -9,13 +9,15 @@ use tauri_plugin_shell::ShellExt;
 /// One sidecar process per worktree, keyed by worktree path. Worktrees run
 /// concurrently — each keeps its own live agent.
 #[derive(Default)]
-pub struct Sessions(pub Mutex<HashMap<String, CommandChild>>);
+pub struct Sessions(Mutex<HashMap<String, CommandChild>>);
 
 impl Sessions {
     /// Lock, recovering from poisoning. The map of children is plain data and
     /// is safe to use even if a thread panicked while holding the lock; without
-    /// this, one panic-under-lock would brick the whole agent subsystem.
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, CommandChild>> {
+    /// this, one panic-under-lock would brick the whole agent subsystem. The ONE
+    /// way to lock `Sessions` — every caller (including the lib.rs exit handler)
+    /// goes through here so the poison-recovery is never re-hand-rolled.
+    pub(crate) fn lock(&self) -> MutexGuard<'_, HashMap<String, CommandChild>> {
         self.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
@@ -33,19 +35,18 @@ struct AgentEvent {
 
 /// Start a sidecar for `worktree` (cwd = the worktree path). Idempotent: a
 /// no-op if one is already running for that worktree.
-// Many optional knobs (resume, permission mode, system-prompt append, MCP
-// servers, subagents, provider) ride in as separate Tauri command args.
-#[allow(clippy::too_many_arguments)]
+///
+/// All start-up knobs (provider, resume, permission mode, system-prompt append,
+/// MCP servers, subagents) ride in ONE opaque JSON blob (`config`, the app's
+/// `SessionConfig`) forwarded verbatim as the `SESSION_CONFIG` env var. Rust does
+/// not parse or enumerate the fields — the sidecar does that once in core.ts — so
+/// adding a knob never touches this signature. `PROJECT_DIR` (the worktree path,
+/// = the sidecar's project dir) stays a separate env var.
 #[tauri::command]
 pub fn start_session(
     app: AppHandle,
     worktree: String,
-    resume: Option<String>,
-    permission_mode: Option<String>,
-    system_prompt_append: Option<String>,
-    mcp_servers: Option<String>,
-    agents: Option<String>,
-    provider: Option<String>,
+    config: Option<String>,
     state: State<'_, Sessions>,
 ) -> Result<(), String> {
     // Hold the lock across spawn+insert so two concurrent calls can't both pass
@@ -60,37 +61,11 @@ pub fn start_session(
         .shell()
         .sidecar("agent")
         .map_err(|e| e.to_string())?
-        .env("PROJECT_DIR", &worktree)
-        // Which provider adapter the sidecar loads (see sidecar/providers).
-        // Defaults to "claude" in the sidecar when unset.
-        .env("AGENT_PROVIDER", provider.as_deref().unwrap_or("claude"));
-    // Resume a prior agent session (restores its context) when the UI has a
-    // persisted id for this worktree; the sidecar reads RESUME_SESSION.
-    if let Some(id) = resume.as_deref() {
-        command = command.env("RESUME_SESSION", id);
-    }
-    // Initial tool-permission mode (default/acceptEdits/plan/bypassPermissions);
-    // the sidecar reads PERMISSION_MODE and defaults to bypassPermissions if unset.
-    if let Some(mode) = permission_mode.as_deref() {
-        command = command.env("PERMISSION_MODE", mode);
-    }
-    // Optional text appended to the preset system prompt for custom behavior.
-    if let Some(append) = system_prompt_append.as_deref() {
-        if !append.is_empty() {
-            command = command.env("SYSTEM_PROMPT_APPEND", append);
-        }
-    }
-    // Optional MCP server config (a JSON object string the sidecar parses).
-    if let Some(mcp) = mcp_servers.as_deref() {
-        if !mcp.is_empty() {
-            command = command.env("MCP_SERVERS", mcp);
-        }
-    }
-    // Optional subagent definitions (a JSON object string the sidecar parses).
-    if let Some(a) = agents.as_deref() {
-        if !a.is_empty() {
-            command = command.env("AGENTS", a);
-        }
+        .env("PROJECT_DIR", &worktree);
+    // Forward the session config blob verbatim (skip an empty/absent one so the
+    // sidecar falls back to its own defaults).
+    if let Some(cfg) = config.as_deref().filter(|c| !c.is_empty()) {
+        command = command.env("SESSION_CONFIG", cfg);
     }
 
     let (mut rx, child) = command.spawn().map_err(|e| e.to_string())?;

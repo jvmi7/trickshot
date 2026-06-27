@@ -88,18 +88,23 @@
     }
   }
 
-  const stage = (f: GitFileStatus) => {
+  // Guard on the selected worktree (matches commit/push below) instead of casting —
+  // these are only reachable when a worktree is selected, but make that explicit.
+  function stage(f: GitFileStatus) {
     const w = wt;
-    if (w) run(() => api.worktreeStage(w, [f.path]));
-  };
-  const unstage = (f: GitFileStatus) => {
+    if (!w) return;
+    run(() => api.worktreeStage(w, [f.path]));
+  }
+  function unstage(f: GitFileStatus) {
     const w = wt;
-    if (w) run(() => api.worktreeUnstage(w, [f.path]));
-  };
-  const stageAll = () => {
+    if (!w) return;
+    run(() => api.worktreeUnstage(w, [f.path]));
+  }
+  function stageAll() {
     const w = wt;
-    if (w) run(() => api.worktreeStage(w, []));
-  };
+    if (!w) return;
+    run(() => api.worktreeStage(w, []));
+  }
 
   function commit() {
     const w = wt;
@@ -252,7 +257,7 @@
     flex-direction: column;
     width: 280px;
     flex-shrink: 0;
-    border-right: 1px solid var(--app-border, var(--border));
+    border-right: 1px solid var(--app-border);
     min-height: 0;
   }
   .git-head {
@@ -260,7 +265,7 @@
     align-items: center;
     gap: 6px;
     padding: 8px 8px 8px 12px;
-    border-bottom: 1px solid var(--app-border, var(--border));
+    border-bottom: 1px solid var(--app-border);
   }
   .git-branch {
     font-size: 12px;
@@ -298,7 +303,7 @@
   }
   .wt-file.active,
   .wt-file:hover {
-    background: var(--app-hover, var(--accent));
+    background: var(--accent);
   }
   .wt-file-main {
     display: flex;
@@ -323,7 +328,7 @@
     color: var(--app-dim);
   }
   .wt-badge.staged {
-    color: var(--app-success, #2ea043);
+    color: var(--base-success);
   }
   .wt-path {
     font-size: 12px;
@@ -337,7 +342,7 @@
     flex-direction: column;
     gap: 6px;
     padding: 8px;
-    border-top: 1px solid var(--app-border, var(--border));
+    border-top: 1px solid var(--app-border);
   }
   .git-commit-row {
     display: flex;

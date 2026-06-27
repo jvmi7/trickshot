@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { activeQuestion, selectedWorktree, pendingQuestion } from "../stores";
+  import { activeQuestion, selectedWorktree, setPendingQuestion } from "../stores";
   import * as api from "../api";
   import * as Dialog from "$lib/components/ui/dialog";
   import { Button } from "$lib/components/ui/button";
@@ -34,7 +34,7 @@
   );
 
   function clear(wt: string) {
-    pendingQuestion.update((m) => ({ ...m, [wt]: null }));
+    setPendingQuestion(wt, null);
   }
   function submit() {
     const q = $activeQuestion;
@@ -70,6 +70,9 @@
 
     {#if $activeQuestion}
       <div class="flex flex-col gap-5">
+        <!-- Keyed by index on purpose: a question_request is replaced wholesale per
+             prompt (never mutated in place) and `selections` is index-aligned and
+             reset on id change, so index ↔ selection can't desync. -->
         {#each $activeQuestion.questions as q, qi (qi)}
           <div class="flex flex-col gap-2">
             <div class="flex items-baseline gap-2">

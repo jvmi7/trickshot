@@ -7,6 +7,7 @@
     selectedWorktree,
     sessionStatus,
     setWorktreeModel,
+    requestOnce,
   } from "../stores";
 
   // setModel is a streaming-mode control request, so the session must be live.
@@ -18,14 +19,13 @@
     $availableModels.find((m) => m.value === $activeModel)?.displayName ?? $activeModel ?? "Model",
   );
 
-  // Resilient catalog fetch (the ready-time broadcast can race the listener).
+  // Resilient catalog fetch (the ready-time broadcast can race the listener). The
+  // `seen` Set is instance-scoped so a remount/session-restart can re-request.
   const requested = new Set<string>();
   $effect(() => {
     const wt = $selectedWorktree;
-    if (wt && alive && $availableModels.length === 0 && !requested.has(wt)) {
-      requested.add(wt);
-      api.requestModels(wt);
-    }
+    if (wt && alive && $availableModels.length === 0)
+      requestOnce(requested, wt, "models", api.requestModels);
   });
 
   function choose(value: string | undefined) {

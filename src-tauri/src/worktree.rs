@@ -14,12 +14,22 @@ pub struct Worktree {
     pub locked: bool,
 }
 
-/// Run `git -C <repo> <args...>`, returning stdout or a stderr-derived error.
-fn git(repo: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
-        .arg("-C")
+/// Build `git -C <repo> <args...>` as a Command. The ONE place the `-C <repo>` +
+/// program setup lives; callers that need custom exit-code handling (a status-only
+/// probe, a `--no-index` diff) build on this, while the common
+/// stdout-or-stderr-error case goes through `git`. Generic over the arg element so
+/// a `&[&str]` literal or an owned `Vec<String>` both work without a collect.
+fn git_command<S: AsRef<str>>(repo: &str, args: &[S]) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
         .arg(repo)
-        .args(args)
+        .args(args.iter().map(|a| AsRef::<str>::as_ref(a)));
+    cmd
+}
+
+/// Run `git -C <repo> <args...>`, returning stdout or a stderr-derived error.
+fn git<S: AsRef<str>>(repo: &str, args: &[S]) -> Result<String, String> {
+    let output = git_command(repo, args)
         .output()
         .map_err(|e| format!("failed to run git: {e}"))?;
     if !output.status.success() {
@@ -105,6 +115,44 @@ pub fn list_worktrees(repo_path: String) -> Result<Vec<Worktree>, String> {
     Ok(result)
 }
 
+/// Derive (and containment-check) the worktree directory for `branch` under the
+/// sibling `.<repo-name>-worktrees/` dir. Containment is an explicit, enforced
+/// invariant — not an emergent side effect of git's ref validation. (Lexical
+/// check; `validate_branch` already rejected the `..`/absolute cases that
+/// `starts_with` alone wouldn't catch.)
+fn worktree_path_for(repo_path: &str, branch: &str) -> Result<String, String> {
+    let repo = Path::new(repo_path);
+    let repo_name = repo.file_name().and_then(|s| s.to_str()).unwrap_or("repo");
+    let parent = repo
+        .parent()
+        .ok_or("repository path has no parent directory")?;
+
+    // Preserve slashes as nested directories (avoids feature/foo vs feature-foo
+    // collisions); `git worktree add` creates intermediate parent dirs.
+    let wt_base = parent.join(format!(".{repo_name}-worktrees"));
+    let wt_dir = wt_base.join(branch);
+    if !wt_dir.starts_with(&wt_base) {
+        return Err("refusing to create a worktree outside the worktrees directory".into());
+    }
+    Ok(wt_dir.to_string_lossy().to_string())
+}
+
+/// Whether `refs/heads/<branch>` already exists in the repo (a status-only probe).
+fn branch_exists(repo: &str, branch: &str) -> Result<bool, String> {
+    Ok(git_command(
+        repo,
+        &[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ],
+    )
+    .status()
+    .map_err(|e| format!("failed to run git: {e}"))?
+    .success())
+}
+
 /// Create a worktree (and the branch, if new) under a sibling
 /// `.<repo-name>-worktrees/<branch>` directory. This is the one-click primitive.
 #[tauri::command]
@@ -116,40 +164,9 @@ pub fn create_worktree(
     let branch = branch.trim().to_string();
     validate_branch(&branch)?;
 
-    let repo = Path::new(&repo_path);
-    let repo_name = repo.file_name().and_then(|s| s.to_str()).unwrap_or("repo");
-    let parent = repo
-        .parent()
-        .ok_or("repository path has no parent directory")?;
+    let wt_path = worktree_path_for(&repo_path, &branch)?;
 
-    // Preserve slashes as nested directories (avoids feature/foo vs feature-foo
-    // collisions); `git worktree add` creates intermediate parent dirs.
-    let wt_base = parent.join(format!(".{repo_name}-worktrees"));
-    let wt_dir = wt_base.join(&branch);
-    // Defense in depth: keep the worktree inside its base dir as an explicit,
-    // enforced invariant — not an emergent side effect of git's ref validation.
-    // (Lexical check; `validate_branch` already rejected the `..`/absolute cases
-    // that `starts_with` alone wouldn't catch.)
-    if !wt_dir.starts_with(&wt_base) {
-        return Err("refusing to create a worktree outside the worktrees directory".into());
-    }
-    let wt_path = wt_dir.to_string_lossy().to_string();
-
-    // Does the branch already exist?
-    let branch_exists = Command::new("git")
-        .arg("-C")
-        .arg(&repo_path)
-        .args([
-            "show-ref",
-            "--verify",
-            "--quiet",
-            &format!("refs/heads/{branch}"),
-        ])
-        .status()
-        .map_err(|e| format!("failed to run git: {e}"))?
-        .success();
-
-    if branch_exists {
+    if branch_exists(&repo_path, &branch)? {
         // base_ref has no meaning for an already-existing branch; fail loudly
         // rather than silently ignoring it.
         if base_ref.is_some() {
@@ -221,13 +238,11 @@ pub struct WorktreeStatus {
     pub files: Vec<FileStatus>,
 }
 
-/// Insertions/deletions vs HEAD (`git diff HEAD --shortstat`). Best-effort: a
-/// repo with no commits (no HEAD) or any git error yields (0, 0).
-fn diff_shortstat(worktree_path: &str) -> (i32, i32) {
-    let Ok(out) = git(worktree_path, &["diff", "HEAD", "--shortstat"]) else {
-        return (0, 0);
-    };
-    // e.g. ` 3 files changed, 12 insertions(+), 4 deletions(-)`
+/// Parse a `git diff --shortstat` line into (insertions, deletions). Pure (no git
+/// invocation) so it's unit-testable; `diff_shortstat` wraps it with the git call.
+/// e.g. ` 3 files changed, 12 insertions(+), 4 deletions(-)` → (12, 4). A line with
+/// only one side (or an empty/`0 files changed` line) leaves the other at 0.
+fn parse_shortstat(out: &str) -> (i32, i32) {
     let (mut ins, mut del) = (0, 0);
     for part in out.split(',') {
         let p = part.trim();
@@ -247,10 +262,19 @@ fn diff_shortstat(worktree_path: &str) -> (i32, i32) {
     (ins, del)
 }
 
-/// Parsed `git status --porcelain=v1 --branch` for a worktree.
-#[tauri::command]
-pub fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> {
-    let out = git(&worktree_path, &["status", "--porcelain=v1", "--branch"])?;
+/// Insertions/deletions vs HEAD (`git diff HEAD --shortstat`). Best-effort: a
+/// repo with no commits (no HEAD) or any git error yields (0, 0).
+fn diff_shortstat(worktree_path: &str) -> (i32, i32) {
+    let Ok(out) = git(worktree_path, &["diff", "HEAD", "--shortstat"]) else {
+        return (0, 0);
+    };
+    parse_shortstat(&out)
+}
+
+/// Parse `git status --porcelain=v1 --branch` output into (branch, ahead, behind,
+/// files). Pure (no git invocation) so it's unit-testable; `worktree_status` wraps
+/// it with the git call and folds in the diffstat.
+fn parse_status(out: &str) -> (Option<String>, i32, i32, Vec<FileStatus>) {
     let mut files = Vec::new();
     let mut branch = None;
     let mut ahead = 0;
@@ -299,6 +323,14 @@ pub fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> 
         });
     }
 
+    (branch, ahead, behind, files)
+}
+
+/// Parsed `git status --porcelain=v1 --branch` for a worktree.
+#[tauri::command]
+pub fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> {
+    let out = git(&worktree_path, &["status", "--porcelain=v1", "--branch"])?;
+    let (branch, ahead, behind, files) = parse_status(&out);
     let (insertions, deletions) = diff_shortstat(&worktree_path);
     Ok(WorktreeStatus {
         branch,
@@ -315,10 +347,7 @@ pub fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> 
 /// treat 0/1 as success and only >1 as a real error.
 fn git_no_index_diff(repo: &str, file: &str) -> Result<String, String> {
     let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(["diff", "--no-index", "--", null, file])
+    let output = git_command(repo, &["diff", "--no-index", "--", null, file])
         .output()
         .map_err(|e| format!("failed to run git: {e}"))?;
     match output.status.code() {
@@ -342,8 +371,7 @@ pub fn worktree_diff(
         args.push("--".into());
         args.push(f.clone());
     }
-    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let diff = git(&worktree_path, &refs)?;
+    let diff = git(&worktree_path, &args)?;
     if diff.trim().is_empty() {
         if let Some(f) = &file {
             return git_no_index_diff(&worktree_path, f);
@@ -362,8 +390,7 @@ pub fn worktree_stage(worktree_path: String, paths: Vec<String>) -> Result<(), S
         args.push("--".into());
         args.extend(paths);
     }
-    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    git(&worktree_path, &refs)?;
+    git(&worktree_path, &args)?;
     Ok(())
 }
 
@@ -377,8 +404,7 @@ pub fn worktree_unstage(worktree_path: String, paths: Vec<String>) -> Result<(),
         args.push("--".into());
         args.extend(paths);
     }
-    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    git(&worktree_path, &refs)?;
+    git(&worktree_path, &args)?;
     Ok(())
 }
 
@@ -420,7 +446,7 @@ pub fn worktree_merge(repo_path: String, branch: String) -> Result<String, Strin
 
 #[cfg(test)]
 mod tests {
-    use super::validate_branch;
+    use super::{parse_shortstat, parse_status, validate_branch};
 
     #[test]
     fn accepts_ordinary_names() {
@@ -451,5 +477,105 @@ mod tests {
         assert!(validate_branch("").is_err());
         assert!(validate_branch("a\nb").is_err());
         assert!(validate_branch("a\0b").is_err());
+    }
+
+    // ---- parse_shortstat (git diff --shortstat) ----
+
+    #[test]
+    fn shortstat_parses_both_sides() {
+        let line = " 3 files changed, 12 insertions(+), 4 deletions(-)";
+        assert_eq!(parse_shortstat(line), (12, 4));
+    }
+
+    #[test]
+    fn shortstat_parses_insertions_only() {
+        // A new-file-only / additions-only change reports no deletions clause.
+        assert_eq!(parse_shortstat(" 1 file changed, 7 insertions(+)"), (7, 0));
+    }
+
+    #[test]
+    fn shortstat_parses_deletions_only() {
+        assert_eq!(parse_shortstat(" 1 file changed, 5 deletions(-)"), (0, 5));
+    }
+
+    #[test]
+    fn shortstat_handles_singular_units() {
+        // git uses the singular "insertion(+)"/"deletion(-)" for a count of 1 —
+        // the `contains("insertion")`/`contains("deletion")` match must still hit.
+        assert_eq!(
+            parse_shortstat(" 1 file changed, 1 insertion(+), 1 deletion(-)"),
+            (1, 1)
+        );
+    }
+
+    #[test]
+    fn shortstat_empty_or_garbage_is_zero() {
+        // Empty output (no HEAD / no changes) and unparseable text both yield (0, 0).
+        assert_eq!(parse_shortstat(""), (0, 0));
+        assert_eq!(parse_shortstat("not a shortstat line"), (0, 0));
+    }
+
+    // ---- parse_status (git status --porcelain=v1 --branch) ----
+
+    #[test]
+    fn status_parses_branch_with_ahead_behind() {
+        let out = "## main...origin/main [ahead 1, behind 2]\n";
+        let (branch, ahead, behind, files) = parse_status(out);
+        assert_eq!(branch.as_deref(), Some("main"));
+        assert_eq!((ahead, behind), (1, 2));
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn status_parses_branch_without_upstream() {
+        // A branch with no upstream has no `...origin/...` and no `[...]` clause.
+        let (branch, ahead, behind, _) = parse_status("## feature/foo\n");
+        assert_eq!(branch.as_deref(), Some("feature/foo"));
+        assert_eq!((ahead, behind), (0, 0));
+    }
+
+    #[test]
+    fn status_parses_ahead_only() {
+        let (_, ahead, behind, _) = parse_status("## main...origin/main [ahead 3]\n");
+        assert_eq!((ahead, behind), (3, 0));
+    }
+
+    #[test]
+    fn status_classifies_staged_and_unstaged() {
+        // XY codes: `M ` staged, ` M` unstaged, `MM` both, `??` untracked.
+        let out = "## main\nM  staged.rs\n M unstaged.rs\nMM both.rs\n?? new.rs\n";
+        let (_, _, _, files) = parse_status(out);
+        assert_eq!(files.len(), 4);
+
+        let staged = &files[0];
+        assert_eq!(staged.path, "staged.rs");
+        assert!(staged.staged);
+
+        let unstaged = &files[1];
+        assert_eq!(unstaged.path, "unstaged.rs");
+        assert!(!unstaged.staged); // index side is a space → unstaged
+
+        assert!(files[2].staged); // `MM` → staged side is `M`
+
+        let untracked = &files[3];
+        assert_eq!(untracked.path, "new.rs");
+        assert!(!untracked.staged); // `?` index is explicitly NOT staged
+    }
+
+    #[test]
+    fn status_keeps_rename_destination() {
+        // A rename reports `orig -> new`; we keep the destination path.
+        let (_, _, _, files) = parse_status("## main\nR  old.rs -> new.rs\n");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "new.rs");
+        assert!(files[0].staged);
+    }
+
+    #[test]
+    fn status_empty_yields_no_branch_no_files() {
+        let (branch, ahead, behind, files) = parse_status("");
+        assert!(branch.is_none());
+        assert_eq!((ahead, behind), (0, 0));
+        assert!(files.is_empty());
     }
 }

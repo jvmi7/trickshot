@@ -2,7 +2,8 @@
 // `AgentMessage`/`ModelInfo`) live in `shared/protocol.ts` and are imported by
 // BOTH this file and the sidecar (`sidecar/core.ts`) so the two TS mirrors can't
 // drift. This file re-exports them and adds the app-only types (`TranscriptMessage`,
-// `Worktree`, `Repo`, `AgentEnvelope`). The sidecar writes one JSON object per
+// `Worktree`, `Repo`, the git-review `GitFileStatus`/`GitStatus`, the subscription
+// `UsageWindow`/`UsageInfo`, and the `AgentEnvelope` event wrapper). The sidecar writes one JSON object per
 // line to stdout; Rust relays each line as a worktree-tagged `agent-event` Tauri
 // event; api.ts parses them.
 
@@ -20,6 +21,7 @@ export type {
   PermissionMode,
   Question,
   QuestionOption,
+  SessionConfig,
   SlashCommandInfo,
   TurnUsage,
 } from "../../shared/protocol";
@@ -29,7 +31,7 @@ export type {
  *  is the stable per-message id assigned on append (see stores.appendMessage). */
 export type TranscriptMessage = (
   | AgentMessage
-  | { type: "user_local"; text: string; rewindId?: string }
+  | { type: "user_local"; text: string }
   | { type: "error"; error: string }
 ) & { __key?: number };
 
@@ -66,6 +68,20 @@ export interface GitStatus {
   insertions: number;
   deletions: number;
   files: GitFileStatus[];
+}
+
+/** One Claude subscription usage window (mirrors the Rust `UsageWindow`).
+ *  `utilization` is a percent (0–100); both fields may be absent. */
+export interface UsageWindow {
+  utilization: number | null;
+  resets_at: string | null;
+}
+
+/** Subscription usage windows from the `get_usage` command (mirrors the Rust
+ *  `UsageInfo`): the rolling ~5-hour session window + the weekly window. */
+export interface UsageInfo {
+  five_hour: UsageWindow | null;
+  seven_day: UsageWindow | null;
 }
 
 /** Envelope for a worktree-tagged agent event on the `agent-event` channel

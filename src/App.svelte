@@ -1,80 +1,29 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import {
-    onAgentEvent,
-    listWorktrees,
-    setModel,
-    startSession,
-    toggleConnector,
-    notify,
-    worktreeStatus,
-  } from "./lib/api";
+  import { onAgentEvent, listWorktrees, worktreeStatus } from "./lib/api";
   import {
     repos,
     worktreesByRepo,
+    setWorktrees,
     selectedWorktree,
-    appendMessage,
-    pendingPermission,
-    pendingQuestion,
     setStatus,
     sidebarOpen,
-    availableModels,
-    modelByWorktree,
-    setWorktreeModel,
-    sessionByWorktree,
-    setWorktreeSession,
-    setActivity,
-    clearActivity,
-    worktreeActivity,
-    setTurnSummary,
     sidebarWidth,
     setSidebarWidth,
-    setConnectors,
-    globalConnectorPrefs,
     centerView,
     setCenterView,
-    addTurnCost,
-    permissionModeByWorktree,
-    DEFAULT_PERMISSION_MODE,
+    refreshUsage,
+    ensureSession,
     mainView,
-    bumpGitRefresh,
     gitRefreshNonce,
     setGitStat,
     activeGitStat,
-    attachRewindId,
-    availableCommands,
-    systemPromptAppend,
-    mcpStatus,
-    getMcpServers,
-    getAgents,
-    bumpUnread,
   } from "./lib/stores";
-
-  /** Basename of a worktree path, for notification labels. */
-  function shortName(path: string): string {
-    return path.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || path;
-  }
-
-  import { toolLabel, toolDetail } from "./lib/agentMessage";
-  import type { AgentMessage } from "./lib/types";
-
-  // ---- Verbose loading state: turn each neutral message into a human-readable
-  // "what's happening now" for the chat's loading footer. ----
-  function updateActivity(worktree: string, m: AgentMessage) {
-    if (m.type === "tool_call") {
-      setActivity(worktree, toolLabel(m.name), toolDetail(m.name, m.input), true);
-    } else if (m.type === "assistant") {
-      setActivity(worktree, "Writing response", "");
-    } else if (m.type === "tool_result") {
-      // a tool result came back — the agent is reasoning again
-      setActivity(worktree, "Thinking", "");
-    } else if (m.type === "system") {
-      setActivity(worktree, "Connecting", "");
-    }
-  }
+  import { handleAgentEvent, handleSessionStatus } from "./lib/agentEvents";
   import Header from "./lib/components/Header.svelte";
   import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
+  import ViewToggle from "./lib/components/ViewToggle.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import Chat from "./lib/components/Chat.svelte";
   import GitPanel from "./lib/components/GitPanel.svelte";
@@ -130,121 +79,12 @@
     let unlisten: (() => void) | undefined;
     let cancelled = false;
 
-    onAgentEvent(
-      (worktree, evt) => {
-        if (evt.kind === "message") {
-          const m = evt.message;
-          updateActivity(worktree, m);
-          // `turn_end` ends the turn — the agent is idle again (not rendered).
-          // `system` is a session notice we don't render. Everything else is a
-          // transcript bubble.
-          if (m.type === "turn_end") {
-            setStatus(worktree, "ready");
-            // Stash an end-of-turn summary (Claude-Code style) for the loading
-            // footer to show while idle: how long the turn took + tool-call count.
-            const act = get(worktreeActivity)[worktree];
-            if (act) {
-              const seconds = Math.max(0, Math.floor((Date.now() - act.startedAt) / 1000));
-              setTurnSummary(worktree, { seconds, steps: act.steps });
-            }
-            clearActivity(worktree);
-            // Fold the turn's token/cost figures into the worktree's running total.
-            if (m.usage) addTurnCost(worktree, m.usage);
-            // The turn likely touched files — refresh an open git panel.
-            bumpGitRefresh();
-            // If this worktree isn't the one on screen, flag it + notify so the
-            // user notices a background agent finishing.
-            if (worktree !== get(selectedWorktree)) {
-              bumpUnread(worktree);
-              void notify("Agent finished", shortName(worktree));
-            }
-          } else if (m.type !== "system") {
-            appendMessage(worktree, m);
-          }
-        } else if (evt.kind === "session") {
-          // Persist the resumable session id so this worktree's agent *context*
-          // can be restored after a restart (the provider reports it once known).
-          setWorktreeSession(worktree, evt.id);
-        } else if (evt.kind === "permission_request") {
-          pendingPermission.update((p) => ({
-            ...p,
-            [worktree]: { id: evt.id, tool: evt.tool, input: evt.input },
-          }));
-        } else if (evt.kind === "question_request") {
-          pendingQuestion.update((p) => ({
-            ...p,
-            [worktree]: { id: evt.id, questions: evt.questions },
-          }));
-        } else if (evt.kind === "checkpoint") {
-          // Tag the just-sent user turn with its rewindable checkpoint id.
-          attachRewindId(worktree, evt.id);
-        } else if (evt.kind === "commands") {
-          availableCommands.set(evt.commands);
-        } else if (evt.kind === "mcp_status") {
-          mcpStatus.set(evt.servers);
-        } else if (evt.kind === "notification") {
-          // Agent wants attention — raise an OS notification if it's not the
-          // worktree currently on screen.
-          if (worktree !== get(selectedWorktree)) {
-            void notify(shortName(worktree), evt.message);
-          }
-        } else if (evt.kind === "error") {
-          // Surface only. Status is deliberately NOT reset here: this channel is
-          // shared by FATAL errors (an agent-loop throw, which then exits → the
-          // `terminated` event below unsticks the session) and NON-FATAL ones
-          // (e.g. a setModel failure while the turn keeps streaming, which must
-          // stay `busy`). Resetting here would wrongly unstick a live turn.
-          appendMessage(worktree, { type: "error", error: evt.error });
-        } else if (evt.kind === "ready") {
-          setStatus(worktree, "ready");
-        } else if (evt.kind === "connectors") {
-          setConnectors(worktree, evt.servers);
-          // Re-apply the GLOBAL connector preferences live (the SDK's toggle is
-          // not remembered across sessions). Toggle any connector whose live state
-          // differs from the saved preference. Toggling re-publishes `connectors`;
-          // the state then matches, so this converges (no toggle loop).
-          const g = get(globalConnectorPrefs);
-          for (const s of evt.servers) {
-            const want = g[s.name];
-            if (want === undefined) continue;
-            const isOn = s.status !== "disabled";
-            if (want !== isOn) toggleConnector(worktree, s.name, want);
-          }
-        } else if (evt.kind === "models") {
-          availableModels.set(evt.models);
-          // Each sidecar starts on the default model. If this worktree has a
-          // persisted choice that differs (and is still offered), re-apply it;
-          // otherwise adopt the sidecar's confirmed current as truth.
-          const chosen = get(modelByWorktree)[worktree];
-          const known = evt.models.some((m) => m.value === chosen);
-          if (chosen && known && chosen !== evt.current) {
-            setModel(worktree, chosen);
-          } else {
-            setWorktreeModel(worktree, evt.current);
-          }
-        } else {
-          // Exhaustiveness: a new Outbound `kind` left unhandled here is a
-          // compile error (svelte-check) — the webview half of the SYNC RULE.
-          const _exhaustive: never = evt;
-          void _exhaustive;
-        }
-      },
-      (worktree, kind, data) => {
-        // OS-level session lifecycle: a terminate OR a spawn/IO error stops it.
-        setStatus(worktree, "stopped");
-        clearActivity(worktree);
-        // `data` carries diagnostics (including the buffered stderr tail) for an
-        // error or an abnormal exit; it's null for a clean shutdown (stays quiet).
-        if (kind === "error") {
-          appendMessage(worktree, {
-            type: "error",
-            error: data ? `session error: ${data}` : "session error",
-          });
-        } else if (data) {
-          appendMessage(worktree, { type: "error", error: data });
-        }
-      },
-    )
+    // Populate the subscription-usage chip on launch (throttled thereafter).
+    refreshUsage();
+
+    // The dispatch logic lives in lib/agentEvents.ts (plain, testable TS); App
+    // just wires the stream to it.
+    onAgentEvent(handleAgentEvent, handleSessionStatus)
       .then((u) => {
         if (cancelled) u();
         else unlisten = u;
@@ -257,7 +97,7 @@
       for (const repo of get(repos)) {
         try {
           const wts = await listWorktrees(repo.path);
-          worktreesByRepo.update((m) => ({ ...m, [repo.path]: wts }));
+          setWorktrees(repo.path, wts);
         } catch {
           // repo moved/deleted — leave it empty in the sidebar
         }
@@ -272,16 +112,10 @@
         } else {
           // Resume the persisted selection's session on launch (idempotent) so
           // the chat — and its model switcher — are usable without re-selecting.
-          // Pass the persisted session id so the agent's context resumes too.
-          // The `ready`/`models` events flip status to ready and fill the catalog.
+          // ensureSession passes the persisted session id so the agent's context
+          // resumes too. The `ready`/`models` events flip status + fill the catalog.
           try {
-            await startSession(sel, {
-              resume: get(sessionByWorktree)[sel],
-              permissionMode: get(permissionModeByWorktree)[sel] ?? DEFAULT_PERMISSION_MODE,
-              systemPromptAppend: get(systemPromptAppend),
-              mcpServers: getMcpServers(),
-              agents: getAgents(),
-            });
+            await ensureSession(sel);
             setStatus(sel, "ready");
           } catch {
             // a real spawn failure surfaces via the agent-event error path
@@ -297,14 +131,14 @@
   });
 </script>
 
-<Tooltip.Provider delayDuration={300}>
+<Tooltip.Provider delayDuration={100}>
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
   <!-- Sidebar toggle floats over the top-left (just past the traffic lights) so
        it stays put when the sidebar slides away and can always reopen it. -->
   <Tooltip.Root>
     <Tooltip.Trigger>
       {#snippet child({ props })}
-        <HeaderIconButton side="left" {...props} onclick={toggleSidebar} aria-label="Toggle sidebar">
+        <HeaderIconButton {...props} onclick={toggleSidebar} aria-label="Toggle sidebar">
           <PanelLeft />
         </HeaderIconButton>
       {/snippet}
@@ -346,41 +180,22 @@
   <main class="main">
     <!-- top bar: the workspace path sits inline in the header band. -->
     <Header>
-      <div slot="left" class="workspace-label">
-        {#if $centerView === "settings"}
-          <span class="path">Settings</span>
-        {:else if $selectedWorktree}
-          <span class="path">{$selectedWorktree}</span>
-        {:else}
-          <span class="dim">select or create a worktree on the left</span>
-        {/if}
-      </div>
-      <div slot="actions" class="view-tabs">
-        {#if $centerView !== "settings"}
-          <Button
-            size="sm"
-            variant={$mainView === "chat" ? "secondary" : "ghost"}
-            class="h-7 text-xs"
-            onclick={() => mainView.set("chat")}>Chat</Button
-          >
-          {#if $activeGitStat && $activeGitStat.changed > 0}
-            <Button
-              size="sm"
-              variant={$mainView === "changes" ? "secondary" : "ghost"}
-              class="h-7 gap-1.5 text-xs"
-              onclick={() => mainView.set("changes")}
-            >
-              Changes
-              {#if $activeGitStat.insertions > 0}
-                <span class="diff-add">+{$activeGitStat.insertions}</span>
-              {/if}
-              {#if $activeGitStat.deletions > 0}
-                <span class="diff-del">−{$activeGitStat.deletions}</span>
-              {/if}
-            </Button>
+      {#snippet left()}
+        <div class="workspace-label">
+          {#if $centerView === "settings"}
+            <span class="path">Settings</span>
+          {:else if $selectedWorktree}
+            <span class="path">{$selectedWorktree}</span>
+          {:else}
+            <span class="dim">select or create a worktree on the left</span>
           {/if}
+        </div>
+      {/snippet}
+      {#snippet actions()}
+        {#if $centerView !== "settings"}
+          <ViewToggle />
         {/if}
-      </div>
+      {/snippet}
     </Header>
     <div class="content">
       {#if $centerView === "settings"}

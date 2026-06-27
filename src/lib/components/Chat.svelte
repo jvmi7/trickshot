@@ -9,6 +9,7 @@
   import Message from "./Message.svelte";
   import ToolGroup from "./ToolGroup.svelte";
   import Composer from "./Composer.svelte";
+  import Suggestions from "./Suggestions.svelte";
   import PermissionModal from "./PermissionModal.svelte";
   import QuestionModal from "./QuestionModal.svelte";
   import ScrollIndicator from "./ScrollIndicator.svelte";
@@ -17,9 +18,9 @@
   // Edge fades are purely positional (not tied to active scrolling): show the top
   // fade whenever there's content scrolled off above, the bottom fade whenever
   // there's more below. A small px threshold avoids a hairline fade at the ends.
-  $: scrollPx = $scrollCursor.progress * $scrollCursor.max;
-  $: topFade = scrollPx > 2;
-  $: bottomFade = $scrollCursor.max - scrollPx > 2;
+  const scrollPx = $derived($scrollCursor.progress * $scrollCursor.max);
+  const topFade = $derived(scrollPx > 2);
+  const bottomFade = $derived($scrollCursor.max - scrollPx > 2);
 </script>
 
 <div class="chat">
@@ -38,15 +39,17 @@
       {#if $renderedGroups.length === 0}
         <div class="empty">{$selectedWorktree ? "No messages yet." : "No workspace selected."}</div>
       {/if}
+      <!-- The live "thinking…" / end-of-turn "Finished in…" line is part of the
+           chat transcript, so it scrolls with the messages (not pinned to the input). -->
+      <LoadingState />
     </div>
-    <!-- Edge fades: messages fade out as they slide past the top/bottom and
-         fade in as they enter, tracking the custom scroll. -->
+    <!-- Edge fades: messages fade out as they slide past the top/bottom. -->
     <div class="edge-fade edge-fade-top" class:show={topFade}></div>
     <div class="edge-fade edge-fade-bottom" class:show={bottomFade}></div>
     <ScrollIndicator />
   </div>
 
-  <LoadingState />
+  <Suggestions />
   <Composer />
   <PermissionModal />
   <QuestionModal />

@@ -154,6 +154,149 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* Geist — Vercel's typeface (https://vercel.com/font). Self-hosted variable
+   font, weight 100–900, no italic; latin + latin-ext. */
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/geist-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/geist-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Mulish — Google Fonts (https://fonts.google.com/specimen/Mulish). Self-hosted
+   variable font, weight 200–1000; latin + latin-ext, roman + italic. */
+@font-face {
+  font-family: "Mulish";
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/mulish-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Mulish";
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/mulish-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Mulish";
+  font-style: italic;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/mulish-latin-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Mulish";
+  font-style: italic;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/mulish-latin-ext-italic.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Lexend — Google Fonts (https://fonts.google.com/specimen/Lexend). Self-hosted
+   variable font, weight 100–900, no italic; latin + latin-ext. */
+@font-face {
+  font-family: "Lexend";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/lexend-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Lexend";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/lexend-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Nunito — Google Fonts (https://fonts.google.com/specimen/Nunito). Self-hosted
+   variable font, weight 200–1000; latin + latin-ext, roman + italic. */
+@font-face {
+  font-family: "Nunito";
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/nunito-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Nunito";
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/nunito-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Nunito";
+  font-style: italic;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/nunito-latin-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Nunito";
+  font-style: italic;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url("./fonts/nunito-latin-ext-italic.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* SN Pro — Google Fonts (https://fonts.google.com/specimen/SN+Pro). Self-hosted
+   variable font, weight 200–900; latin + latin-ext, roman + italic. */
+@font-face {
+  font-family: "SN Pro";
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("./fonts/sn-pro-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "SN Pro";
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("./fonts/sn-pro-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "SN Pro";
+  font-style: italic;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("./fonts/sn-pro-latin-italic.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "SN Pro";
+  font-style: italic;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("./fonts/sn-pro-latin-ext-italic.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 /* Switchable UI font. --app-font is the active stack; <html data-font="…">
    overrides it (see stores.ts › font). Both --font-sans/--font-mono and the
    bespoke :root font-family derive from it, so everything follows. */
@@ -163,70 +306,60 @@
   --font-comic: "Comic Sans MS", "Comic Sans", ui-rounded, cursive;
   --font-ibm: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --font-helvetica: "Helvetica Self", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-geist: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mulish: "Mulish", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-lexend: "Lexend", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-nunito: "Nunito", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sn-pro: "SN Pro", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --app-font: var(--font-sans-code);
 }
 [data-font="wenkai"] { --app-font: var(--font-wenkai); }
 [data-font="comic"] { --app-font: var(--font-comic); }
 [data-font="ibm"] { --app-font: var(--font-ibm); }
 [data-font="helvetica"] { --app-font: var(--font-helvetica); }
+[data-font="geist"] { --app-font: var(--font-geist); }
+[data-font="mulish"] { --app-font: var(--font-mulish); }
+[data-font="lexend"] { --app-font: var(--font-lexend); }
+[data-font="nunito"] { --app-font: var(--font-nunito); }
+[data-font="sn-pro"] { --app-font: var(--font-sn-pro); }
 
 /* ============================================================
-   THEME ENGINE — semantic base palette (the SINGLE source of
-   truth a theme overrides). Both the shadcn --* tokens and the
-   bespoke --app-* tokens below derive from these via var(), so a
-   theme only sets these ~13 vars. See THEMING.md.
+   THEME ENGINE — semantic base palette. Both the shadcn --* tokens
+   and the bespoke --app-* tokens below derive from these via var(),
+   so a theme is just a swap of these ~15 vars.
+
+   The ACTIVE theme is injected at runtime from `src/lib/themes.ts`
+   (the single source of truth) as a `:root[data-theme="…"]` block.
+   This bare :root block is the STATIC FALLBACK — it mirrors the
+   default theme (THEMES[0], "terracotta") so the UI is styled before
+   that JS runs / if no data-theme is set. Keep it in sync with the
+   default entry in themes.ts. See THEMING.md.
    ============================================================ */
 :root {
-  --base-bg: #111113;             /* app canvas */
-  --base-surface: #18181b;        /* panels: header, sidebar, cards, popovers */
-  --base-surface-raised: #212126; /* hover / secondary / muted / accent surfaces */
-  --base-border: #303036;         /* dividers, inputs */
-  --base-text: #d0d0d7;           /* primary text (softened from stark white) */
-  --base-text-muted: #8b8b96;     /* dim / secondary text */
+  /* Neutral ramp keyed to the #121011 canvas (near-neutral dark greys, whisper of
+     warmth); TEXT is a separate warm cream family. Mirrors THEMES[0] in themes.ts. */
+  --base-bg: #121011;             /* app canvas */
+  --base-surface: #1c1a1a;        /* panels: header, sidebar, cards, popovers */
+  --base-surface-raised: #272424; /* hover / secondary / muted / accent surfaces */
+  --base-border: #363232;         /* dividers, inputs */
+  --base-text: #f4f0ea;           /* primary text (soft off-white, slightly warm) */
+  --base-text-muted: #a29d95;     /* dim / secondary text (muted, slightly warm) */
   --base-accent: #d97757;         /* brand accent (terracotta) */
-  --base-on-accent: #111113;      /* text / icon on accent fills */
+  --base-on-accent: #121011;      /* text / icon on accent fills */
   --base-danger: #e06c6c;         /* errors / destructive */
   --base-success: #5fb87a;        /* online / running */
   --base-info: #6b9fd9;           /* chart / info */
   --base-warning: #d9b257;        /* chart / warning */
   --base-special: #b57fd9;        /* chart / extra */
   --base-overlay: rgb(0 0 0 / 0.5); /* modal scrim */
-  --base-selection: #80808a; /* text-selection highlight: neutral grey; selected text turns accent + glows (see ::selection) */
+  --base-selection: #837c7c; /* text-selection highlight fill (rendered at 20%); selected text uses --base-accent */
 }
 
-/* Named themes override only what differs from the default palette above.
-   Selected at runtime via <html data-theme="…"> (see stores.ts › theme).
-   "terracotta" is the :root default, so it needs no block here. */
-[data-theme="ocean"] {
-  --base-bg: #0e1a24;
-  --base-surface: #14242f;
-  --base-surface-raised: #1d3340;
-  --base-border: #2b4655;
-  --base-text: #dce7ee;
-  --base-text-muted: #7e98a8;
-  --base-accent: #46b6d6;
-  --base-on-accent: #07141c;
-  --base-danger: #e0726c;
-  --base-success: #4fc095;
-  --base-info: #6bb6d9;
-  --base-warning: #d9b257;
-  --base-special: #9b8cf0;
-}
-[data-theme="forest"] {
-  --base-bg: #121912;
-  --base-surface: #1a231b;
-  --base-surface-raised: #233026;
-  --base-border: #354a38;
-  --base-text: #e3eae2;
-  --base-text-muted: #8aa08c;
-  --base-accent: #7bbf6a;
-  --base-on-accent: #0f160f;
-  --base-danger: #e0726c;
-  --base-success: #6cc77f;
-  --base-info: #6b9fd9;
-  --base-warning: #d9b257;
-  --base-special: #b57fd9;
-}
+/* Named themes are NO LONGER hand-written here. They live in `src/lib/themes.ts`
+   (the single config) and are injected at startup as `:root[data-theme="…"]`
+   blocks by `installThemes()` — which deliberately outrank the :root default
+   above. The :root block is the static fallback mirroring the default theme
+   (THEMES[0]). To add/remove a theme, edit themes.ts. See THEMING.md. */
 
 /* ============================================================
    shadcn-svelte design tokens (Tailwind v4). These drive the
@@ -235,7 +368,7 @@
    runs class="dark", whose values derive from the base palette.
    ============================================================ */
 :root {
-  --radius: 0.625rem;
+  --radius: 1rem; /* global corner radius (16px) — everything derives from this */
   --background: oklch(1 0 0);
   --foreground: oklch(0.147 0.004 49.25);
   --card: oklch(1 0 0);
@@ -379,8 +512,13 @@
   --app-text: var(--base-text);
   --app-dim: var(--base-text-muted);
   --app-accent: var(--base-accent);
-  --app-accent-text: var(--base-on-accent);
   --app-danger: var(--base-danger);
+  /* Text-selection colors — theme-driven, derived from the base palette (no raw hex).
+     Selected text recolors to the brand accent; the highlight fill is the per-theme
+     `selection` tone rendered at 20%. Shared by ::selection and the placeholder
+     .ph-sel so they render identically. */
+  --app-selection-text: var(--base-accent); /* selected text → brand accent */
+  --app-selection-bg: color-mix(in srgb, var(--base-selection) 20%, transparent);
   /* Markdown prose palette (see Markdown.svelte / `.markdown` below). Color is
      reserved for CODE only — prose (titles, body, links) all share `--app-text`.
      The inline-code chip + code identifiers route through `--base-accent` so they
@@ -388,8 +526,9 @@
      theme-CONSTANT, so building code color on them looked identical everywhere).
      Never hardcode a hex here. */
   --app-code: var(--base-accent);
-  --app-code-bg: color-mix(in srgb, var(--base-accent) 13%, var(--base-surface-raised));
-  --app-code-border: color-mix(in srgb, var(--base-accent) 28%, var(--base-border));
+  /* Neutral raised surface — no accent tint, no border (the accent TEXT color is
+     enough to set inline code apart from prose). */
+  --app-code-bg: var(--base-surface-raised);
   /* Max width of the chat reading column (messages + loading + composer); it
      centers in the pane when wider. */
   --chat-col: 740px;
@@ -398,7 +537,14 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; }
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  /* Kill the macOS WebView elastic overscroll/rubber-band — the window itself
+     shouldn't scroll or bounce (the app scrolls inside its own containers). */
+  overscroll-behavior: none;
+}
 
 .layout {
   /* two full-height columns (sidebar | content); the sidebar's right border is
@@ -424,6 +570,10 @@ body { margin: 0; }
      on screen is the sidebar's full-height right border. */
 }
 .app-header .spacer { flex: 1; }
+/* Segmented view toggle (Chat | Changes): items sit above the sliding highlight
+   (slidingToggle prepends a z-index:0 bg), which fills the active item. */
+.view-toggle { display: inline-flex; align-items: center; gap: 2px; position: relative; }
+.view-toggle-item { position: relative; z-index: 1; }
 /* Chat/Changes segmented toggle in the header's actions slot. */
 .view-tabs { display: flex; gap: 4px; }
 /* Diffstat counts on the header's Changes tab (added green / removed red,
@@ -435,12 +585,11 @@ body { margin: 0; }
    toggle (left, past the macOS traffic lights so it survives the sidebar
    sliding away) and the settings gear (right). Shared styling so they feel
    identical; icon size is enforced here so any svg renders uniform. ---- */
-.header-icon-btn {
-  position: absolute;
-  top: 4px;
-  z-index: 20;
-  /* fixed square so both buttons share an identical box + hover target,
-     regardless of which icon they hold. */
+/* Shared chrome icon button (the titlebar sidebar/settings buttons AND the
+   sidebar's add-repo/add-worktree buttons): a fixed 24px square, dim by default,
+   fading to a raised-surface bg + brighter icon on hover. The icon is forced to
+   13px so every button matches regardless of which glyph it holds. */
+.icon-chrome-btn {
   width: 24px;
   height: 24px;
   display: inline-flex;
@@ -451,14 +600,14 @@ body { margin: 0; }
   color: var(--app-dim);
   line-height: 1;
   padding: 0;
-  border-radius: 5px;
+  border-radius: calc(var(--radius) - 5px); /* derives from global --radius */
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
-.header-icon-btn:hover { background: var(--app-panel-2); color: var(--app-text); }
-.header-icon-btn svg { display: block; width: 13px; height: 13px; }
-.header-icon-btn--left { left: 74px; }
-.header-icon-btn--right { right: 4px; }
+.icon-chrome-btn:hover { background: var(--app-panel-2); color: var(--app-text); }
+.icon-chrome-btn svg { display: block; width: 13px; height: 13px; }
+/* Header chrome buttons add absolute positioning over the overlay titlebar. */
+.header-icon-btn { position: absolute; top: 4px; left: 74px; z-index: 20; }
 
 /* ---- sidebar column: full-height, right border is the sole divider ---- */
 .sidebar {
@@ -518,12 +667,18 @@ body { margin: 0; }
 
 /* ---- sidebar v2: repos + worktrees (Conductor-style) ---- */
 .wt { display: flex; flex-direction: column; }
+/* Section header above the project list: "Projects" label + inline add button. */
+.wt-section { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--app-dim); padding: 0 2px; margin: 2px 0 6px; }
+.wt-empty { font-size: 12px; color: var(--app-dim); padding: 4px 2px; }
 .repo-group { margin-bottom: 12px; }
 .repo-head { display: flex; align-items: center; gap: 6px; padding: 2px; }
-.repo-name { flex: 1; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--app-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.repo-actions { display: flex; gap: 2px; }
+/* Accordion toggle: chevron + repo name, clickable to fold/unfold the worktrees. */
+.repo-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: 0; cursor: pointer; text-align: left; }
+.repo-chevron { display: inline-flex; flex-shrink: 0; color: var(--app-dim); transition: transform 0.15s ease; }
+.repo-chevron.collapsed { transform: rotate(-90deg); }
+.repo-name { flex: 1; min-width: 0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--app-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wt-rows { list-style: none; margin: 2px 0 0; padding: 0; }
-.wt-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; outline: none; }
+.wt-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: calc(var(--radius) - 4px); cursor: pointer; font-size: 13px; outline: none; }
 .wt-row:hover { background: var(--app-panel); }
 .wt-row:focus-visible { box-shadow: inset 0 0 0 1px var(--app-accent); }
 .wt-row.active { background: var(--app-panel-2); }
@@ -534,34 +689,35 @@ body { margin: 0; }
 @keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .wt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Sidebar activity badges: pending-permission flag + background unread count. */
-.wt-pending { flex-shrink: 0; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--base-warning, #d29922); }
+.wt-pending { flex-shrink: 0; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--base-warning); }
 .wt-unread { flex-shrink: 0; min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border-radius: 8px; background: var(--app-accent); color: var(--app-bg); }
 
 /* ---- chat ---- */
 .chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 /* workspace path shown inline in the content column's top bar (Header), as a
    subtle rounded chip. */
+/* Left-aligned in the header's flex flow (the first slot). */
 .workspace-label {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  max-width: calc(100% - 80px);
   min-width: 0;
   overflow: hidden;
+}
+/* When the sidebar is collapsed the content pane slides under the traffic lights
+   + floating sidebar toggle, so indent the title past them. */
+.sidebar.collapsed ~ .main .workspace-label {
+  padding-left: 92px;
 }
 .workspace-label .path {
   display: inline-block;
   max-width: 100%;
-  padding: 3px 8px;
   font-size: 11px;
   color: var(--app-dim);
-  background: var(--app-panel-2);
-  border-radius: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: middle;
+  /* It's a label, not selectable text. -webkit- prefix is required in WKWebView. */
+  -webkit-user-select: none;
+  user-select: none;
 }
 .dim { color: var(--app-dim); }
 
@@ -579,7 +735,9 @@ body { margin: 0; }
    scroll indicator (z 5). */
 /* Both fades are positional: hidden by default, shown (via .show, toggled in
    Chat.svelte) only when there's content scrolled off that edge. */
-.edge-fade { position: absolute; left: 0; right: 0; height: 52px; pointer-events: none; z-index: 3; opacity: 0; transition: opacity 0.3s ease; }
+/* Constrained to the centered reading column (matches .messages' max-width),
+   not the full viewport, so the fade only covers where the chat content is. */
+.edge-fade { position: absolute; left: 50%; transform: translateX(-50%); width: 100%; max-width: var(--chat-col); height: 52px; pointer-events: none; z-index: 3; opacity: 0; transition: opacity 0.3s ease; }
 .edge-fade.show { opacity: 1; }
 .edge-fade-top { top: 0; background: linear-gradient(to bottom, var(--base-bg), transparent); }
 .edge-fade-bottom { bottom: 0; background: linear-gradient(to top, var(--base-bg), transparent); }
@@ -593,38 +751,74 @@ body { margin: 0; }
   width: 4px;
   height: 120px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--base-border) 55%, transparent);
-  opacity: 0;
-  transform: translateX(10px) scaleY(0.85);
-  transform-origin: top right;
-  transition: opacity 0.22s ease, transform 0.28s cubic-bezier(0.16, 0.84, 0.3, 1);
+  background: color-mix(in srgb, var(--app-dim) 30%, transparent); /* track = dim muted */
+  /* Hidden = slid fully off the right edge (clipped by the viewport's overflow).
+     Pure slide — no opacity or scale — on a smooth ease-out curve. */
+  transform: translateX(calc(100% + 12px));
+  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
   pointer-events: none;
   overflow: hidden;
   z-index: 5;
 }
-.scroll-indic.visible { opacity: 1; transform: translateX(0) scaleY(1); }
+.scroll-indic.visible { transform: translateX(0); }
 .scroll-indic-fill {
   position: absolute;
   left: 0;
   right: 0;
   top: 0;
-  background: var(--base-accent);
+  background: color-mix(in srgb, var(--app-text) 60%, transparent); /* fill = dimmed text */
   border-radius: 999px;
-  box-shadow: 0 0 8px var(--base-accent);
 }
 
+/* Shared "bubble" surface — the user message bubble AND the composer input use
+   the SAME gradient + faint outline + radius, so the input matches the chat
+   (edit here once and both follow). Vertical gradient: top and bottom share the
+   lighter color, with a darker band through the middle; the rise back up happens
+   unevenly — held dark until ~3/4 down, then a shallow gradient back to the top
+   color at the bottom edge. Token-based so it tracks the theme. */
+.msg.user .body,
+.composer-input {
+  border-radius: calc(var(--radius) + 8px);
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--app-bg) 22%, var(--app-panel)) 0%,
+    color-mix(in srgb, var(--app-bg) 75%, var(--app-panel)) 50%,
+    color-mix(in srgb, var(--app-bg) 75%, var(--app-panel)) 72%,
+    color-mix(in srgb, var(--app-bg) 22%, var(--app-panel)) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--app-text) 10%, transparent);
+}
 /* All messages share ONE left-aligned column (no left/right split). The user's
-   own messages get a subtle, theme-tinted container so they read distinctly from
-   the assistant's plain prose; the box hugs its content (inline-block). */
+   own messages get the bubble surface above so they read distinctly from the
+   assistant's plain prose; the box hugs its content. */
 .msg.user .body {
   display: block;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--app-accent) 12%, var(--app-panel));
-  border: 1px solid color-mix(in srgb, var(--app-accent) 20%, var(--app-border));
-  color: var(--app-text);
+  padding: 12px 16px;
+  /* Slightly grey, not pure white — softened toward the bubble background. */
+  color: color-mix(in srgb, var(--app-text) 90%, var(--app-bg));
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* Composer input: same bubble surface, laid out as [textarea | send button].
+   The selector row below stays OUTSIDE this surface. */
+.composer-input {
+  display: flex;
+  align-items: flex-start; /* button pinned to top — looks centered at 1 line, stays up as it grows */
+  gap: 8px;
+  padding: 6px 8px 6px 16px;
+  /* The container chrome isn't selectable; the textarea re-enables it (select-text). */
+  -webkit-user-select: none;
+  user-select: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+/* Brighten the border on hover, and keep it bright while the input is focused. */
+.composer-input:hover,
+.composer-input:focus-within {
+  border-color: color-mix(in srgb, var(--app-text) 22%, transparent);
+}
+/* When focused, thicken the border via an inset ring (no layout shift). */
+.composer-input:focus-within {
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--app-text) 22%, transparent);
 }
 /* ---- rendered markdown (assistant prose; see Markdown.svelte). Tight vertical
    rhythm so a chat bubble reads as one block; code stays monospace regardless of
@@ -650,14 +844,14 @@ body { margin: 0; }
 .markdown code {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.9em; color: var(--app-code);
-  background: var(--app-code-bg); border: 1px solid var(--app-code-border);
-  border-radius: 4px; padding: 0.1em 0.35em;
+  background: var(--app-code-bg);
+  border-radius: calc(var(--radius) - 6px); padding: 0.1em 0.35em;
 }
 /* Fenced block: surface panel so code/diagrams read as a distinct unit. A bordered
    block needs more breathing room than the 8px inline-paragraph rhythm, so it gets
    symmetric 12px margins (vs the surrounding text's tighter spacing). */
 .markdown pre {
-  background: var(--app-panel); border: 1px solid var(--app-border); border-radius: 8px;
+  background: var(--app-panel); border: 1px solid var(--app-border); border-radius: calc(var(--radius) - 2px);
   padding: 10px 12px; margin: 12px 0; overflow-x: auto;
 }
 .markdown pre code { color: var(--app-text); background: none; border: none; padding: 0; font-size: 0.85em; }
@@ -706,7 +900,9 @@ body { margin: 0; }
 /* ---- loading state (verbose "what's happening" footer while a turn runs) ---- */
 /* One row: the shimmer "thinking" label, with the elapsed timer inline beside it.
    The label truncates if long so the timer stays visible right next to it. */
-.loading-state { max-width: var(--chat-col); margin-inline: auto; width: 100%; flex-shrink: 0; display: flex; align-items: baseline; gap: 8px; padding: 8px 32px 12px; }
+/* In-flow chat item (last child of .messages): aligns with the message column,
+   spaced by the column's gap — no footer-specific max-width/padding. */
+.loading-state { display: flex; align-items: baseline; gap: 8px; }
 .loading-label { font-size: 13px; color: var(--app-text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .loading-meta { font-size: 11px; color: var(--app-dim); flex-shrink: 0; }
 /* Idle end-of-turn summary ("Finished in 17s · 4 steps") in the same footer slot. */
@@ -728,36 +924,28 @@ body { margin: 0; }
 }
 
 /* ---- composer ---- */
-.composer { position: relative; width: 100%; max-width: var(--chat-col); margin-inline: auto; flex-shrink: 0; padding: 12px 32px; }
-/* Divider inset to the content's left/right padding (not the full box width). */
-.composer::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 32px;
-  right: 32px;
-  border-top: 1px solid var(--app-border);
-}
-/* Terminal prompt caret: muted when the input is blurred, accent when focused. */
-.composer-caret {
-  font-weight: 600;
-  line-height: 1;
-  color: var(--app-dim);
-  user-select: none;
-  transition: color 0.15s ease;
-}
-.composer-caret.focused { color: var(--app-accent); }
-
+.composer { position: relative; width: 100%; max-width: var(--chat-col); margin-inline: auto; flex-shrink: 0; padding: 8px 32px 12px; }
 /* Caret that rides the end of the animated placeholder as it types/backspaces,
    matching the real textarea caret (color + blink) so the handoff is seamless. */
 .ph-caret {
   display: inline-block;
   width: 2px;
-  height: 1.05em;
+  height: 1.25em;
   margin-left: 1px;
-  vertical-align: text-bottom;
-  background: var(--primary);
+  /* The overlay flex-centers the line in the container; middle keeps the caret
+     centered on that line. */
+  vertical-align: middle;
+  background: var(--app-text);
   animation: ph-caret-blink 1s step-end infinite;
+}
+
+/* The highlighted right-hand chunk when clicking into the placeholder (see
+   Composer.onPointerDown). Matches the theme ::selection (grey fill + accent text
+   + glow). Applied all at once (no sweep); the chunk is then deleted in one go. */
+.ph-sel {
+  /* Same fill + text color as the global ::selection. */
+  background-color: var(--app-selection-bg);
+  color: var(--app-selection-text);
 }
 
 }
@@ -775,13 +963,11 @@ body { margin: 0; }
   background-color: var(--base-overlay);
 }
 
-/* Themed text-selection highlight: a neutral grey fill, with the selected text
-   recolored to the accent and given a slight accent glow (text-shadow is one of
-   the few properties ::selection honors). */
+/* Text-selection highlight: accent-colored text on the per-theme selection tone at
+   20% — all from the base palette (shared tokens; .ph-sel matches exactly). */
 ::selection {
-  background-color: var(--base-selection);
-  color: var(--base-accent);
-  text-shadow: 0 0 6px color-mix(in srgb, var(--base-accent) 50%, transparent);
+  background-color: var(--app-selection-bg);
+  color: var(--app-selection-text);
 }
 
 /* The themed pointer (set on <html> by themedCursor.ts) is the default everywhere;

@@ -10,6 +10,8 @@ import type {
   Inbound,
   Outbound,
   PermissionMode,
+  SessionConfig,
+  UsageInfo,
   Worktree,
 } from "./types";
 
@@ -20,6 +22,10 @@ export const pickDirectory = () => invoke<string | null>("pick_directory");
 
 /** Show a desktop (OS) notification. */
 export const notify = (title: string, body: string) => invoke<void>("notify", { title, body });
+
+/** The Claude subscription usage windows (rolling 5-hour + weekly). Rejects when
+ *  unavailable (not logged in, token expired, rate limited); callers throttle. */
+export const getUsage = () => invoke<UsageInfo>("get_usage");
 
 /** List all worktrees of a git repo (the first entry is the main worktree). */
 export const listWorktrees = (repoPath: string) =>
@@ -67,32 +73,15 @@ export const worktreeMerge = (repoPath: string, branch: string) =>
 // ---- Per-worktree agent sessions ----------------------------------------
 // Each worktree runs its own sidecar concurrently, keyed by its path.
 
-/** Start (or no-op if already running) the agent session for a worktree.
- *  Options: `resume` (a prior session id) restores that session's context;
- *  `permissionMode` sets the initial tool-permission gate (default
- *  bypassPermissions; a non-bypass value activates the Allow/Deny modal);
- *  `systemPromptAppend` adds custom text to the preset system prompt; `provider`
- *  picks a model-provider adapter (default "claude"). */
-export const startSession = (
-  worktree: string,
-  opts: {
-    resume?: string;
-    permissionMode?: PermissionMode;
-    systemPromptAppend?: string;
-    mcpServers?: Record<string, unknown>;
-    agents?: Record<string, unknown>;
-    provider?: string;
-  } = {},
-) =>
-  invoke<void>("start_session", {
-    worktree,
-    resume: opts.resume ?? null,
-    permissionMode: opts.permissionMode ?? null,
-    systemPromptAppend: opts.systemPromptAppend ?? null,
-    mcpServers: opts.mcpServers ? JSON.stringify(opts.mcpServers) : null,
-    agents: opts.agents ? JSON.stringify(opts.agents) : null,
-    provider: opts.provider ?? null,
-  });
+/** Start (or no-op if already running) the agent session for a worktree. The
+ *  whole start-up config rides in one JSON blob (`SessionConfig`): `resumeSessionId`
+ *  restores a prior session's context, `permissionMode` sets the initial
+ *  tool-permission gate (default bypassPermissions; a non-bypass value activates
+ *  the Allow/Deny modal), `systemPromptAppend` adds custom prompt text, `provider`
+ *  picks a model-provider adapter (default "claude"). Rust forwards the blob
+ *  opaquely; the sidecar parses it once (see SessionConfig). */
+export const startSession = (worktree: string, config: SessionConfig = {}) =>
+  invoke<void>("start_session", { worktree, config: JSON.stringify(config) });
 
 /** Kill a worktree's agent session. */
 export const stopSession = (worktree: string) => invoke<void>("stop_session", { worktree });
@@ -121,9 +110,10 @@ export const replyQuestion = (worktree: string, id: string, answers: string[][])
 /** Interrupt a worktree's agent mid-task. */
 export const interruptAgent = (worktree: string) => send(worktree, { kind: "interrupt" });
 
-/** Revert file changes made after a given user turn (its checkpoint id). */
-export const rewind = (worktree: string, messageId: string) =>
-  send(worktree, { kind: "rewind", messageId });
+/** Ask the agent to generate suggested next replies for the recent conversation.
+ *  Answered async via a `suggestions` event on the agent stream. */
+export const requestSuggestions = (worktree: string, conversation: string) =>
+  send(worktree, { kind: "suggest", conversation });
 
 /** Switch the model this worktree's chat uses. The sidecar confirms by
  *  re-emitting a `models` event with the updated `current`. */
@@ -149,9 +139,6 @@ export const reconnectConnector = (worktree: string, name: string) =>
 
 /** Ask a session to (re-)emit its `commands` event (available slash commands). */
 export const requestCommands = (worktree: string) => send(worktree, { kind: "get_commands" });
-
-/** Ask a session to (re-)emit its `mcp_status` event (MCP server health). */
-export const requestMcpStatus = (worktree: string) => send(worktree, { kind: "get_mcp_status" });
 
 /** Replace a session's live MCP server set (an opaque provider config blob). */
 export const setMcpServers = (worktree: string, servers: Record<string, unknown>) =>

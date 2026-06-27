@@ -53,8 +53,7 @@
   <!-- Idle: the last turn's summary stays here until the next turn starts. -->
   <div class="loading-state">
     <span class="loading-summary"
-      >Finished in {humanTime($activeSummary.seconds)}{#if $activeSummary.steps > 0} ·
-        {$activeSummary.steps} step{$activeSummary.steps === 1 ? "" : "s"}{/if}</span
+      >Finished in {humanTime($activeSummary.seconds)}{#if $activeSummary.steps > 0} · {$activeSummary.steps} step{$activeSummary.steps === 1 ? "" : "s"}{/if}</span
     >
   </div>
 {/if}

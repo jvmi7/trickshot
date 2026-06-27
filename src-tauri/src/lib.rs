@@ -1,4 +1,5 @@
 mod agent;
+mod usage;
 mod worktree;
 
 use agent::Sessions;
@@ -27,6 +28,7 @@ pub fn run() {
             worktree::worktree_commit,
             worktree::worktree_push,
             worktree::worktree_merge,
+            usage::get_usage,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -35,8 +37,7 @@ pub fn run() {
             // (large) per-worktree agent processes.
             if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
                 if let Some(state) = app_handle.try_state::<Sessions>() {
-                    let mut map = state.0.lock().unwrap_or_else(|e| e.into_inner());
-                    for (_, child) in map.drain() {
+                    for (_, child) in state.lock().drain() {
                         let _ = child.kill();
                     }
                 }

@@ -3,6 +3,11 @@
 // Claude-aware module on the sidecar side — everything else (core.ts, the
 // protocol, the whole UI) is provider-neutral. Use it as the template for a new
 // provider: implement AgentProvider, emit neutral messages, register it.
+//
+// The pure, testable pieces live in sibling modules so this file stays focused on
+// the agent loop + control wiring: native->neutral mapping (claudeMapping.ts),
+// model tiers (claudeModels.ts), suggestion generation (claudeSuggest.ts), and
+// the generic streaming input queue (queue.ts).
 
 import {
   type AgentDefinition,
@@ -10,22 +15,16 @@ import {
   type McpServerConfig,
   type PermissionResult,
   query,
-  type SDKMessage,
   type SDKUserMessage,
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import type {
-  AgentMessage,
-  ConnectorInfo,
-  ModelInfo,
-  PermissionMode,
-  TurnUsage,
-} from "../../shared/protocol";
+import type { ConnectorInfo, ModelInfo, PermissionMode } from "../../shared/protocol";
+import { toNeutral } from "./claudeMapping";
+import { DEFAULT_MODEL, ratings } from "./claudeModels";
+import { generateSuggestions } from "./claudeSuggest";
+import { makeQueue } from "./queue";
 import type { AgentProvider, ProviderContext } from "./types";
-
-// The default model a fresh session starts on (the UI can switch it per chat).
-const DEFAULT_MODEL = "claude-opus-4-8";
 
 // Always appended to the system prompt so the agent reaches for OUR question tool
 // FIRST, instead of trying the built-in AskUserQuestion, getting denied, and only
@@ -34,143 +33,6 @@ const ASK_USER_GUIDANCE =
   "To ask the user a multiple-choice question, ALWAYS use the `mcp__trickshot__ask_user` " +
   "tool. NEVER use the built-in `AskUserQuestion` tool — it is disabled in this environment, " +
   "so attempting it only wastes a turn.";
-
-// A pushable async-iterable used as the streaming `prompt`. Never closed, so the
-// session stays open for a multi-turn chat.
-function makeQueue<T>() {
-  const items: T[] = [];
-  let wake: (() => void) | null = null;
-  return {
-    push(item: T) {
-      items.push(item);
-      wake?.();
-      wake = null;
-    },
-    async *[Symbol.asyncIterator]() {
-      for (;;) {
-        if (items.length) {
-          yield items.shift() as T;
-          continue;
-        }
-        await new Promise<void>((resolve) => (wake = resolve));
-      }
-    },
-  };
-}
-
-// Claude tier -> comparison pips. This Claude-specific heuristic used to live in
-// the UI (ModelSelector); it belongs with the provider that knows its own tiers.
-function ratings(value: string, displayName: string): ModelInfo["meta"] {
-  const s = `${value} ${displayName}`.toLowerCase();
-  const context = /1m|\[1m\]/.test(s) ? 4 : 2;
-  const r = s.includes("haiku")
-    ? { reasoning: 2, speed: 4, value: 4 }
-    : s.includes("opus")
-      ? { reasoning: 4, speed: 2, value: 1 }
-      : { reasoning: 3, speed: 3, value: 3 }; // sonnet / default / unknown
-  return [
-    { label: "Reasoning", score: r.reasoning },
-    { label: "Speed", score: r.speed },
-    { label: "Value", score: r.value },
-    { label: "Context", score: context },
-  ];
-}
-
-// Shape of one Claude content block as it crosses the native->neutral seam. The
-// SDK types `message.content` as loose `unknown`; the String()/typeof guards in
-// toNeutral validate each field at runtime, so this confined type just removes the
-// implicit `any` from the block iteration (matches the file's other confined casts).
-type ContentBlock = {
-  type?: string;
-  text?: unknown;
-  id?: unknown;
-  name?: unknown;
-  input?: unknown;
-  tool_use_id?: unknown;
-  content?: unknown;
-  is_error?: unknown;
-};
-
-// Map one Claude SDKMessage into zero or more neutral AgentMessages.
-// Exported for unit testing (the native->neutral mapping is core correctness).
-export function toNeutral(msg: SDKMessage): AgentMessage[] {
-  // Non-null when the message came from a subagent (the spawning Agent tool's
-  // id), forwarded thanks to forwardSubagentText. Lets the UI nest subagent work.
-  const parentId = (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id || undefined;
-  const sub = parentId ? { parentId } : {};
-  switch (msg.type) {
-    case "assistant": {
-      const content = (msg as { message?: { content?: unknown } }).message?.content;
-      const blocks = (Array.isArray(content) ? content : []) as ContentBlock[];
-      const out: AgentMessage[] = [];
-      for (const b of blocks) {
-        if (b?.type === "text" && typeof b.text === "string") {
-          out.push({ type: "assistant", text: b.text, ...sub });
-        } else if (b?.type === "tool_use") {
-          out.push({
-            type: "tool_call",
-            id: String(b.id ?? ""),
-            name: String(b.name ?? ""),
-            input: b.input,
-            ...sub,
-          });
-        }
-      }
-      return out;
-    }
-    case "user": {
-      const content = (msg as { message?: { content?: unknown } }).message?.content;
-      const blocks = (Array.isArray(content) ? content : []) as ContentBlock[];
-      const out: AgentMessage[] = [];
-      for (const b of blocks) {
-        if (b?.type === "tool_result") {
-          out.push({
-            type: "tool_result",
-            id: String(b.tool_use_id ?? ""),
-            content: typeof b.content === "string" ? b.content : JSON.stringify(b.content, null, 2),
-            isError: b.is_error === true,
-            ...sub,
-          });
-        }
-      }
-      return out;
-    }
-    case "result": {
-      // The result message ends a turn and carries cumulative token/cost figures
-      // for it. Read defensively (the error subtype may omit some fields) and map
-      // to the neutral TurnUsage; `total_cost_usd` is a client-side estimate.
-      const r = msg as {
-        total_cost_usd?: number;
-        num_turns?: number;
-        duration_ms?: number;
-        usage?: {
-          input_tokens?: number;
-          output_tokens?: number;
-          cache_read_input_tokens?: number;
-          cache_creation_input_tokens?: number;
-        };
-      };
-      const u = r.usage ?? {};
-      const usage: TurnUsage = {
-        inputTokens: u.input_tokens,
-        outputTokens: u.output_tokens,
-        cacheReadTokens: u.cache_read_input_tokens,
-        cacheCreationTokens: u.cache_creation_input_tokens,
-        costUsd: r.total_cost_usd,
-        numTurns: r.num_turns,
-        durationMs: r.duration_ms,
-      };
-      // Attach usage only when the result actually carried figures; a bare result
-      // (e.g. the error subtype) maps to a plain turn_end (usage is optional).
-      const hasUsage = Object.values(usage).some((v) => v !== undefined);
-      return [hasUsage ? { type: "turn_end", usage } : { type: "turn_end" }];
-    }
-    default:
-      // `system`/init carries the session id (handled in the loop); stream/partial
-      // internal types render nothing.
-      return [];
-  }
-}
 
 export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
   const turns = makeQueue<SDKUserMessage>();
@@ -190,9 +52,33 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
   let initServers: { name: string; status: string }[] = [];
   let lastSession = ctx.resumeSessionId ?? "";
   let dead = false;
+  // In-flight suggestion request; aborted when superseded or when the user sends
+  // a turn (they've moved on, so a late suggestion is stale).
+  let suggestAbort: AbortController | null = null;
+
+  // Single source for the stream-error path: normalize any thrown value and emit
+  // it as an `error` Outbound. `onFlush` fires once the line hits stdout (used to
+  // exit cleanly without truncating the final line — process.exit doesn't drain).
+  const emitError = (e: unknown, onFlush?: () => void) =>
+    ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) }, onFlush);
+
+  // Run an async control request (a streaming-mode `q.*` call), surfacing any
+  // failure as a stream error rather than throwing. `always` (optional) runs
+  // afterward regardless of outcome — e.g. re-publish status so the UI refreshes.
+  const runControl = (fn: () => Promise<void>, always?: () => void) =>
+    void (async () => {
+      try {
+        await fn();
+      } catch (e) {
+        emitError(e);
+      } finally {
+        always?.();
+      }
+    })();
 
   // Historical default is bypassPermissions (silent tool use); the app overrides
-  // it per-worktree via the PERMISSION_MODE env (read into ctx by core.ts).
+  // it per-worktree via the SESSION_CONFIG blob (config.permissionMode, parsed
+  // into ctx by core.ts).
   const initialPermissionMode: PermissionMode = ctx.permissionMode ?? "bypassPermissions";
 
   // Gate one tool call. The SDK calls this ONLY when the active permission mode
@@ -288,9 +174,6 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       ...(initialPermissionMode === "bypassPermissions"
         ? { allowDangerouslySkipPermissions: true }
         : {}),
-      // Back up files before edits so a turn's changes can be reverted by
-      // rewindFiles (the per-turn "rewind to here" checkpoint feature).
-      enableFileCheckpointing: true,
       // MCP servers: the user's config blob (provider-specific; cast at this single
       // boundary) PLUS our built-in `trickshot` server that hosts the `ask_user`
       // tool. Disallow the built-in AskUserQuestion so structured questions always
@@ -442,22 +325,6 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
               initServers = sys.mcp_servers;
               void publishConnectors();
             }
-            // Capture the provider-assigned id of a user turn (our own input echo,
-            // not a tool-result or subagent message) as a rewindable checkpoint.
-            if (message.type === "user") {
-              const um = message as {
-                uuid?: string;
-                parent_tool_use_id?: string | null;
-                message?: { content?: unknown };
-              };
-              const content = um.message?.content;
-              const hasToolResult =
-                Array.isArray(content) &&
-                content.some((b) => (b as { type?: string })?.type === "tool_result");
-              if (um.uuid && !hasToolResult && !um.parent_tool_use_id) {
-                ctx.emit({ kind: "checkpoint", id: um.uuid });
-              }
-            }
             for (const m of toNeutral(message)) ctx.emit({ kind: "message", message: m });
           }
         } catch (e) {
@@ -469,15 +336,16 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
           // the line flushes (process.exit doesn't drain stdout, and a large error
           // line would otherwise be truncated into invalid JSON and dropped).
           dead = true;
-          ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) }, () =>
-            process.exit(1),
-          );
+          emitError(e, () => process.exit(1));
         }
       })();
     },
 
     pushTurn(text) {
       if (dead) return; // the loop has exited; nothing will consume this turn
+      // The user is responding now — any in-flight suggestion is stale.
+      suggestAbort?.abort();
+      suggestAbort = null;
       turns.push({
         type: "user",
         message: { role: "user", content: String(text ?? "") },
@@ -487,47 +355,25 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
 
     setModel(model) {
       if (!model || model === currentModel) return;
-      // setModel is a streaming-mode control request (async). On success re-publish
-      // the catalog with the confirmed `current` so the UI reflects sidecar truth.
-      void (async () => {
-        try {
-          await q.setModel(model);
-          currentModel = model;
-          ctx.emit({ kind: "models", models: modelCatalog, current: currentModel });
-        } catch (e) {
-          ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) });
-        }
-      })();
-    },
-
-    setPermissionMode(mode) {
-      // setPermissionMode is a streaming-mode control request (async). Fire and
-      // forget; surface failures as a stream error rather than throwing.
-      void q.setPermissionMode(mode).catch((e) => {
-        ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) });
+      // On success re-publish the catalog with the confirmed `current` so the UI
+      // reflects sidecar truth.
+      runControl(async () => {
+        await q.setModel(model);
+        currentModel = model;
+        ctx.emit({ kind: "models", models: modelCatalog, current: currentModel });
       });
     },
 
-    interrupt() {
-      // interrupt() exists on the Query in streaming-input mode.
-      const p = (q as { interrupt?: () => Promise<void> }).interrupt?.();
-      if (p && typeof p.catch === "function") p.catch(() => {});
+    setPermissionMode(mode) {
+      runControl(() => q.setPermissionMode(mode));
     },
 
-    rewind(messageId) {
-      // Revert file changes made after the given user message (requires
-      // enableFileCheckpointing, set above). Surface a failure as a stream error;
-      // success is reflected by the app refreshing its git view.
-      void q
-        .rewindFiles(messageId)
-        .then((r) => {
-          if (!r.canRewind) {
-            ctx.emit({ kind: "error", error: r.error || "cannot rewind to this point" });
-          }
-        })
-        .catch((e) => {
-          ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) });
-        });
+    interrupt() {
+      // interrupt() exists on the Query in streaming-input mode. Cast WHY: the SDK's
+      // Query type doesn't surface it, so probe it structurally. Safe post-`dead`:
+      // the process is already exiting, so a missing method is a no-op.
+      const p = (q as { interrupt?: () => Promise<void> }).interrupt?.();
+      if (p && typeof p.catch === "function") p.catch(() => {});
     },
 
     publishModels() {
@@ -539,50 +385,34 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
     },
 
     toggleConnector(name, enabled) {
-      // toggleMcpServer is a streaming-mode control request (async). Re-publish on
-      // success so the UI reflects sidecar truth; surface failures on the stream.
-      void (async () => {
-        try {
-          await q.toggleMcpServer(name, enabled);
-          void publishConnectors();
-        } catch (e) {
-          ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) });
-        }
-      })();
+      // Re-publish on success so the UI reflects sidecar truth.
+      runControl(async () => {
+        await q.toggleMcpServer(name, enabled);
+        void publishConnectors();
+      });
     },
 
     reconnectConnector(name) {
-      void (async () => {
-        try {
-          await q.reconnectMcpServer(name);
-        } catch (e) {
-          // Reconnect throws on failure (e.g. a `needs-auth` connector that can't
-          // complete OAuth from a headless sidecar). Surface it, but ALWAYS
-          // re-publish below so the UI's status refreshes after the attempt
-          // instead of looking like nothing happened.
-          ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) });
-        } finally {
-          void publishConnectors();
-        }
-      })();
+      // Reconnect throws on failure (e.g. a `needs-auth` connector that can't
+      // complete OAuth from a headless sidecar). Surface it, but ALWAYS re-publish
+      // (the `always` arg) so the UI's status refreshes after the attempt instead
+      // of looking like nothing happened.
+      runControl(
+        () => q.reconnectMcpServer(name),
+        () => void publishConnectors(),
+      );
     },
 
     publishCommands() {
       void publishCommands();
     },
 
-    publishMcpStatus() {
-      void publishMcpStatus();
-    },
-
     setMcpServers(servers) {
       // Replace the dynamically-added MCP servers live, then refresh status.
-      void q
-        .setMcpServers(servers as Record<string, McpServerConfig>)
-        .then(() => publishMcpStatus())
-        .catch((e) => {
-          ctx.emit({ kind: "error", error: e instanceof Error ? e.message : String(e) });
-        });
+      runControl(async () => {
+        await q.setMcpServers(servers as Record<string, McpServerConfig>);
+        void publishMcpStatus();
+      });
     },
 
     replyPermission(id, behavior, message) {
@@ -605,6 +435,27 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       if (!resolve) return;
       pendingQuestions.delete(id);
       resolve(answers);
+    },
+
+    suggest(conversation) {
+      // Supersede any in-flight request, then run the one-shot suggestion query.
+      // Manage abort/supersede state here; the query mechanics + parsing live in
+      // claudeSuggest.ts. Fail-soft: generateSuggestions never throws.
+      suggestAbort?.abort();
+      const abort = new AbortController();
+      suggestAbort = abort;
+      void (async () => {
+        const suggestions = await generateSuggestions({
+          conversation,
+          cliPath: ctx.cliPath,
+          projectDir: ctx.projectDir,
+          abort,
+        });
+        // Drop the result if a newer request (or a user turn) superseded this one.
+        if (suggestAbort !== abort || abort.signal.aborted) return;
+        suggestAbort = null;
+        ctx.emit({ kind: "suggestions", suggestions });
+      })();
     },
   };
 }

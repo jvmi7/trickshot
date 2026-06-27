@@ -26,7 +26,7 @@ End-to-end map of the MVP. Three processes, one event stream.
    native `claude` binary  ──>  Anthropic API
 ```
 
-The sidecar is split: **`core.ts` is a provider-neutral transport** (frames JSON, dispatches `Inbound` to the selected provider) and **`providers/<id>.ts` is the adapter** that runs the actual agent loop and maps its native events into the neutral `AgentMessage` schema. Selected via the `AGENT_PROVIDER` env (default `claude`). See *Providers* below.
+The sidecar is split: **`core.ts` is a provider-neutral transport** (frames JSON, dispatches `Inbound` to the selected provider) and **`providers/<id>.ts` is the adapter** that runs the actual agent loop and maps its native events into the neutral `AgentMessage` schema. Selected via `config.provider` from the `SESSION_CONFIG` blob (default `claude`). See *Providers* below.
 
 ## The conversation flow
 
@@ -35,7 +35,7 @@ The sidecar is split: **`core.ts` is a provider-neutral transport** (frames JSON
 3. **Selecting a worktree = activating its session** (no manual start/stop). `start_session(worktree)` spawns a sidecar with `PROJECT_DIR=<worktree>` if one isn't already running (idempotent). Worktrees run **concurrently** — each keeps its own sidecar; switching only changes the view.
 4. **Events** → each sidecar's stdout line is emitted as one `agent-event` tagged `{ worktree, kind, data }`. `api.onAgentEvent` parses it and routes to that worktree's transcript → the selected transcript re-renders.
 5. **User turn** → `sendUserTurn(worktree, text)` → `send_to_session` writes a `{kind:"user_turn"}` JSON line to that worktree's sidecar stdin → `core.ts` dispatches it to the provider's `pushTurn`, which (for Claude) pushes it into the SDK's streaming `prompt` iterable.
-6. **Tool use** → the permission mode is **per-worktree**, defaulting to `bypassPermissions` (silent tool use, the historical default; the provider sets the SDK-required `allowDangerouslySkipPermissions: true` when starting in bypass). The provider ALWAYS wires `canUseTool`, so when the mode is `default`/`acceptEdits`/`plan` (chosen at start or switched live) the SDK calls it, emitting a `permission_request`; `PermissionModal.svelte` shows Allow/Deny and `replyPermission` resolves it via the `pendingPermissions` map in `providers/claude.ts`. The mode is chosen in the composer (`PermissionModeSelector.svelte`), applied at session start via the `PERMISSION_MODE` env, and switched live via `set_permission_mode` (`q.setPermissionMode`).
+6. **Tool use** → the permission mode is **per-worktree**, defaulting to `bypassPermissions` (silent tool use, the historical default; the provider sets the SDK-required `allowDangerouslySkipPermissions: true` when starting in bypass). The provider ALWAYS wires `canUseTool`, so when the mode is `default`/`acceptEdits`/`plan` (chosen at start or switched live) the SDK calls it, emitting a `permission_request`; `PermissionModal.svelte` shows Allow/Deny and `replyPermission` resolves it via the `pendingPermissions` map in `providers/claude.ts`. The mode is chosen in the composer (`PermissionModeSelector.svelte`), applied at session start via the `SESSION_CONFIG` blob (`config.permissionMode`), and switched live via `set_permission_mode` (`q.setPermissionMode`).
 
 ## The sidecar protocol (`shared/protocol.ts`, imported by `src/lib/types.ts` + `sidecar/core.ts`)
 
@@ -54,13 +54,12 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 | app → sidecar | `reconnect_connector` | `{ name }` — reconnect an MCP connector (e.g. after a failure / needs-auth) |
 | app → sidecar | `get_commands` | — request a (re-)emit of `commands` (available slash commands) |
 | app → sidecar | `interrupt` | — |
-| app → sidecar | `rewind` | `{ messageId }` — revert file changes made after that user turn (file checkpoint; requires `enableFileCheckpointing`) |
-| app → sidecar | `set_mcp_servers` | `{ servers }` — replace live MCP servers (opaque config blob) |
-| app → sidecar | `get_mcp_status` | — request a (re-)emit of `mcp_status` |
+| app → sidecar | `set_mcp_servers` | `{ servers }` — replace live MCP servers (opaque config blob); sidecar re-emits `mcp_status` after |
+| app → sidecar | `suggest` | `{ conversation }` — ask the provider to generate suggested next user replies for the recent-conversation text; answered async by `suggestions`. A separate cheap one-shot call (Claude: Haiku, no tools), NOT the main agent loop |
 | sidecar → app | `ready` | — |
-| sidecar → app | `checkpoint` | `{ id }` — the provider-assigned id of a user turn, stored on the `user_local` bubble as its `rewind` target |
+| sidecar → app | `suggestions` | `{ suggestions: string[] }` — suggested next user replies (answer to `suggest`); empty = none. Shown as pick-to-send chips above the composer (`Suggestions.svelte`) with a "type your own" option |
 | sidecar → app | `commands` | `{ commands: {name,description}[] }` — available slash commands (on ready and after `get_commands`) |
-| sidecar → app | `mcp_status` | `{ servers: {name,status}[] }` — MCP server connection statuses |
+| sidecar → app | `mcp_status` | `{ servers: {name,status}[] }` — MCP server connection statuses (on ready and after `set_mcp_servers`) |
 | sidecar → app | `notification` | `{ message, notificationType? }` — agent wants attention (from the Notification hook); the app raises an OS notification for a backgrounded worktree |
 | sidecar → app | `session` | `{ id }` — the resumable session id, emitted once the provider knows it |
 | sidecar → app | `message` | `{ message: AgentMessage }` — one neutral transcript event |
@@ -70,7 +69,7 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 | sidecar → app | `connectors` | `{ servers: {name,status,scope?,error?,tools:{name,description?,readOnly?,destructive?}[]}[] }` — MCP connectors + their tools/status (on ready and after a toggle/reconnect) |
 | sidecar → app | `error` | `{ error }` |
 
-**`AgentMessage`** (the neutral transcript schema) `.type` is `system` | `assistant` (a prose chunk) | `tool_call` `{id,name,input}` | `tool_result` `{id,content,isError?}` | `turn_end` `{usage?}` (the turn's token/cost figures — `TurnUsage`, all fields optional; `costUsd` is a client-side estimate). `assistant`/`tool_call`/`tool_result` also carry an optional `parentId` — set when the message came from a subagent (the spawning `Agent` tool-call id, forwarded via `forwardSubagentText`), so `Message.svelte` nests/indents it. Each provider adapter maps its native output into these; `Message.svelte` renders only these (plus the UI-only `user_local`/`error` bubbles). The UI is never exposed to a provider's raw message shape. `turn_end` isn't rendered as a bubble — App.svelte consumes it to flip status to ready and fold `usage` into the per-worktree cost total (`costByWorktree`).
+**`AgentMessage`** (the neutral transcript schema) `.type` is `system` | `assistant` (a prose chunk) | `tool_call` `{id,name,input}` | `tool_result` `{id,content,isError?}` | `turn_end` `{usage?}` (the turn's token/cost figures — `TurnUsage`, all fields optional; `costUsd` is a client-side estimate). `assistant`/`tool_call`/`tool_result` also carry an optional `parentId` — set when the message came from a subagent (the spawning `Agent` tool-call id, forwarded via `forwardSubagentText`), so `Message.svelte` nests/indents it. Each provider adapter maps its native output into these; `Message.svelte` renders only these (plus the UI-only `user_local`/`error` bubbles). The UI is never exposed to a provider's raw message shape. `turn_end` isn't rendered as a bubble — App.svelte consumes it to flip status to ready, refresh the subscription-usage windows, and (for the on-screen chat) request suggested next replies.
 
 **Model switching:** each session starts on the provider's default model and emits `models` on ready. `ModelSelector.svelte` offers the catalog and renders each model's provider-supplied `meta` pips; picking one sends `set_model`. The current model is **per-worktree**, persisted to `localStorage` (`trickshot.modelByWorktree`) and re-applied on a session's `models` event when it differs from the default.
 
@@ -82,7 +81,7 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 
 - **`sidecar/providers/types.ts`** — the `AgentProvider` interface (`start`, `pushTurn`, `setModel`, `interrupt`, `publishModels`, `publishConnectors`, `toggleConnector`, `reconnectConnector`, `replyPermission`) + `ProviderContext` (`cliPath`, `projectDir`, `resumeSessionId`, `permissionMode`, `emit`).
 - **`sidecar/providers/claude.ts`** — the only Claude-aware module: wraps the Claude Agent SDK and maps `SDKMessage` → `AgentMessage`. The Claude tier→pips heuristic lives here (not the UI).
-- **`sidecar/providers/registry.ts`** — id → factory; `core.ts` selects via `AGENT_PROVIDER` (default `claude`), plumbed from Rust `start_session(provider?)`.
+- **`sidecar/providers/registry.ts`** — id → factory; `core.ts` selects via `config.provider` parsed from the `SESSION_CONFIG` blob (default `claude`).
 
 **Add a provider:** implement `AgentProvider` in `providers/<id>.ts`, map its native events to `AgentMessage`, register it. No protocol or UI change. (A runtime needing a different native binary also needs its own `agent.<platform>.ts` embed — the binary is provider-specific; the rest is not.)
 
@@ -100,10 +99,13 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 | `worktree_commit` | `worktreePath, message` | `string` | Commits staged changes (git stdout) |
 | `worktree_push` | `worktreePath, setUpstream` | `string` | `setUpstream` pushes `-u origin <branch>` |
 | `worktree_merge` | `repoPath, branch` | `string` | Merges `branch` into the branch checked out at `repoPath` |
-| `start_session` | `worktree, resume?, permissionMode?, systemPromptAppend?, mcpServers?, agents?, provider?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` → `RESUME_SESSION` env. `permissionMode` → `PERMISSION_MODE` env (default `bypassPermissions`). `systemPromptAppend` → `SYSTEM_PROMPT_APPEND` env. `mcpServers` (JSON) → `MCP_SERVERS` env. `agents` (JSON) → `AGENTS` env. `provider` (default `claude`) → `AGENT_PROVIDER` env → which adapter the sidecar loads |
+| `start_session` | `worktree, config?` (JSON string) | `void` | Spawns a sidecar (cwd = worktree); idempotent. `config` is the app's `SessionConfig` blob (`provider`/`resumeSessionId`/`permissionMode`/`systemPromptAppend`/`mcpServers`/`agents`), forwarded verbatim as the `SESSION_CONFIG` env var; the sidecar parses it once in `core.ts`. Rust never enumerates the fields, so a new session knob doesn't touch this command. `PROJECT_DIR` (= worktree) is set separately |
 | `send_to_session` | `worktree, payload` (JSON string) | `void` | Writes a line to that worktree's sidecar stdin |
 | `stop_session` | `worktree` | `void` | Kills that worktree's sidecar |
 | `notify` | `title, body` | `void` | Shows a desktop notification (tauri-plugin-notification) |
+| `get_usage` | — | `UsageInfo` | Subscription usage windows (rolling ~5-hour + weekly). See *Subscription usage* below |
+
+**Subscription usage (`get_usage`, `src-tauri/src/usage.rs`).** A best-effort read of the account's usage windows for the header chip (`UsageIndicator.svelte`). It reuses the **existing Claude Code login** — NO API key: it reads the OAuth access token from the macOS keychain (`security find-generic-password -s "Claude Code-credentials"`) or `~/.claude/.credentials.json`, then GETs the undocumented `api.anthropic.com/api/oauth/usage` endpoint with that bearer token. The endpoint is aggressively rate-limited, so the webview throttles `refreshUsage()` (event-driven on session start / turn end, ≤ once per 90s) and the last value is persisted (`trickshot.usageLimits`) so the chip shows immediately on launch. Every failure path maps to `Err(String)`; a transient 401/429 leaves the last good value in place. Maps to the `UsageInfo` / `UsageWindow` types (`src/lib/types.ts`).
 
 Events: a single `agent-event` carrying `{ worktree, kind, data }`, where `kind` is `stdout` (a protocol line) | `stderr` | `error` | `terminated`. The frontend routes by `worktree`.
 

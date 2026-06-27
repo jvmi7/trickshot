@@ -14,10 +14,11 @@ export interface ProviderContext {
   projectDir: string;
   /** Prior session id to resume; provider-specific, may be ignored. */
   resumeSessionId?: string;
-  /** Initial permission mode for tool use, set per-worktree by Rust via the
-   *  PERMISSION_MODE env (see core.ts) and defaulting to bypassPermissions.
-   *  A non-bypass value activates the canUseTool path so the app's Allow/Deny
-   *  modal becomes a real kill-switch; switchable live via setPermissionMode. */
+  /** Initial permission mode for tool use, set per-worktree via the SESSION_CONFIG
+   *  blob (`config.permissionMode`, parsed in core.ts) and defaulting to
+   *  bypassPermissions. A non-bypass value activates the canUseTool path so the
+   *  app's Allow/Deny modal becomes a real kill-switch; switchable live via
+   *  setPermissionMode. */
   permissionMode?: PermissionMode;
   /** Optional text appended to the preset system prompt for custom behavior. */
   systemPromptAppend?: string;
@@ -45,8 +46,6 @@ export interface AgentProvider {
   setPermissionMode(mode: PermissionMode): void;
   /** Interrupt the in-flight turn. */
   interrupt(): void;
-  /** Revert file changes made after the given user-turn id (file checkpoint). */
-  rewind(messageId: string): void;
   /** (Re-)emit the `models` event (catalog + current). */
   publishModels(): void;
   /** (Re-)emit the `connectors` event (MCP servers + their tools/status). */
@@ -57,15 +56,17 @@ export interface AgentProvider {
   reconnectConnector(name: string): void;
   /** (Re-)emit the `commands` event (available slash commands). */
   publishCommands(): void;
-  /** (Re-)emit the `mcp_status` event (MCP server connection statuses). */
-  publishMcpStatus(): void;
-  /** Replace the live MCP server set, then refresh status. */
+  /** Replace the live MCP server set, then re-emit `mcp_status`. */
   setMcpServers(servers: Record<string, unknown>): void;
   /** Answer a pending tool-permission request. Active when a non-bypass
    *  permissionMode is in effect; a no-op under the default full bypass. */
   replyPermission(id: string, behavior: "allow" | "deny", message?: string): void;
   /** Answer a pending `question_request` with the user's per-question choices. */
   replyQuestion(id: string, answers: string[][]): void;
+  /** Generate short suggested NEXT user replies for the given recent-conversation
+   *  text and emit them as a `suggestions` event. Best-effort: a failure emits an
+   *  empty list, never throws. Runs as a one-shot call independent of the main loop. */
+  suggest(conversation: string): void;
 }
 
 export type ProviderFactory = (ctx: ProviderContext) => AgentProvider;
