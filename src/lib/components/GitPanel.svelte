@@ -88,9 +88,23 @@
     }
   }
 
-  const stage = (f: GitFileStatus) => run(() => api.worktreeStage(wt as string, [f.path]));
-  const unstage = (f: GitFileStatus) => run(() => api.worktreeUnstage(wt as string, [f.path]));
-  const stageAll = () => run(() => api.worktreeStage(wt as string, []));
+  // Guard on the selected worktree (matches commit/push below) instead of casting —
+  // these are only reachable when a worktree is selected, but make that explicit.
+  function stage(f: GitFileStatus) {
+    const w = wt;
+    if (!w) return;
+    run(() => api.worktreeStage(w, [f.path]));
+  }
+  function unstage(f: GitFileStatus) {
+    const w = wt;
+    if (!w) return;
+    run(() => api.worktreeUnstage(w, [f.path]));
+  }
+  function stageAll() {
+    const w = wt;
+    if (!w) return;
+    run(() => api.worktreeStage(w, []));
+  }
 
   function commit() {
     const w = wt;

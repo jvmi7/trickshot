@@ -1,6 +1,17 @@
-import { derived, get, type Writable, writable } from "svelte/store";
+import { derived, get, type Readable, type Writable, writable } from "svelte/store";
 import * as api from "./api";
 import { DEFAULT_THEME, THEMES as THEME_DEFS } from "./themes";
+import {
+  appendMessage,
+  bufferedMessages,
+  groupMessages,
+  hiddenCount,
+  indexToolResults,
+  resetTranscript,
+  summarizeConversation,
+  transcripts,
+  windowTail,
+} from "./transcript";
 import type {
   ConnectorInfo,
   McpStatusInfo,
@@ -9,7 +20,6 @@ import type {
   Question,
   Repo,
   SlashCommandInfo,
-  TranscriptMessage,
   UsageInfo,
   Worktree,
 } from "./types";
@@ -110,6 +120,54 @@ function parseConfigBlob(raw: string): Record<string, unknown> | undefined {
   }
 }
 
+// ---- Per-worktree map primitive (the ONE template for per-worktree state) ----
+/** A store keyed by worktree path, plus the standard `set`/`remove` mutators and
+ *  an `active(fallback)` derived (the SELECTED worktree's value, or the fallback).
+ *  The app is built from ~a dozen of these `writable<Record<string,T>>` + setter +
+ *  `active*` derived triples; this collapses them into one shape so adding
+ *  per-worktree state is a single call, not a re-derived trio (CLAUDE.md). Pass
+ *  `persistKey` to back it with the persisted template; mutators that need custom
+ *  logic (merge, no-op guard, +1) build on `.store`/`.update` instead of `.set`. */
+interface WorktreeMap<T> {
+  store: Writable<Record<string, T>>;
+  /** Set a worktree's value (replaces). */
+  set(worktree: string, value: T): void;
+  /** Update a worktree's value via an updater that receives the current value
+   *  (`undefined` when absent) — the basis for custom mutators. */
+  update(worktree: string, fn: (cur: T | undefined) => T): void;
+  /** Drop a worktree's entry entirely (no-op, same identity, when absent). */
+  remove(worktree: string): void;
+  /** Derived view of the selected worktree's value, or `fallback` when none. */
+  active<F>(fallback: F): Readable<T | F>;
+}
+function createWorktreeMap<T>(
+  opts: { persistKey?: string; parse?: (raw: string) => Record<string, T> } = {},
+): WorktreeMap<T> {
+  const store = opts.persistKey
+    ? createPersisted<Record<string, T>>(
+        opts.persistKey,
+        {},
+        { parse: opts.parse ?? parseJsonObject },
+      )
+    : writable<Record<string, T>>({});
+  return {
+    store,
+    set: (worktree, value) => store.update((m) => ({ ...m, [worktree]: value })),
+    update: (worktree, fn) => store.update((m) => ({ ...m, [worktree]: fn(m[worktree]) })),
+    remove: (worktree) =>
+      store.update((m) => {
+        if (!(worktree in m)) return m;
+        const next = { ...m };
+        delete next[worktree];
+        return next;
+      }),
+    active: (fallback) =>
+      derived([store, selectedWorktree], ([$m, $sel]) =>
+        $sel ? ($m[$sel] ?? fallback) : fallback,
+      ),
+  };
+}
+
 // ---- UI state ----
 /** Whether the left sidebar is visible. Toggled from the global header. */
 export const sidebarOpen = writable<boolean>(true);
@@ -157,10 +215,9 @@ export interface GitStat {
   insertions: number;
   deletions: number;
 }
-export const gitStatByWorktree = writable<Record<string, GitStat>>({});
-export function setGitStat(worktree: string, stat: GitStat) {
-  gitStatByWorktree.update((m) => ({ ...m, [worktree]: stat }));
-}
+const _gitStat = createWorktreeMap<GitStat>();
+export const gitStatByWorktree = _gitStat.store;
+export const setGitStat = _gitStat.set;
 
 /** The chat's custom "scroll" position — a global cursor into the transcript.
  *  The chat pane never natively scrolls; `customScroll` drives this instead
@@ -229,47 +286,33 @@ export function removeWorktreeFromRepo(repoPath: string, worktreePath: string) {
 }
 
 // ---- Selection (persisted) ----
-const SEL_KEY = "trickshot.selected";
-export const selectedWorktree = writable<string | null>(
-  (hasLS && localStorage.getItem(SEL_KEY)) || null,
-);
-selectedWorktree.subscribe((s) => {
-  if (!hasLS) return;
-  try {
-    if (s) localStorage.setItem(SEL_KEY, s);
-    else localStorage.removeItem(SEL_KEY);
-  } catch {
-    /* ignore */
-  }
+// Routed through the standard persisted template like every other persisted store;
+// an empty string round-trips as "no selection" (`null`), the template's stand-in
+// for the old removeItem.
+export const selectedWorktree = createPersisted<string | null>("trickshot.selected", null, {
+  parse: (raw) => raw || null,
+  serialize: (v) => v ?? "",
 });
 
 // ---- Per-worktree session status ----
-export const sessionStatus = writable<Record<string, SessionStatus>>({});
-export function setStatus(worktree: string, status: SessionStatus) {
-  sessionStatus.update((m) => ({ ...m, [worktree]: status }));
-}
+const _status = createWorktreeMap<SessionStatus>();
+export const sessionStatus = _status.store;
+export const setStatus = _status.set;
 /** Drop a worktree's status entry entirely (e.g. on removal). */
-export function clearStatus(worktree: string) {
-  sessionStatus.update((m) => {
-    if (!(worktree in m)) return m;
-    const next = { ...m };
-    delete next[worktree];
-    return next;
-  });
-}
+export const clearStatus = _status.remove;
 
 // ---- Per-worktree unread activity (turns completed while not selected) ----
 // Drives a sidebar badge so background agents that finished are visible at a
 // glance. Bumped on a backgrounded `turn_end`; cleared when the worktree is opened.
-export const unreadByWorktree = writable<Record<string, number>>({});
+const _unread = createWorktreeMap<number>();
+export const unreadByWorktree = _unread.store;
 export function bumpUnread(worktree: string) {
-  unreadByWorktree.update((m) => ({ ...m, [worktree]: (m[worktree] ?? 0) + 1 }));
+  _unread.update(worktree, (n) => (n ?? 0) + 1);
 }
 export function clearUnread(worktree: string) {
-  unreadByWorktree.update((m) => {
-    if (!m[worktree]) return m;
-    return { ...m, [worktree]: 0 };
-  });
+  // Set to 0 (not remove) and skip the write when already cleared — returning the
+  // same map identity fires no subscribers.
+  _unread.store.update((m) => (m[worktree] ? { ...m, [worktree]: 0 } : m));
 }
 
 // ---- Per-worktree agent activity (verbose loading state while a turn runs) ----
@@ -279,30 +322,21 @@ export interface AgentActivity {
   steps: number; // tool calls so far this turn
   startedAt: number; // ms, for the elapsed timer
 }
-export const worktreeActivity = writable<Record<string, AgentActivity>>({});
+const _activity = createWorktreeMap<AgentActivity>();
+export const worktreeActivity = _activity.store;
 export function startActivity(worktree: string) {
-  worktreeActivity.update((m) => ({
-    ...m,
-    [worktree]: { label: "Thinking", detail: "", steps: 0, startedAt: Date.now() },
-  }));
+  _activity.set(worktree, { label: "Thinking", detail: "", steps: 0, startedAt: Date.now() });
 }
 export function setActivity(worktree: string, label: string, detail = "", bumpStep = false) {
-  worktreeActivity.update((m) => {
+  _activity.store.update((m) => {
     const cur = m[worktree] ?? { label, detail, steps: 0, startedAt: Date.now() };
     // Skip a no-op write (same label/detail, no step bump): returning the same map
-    // identity fires no subscribers — mirrors clearActivity's early-return guard.
+    // identity fires no subscribers — mirrors the remove() early-return guard.
     if (worktree in m && cur.label === label && cur.detail === detail && !bumpStep) return m;
     return { ...m, [worktree]: { ...cur, label, detail, steps: cur.steps + (bumpStep ? 1 : 0) } };
   });
 }
-export function clearActivity(worktree: string) {
-  worktreeActivity.update((m) => {
-    if (!(worktree in m)) return m;
-    const next = { ...m };
-    delete next[worktree];
-    return next;
-  });
-}
+export const clearActivity = _activity.remove;
 
 // ---- Per-worktree last-completed-turn summary ("Cooked in 17s · 4 steps") ----
 // Set on turn_end (App.svelte) and shown in the loading footer WHEN IDLE — it
@@ -313,10 +347,9 @@ export interface TurnSummary {
   seconds: number;
   steps: number;
 }
-export const turnSummary = writable<Record<string, TurnSummary>>({});
-export function setTurnSummary(worktree: string, summary: TurnSummary) {
-  turnSummary.update((m) => ({ ...m, [worktree]: summary }));
-}
+const _summary = createWorktreeMap<TurnSummary>();
+export const turnSummary = _summary.store;
+export const setTurnSummary = _summary.set;
 
 // ---- Models ----
 // The switchable-model catalog is the same across worktrees (one Claude binary),
@@ -360,22 +393,16 @@ export function getAgents(): Record<string, unknown> | undefined {
 // Per-worktree current model, persisted so a chat's model choice is sticky across
 // restarts. On a session's `models` event, App.svelte re-applies a persisted
 // choice that differs from the sidecar default (see onModelsEvent there).
-export const modelByWorktree = createPersisted<Record<string, string>>(
-  "trickshot.modelByWorktree",
-  {},
-  { parse: parseJsonObject },
-);
-export function setWorktreeModel(worktree: string, model: string) {
-  modelByWorktree.update((m) => ({ ...m, [worktree]: model }));
-}
+const _model = createWorktreeMap<string>({ persistKey: "trickshot.modelByWorktree" });
+export const modelByWorktree = _model.store;
+export const setWorktreeModel = _model.set;
 
 // ---- Connectors (MCP servers) ----
 // Live, per-worktree connector list as last reported by that session's
 // `connectors` event (ephemeral — re-fetched each session, not persisted).
-export const connectorsByWorktree = writable<Record<string, ConnectorInfo[]>>({});
-export function setConnectors(worktree: string, servers: ConnectorInfo[]) {
-  connectorsByWorktree.update((m) => ({ ...m, [worktree]: servers }));
-}
+const _connectors = createWorktreeMap<ConnectorInfo[]>();
+export const connectorsByWorktree = _connectors.store;
+export const setConnectors = _connectors.set;
 
 // trickshot's OWN connector enable/disable preferences — GLOBAL (one set for
 // every repo/session). The SDK's `toggleMcpServer` is a LIVE control it does not
@@ -435,34 +462,31 @@ export async function refreshUsage(force = false) {
 // Allow/Deny modal. Applied at session start (PERMISSION_MODE env) and switched
 // live via the `set_permission_mode` command.
 const PERMISSION_MODES: PermissionMode[] = ["bypassPermissions", "acceptEdits", "default", "plan"];
-export const permissionModeByWorktree = createPersisted<Record<string, PermissionMode>>(
-  "trickshot.permissionModeByWorktree",
-  {},
-  {
-    parse: (raw) => {
-      const v = JSON.parse(raw);
-      if (!v || typeof v !== "object" || Array.isArray(v)) return {};
-      const out: Record<string, PermissionMode> = {};
-      for (const [k, mode] of Object.entries(v)) {
-        if (PERMISSION_MODES.includes(mode as PermissionMode)) out[k] = mode as PermissionMode;
-      }
-      return out;
-    },
+const _permMode = createWorktreeMap<PermissionMode>({
+  persistKey: "trickshot.permissionModeByWorktree",
+  // Drop any stored value outside the known mode set (shape guard for the template).
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    if (!isPlainObject(v)) return {};
+    const out: Record<string, PermissionMode> = {};
+    for (const [k, mode] of Object.entries(v)) {
+      if (PERMISSION_MODES.includes(mode as PermissionMode)) out[k] = mode as PermissionMode;
+    }
+    return out;
   },
-);
-export function setWorktreePermissionMode(worktree: string, mode: PermissionMode) {
-  permissionModeByWorktree.update((m) => ({ ...m, [worktree]: mode }));
-}
+});
+export const permissionModeByWorktree = _permMode.store;
+export const setWorktreePermissionMode = _permMode.set;
 
 // ---- Suggested replies (per-worktree, ephemeral; NOT persisted) ----
 // Short "what to send next" options the agent generates after a turn (see the
 // `suggest`/`suggestions` protocol kinds). Cleared when the user sends anything.
-export const suggestionsByWorktree = writable<Record<string, string[]>>({});
-export function setSuggestions(worktree: string, list: string[]) {
-  suggestionsByWorktree.update((s) => ({ ...s, [worktree]: list }));
-}
+const _suggestions = createWorktreeMap<string[]>();
+export const suggestionsByWorktree = _suggestions.store;
+export const setSuggestions = _suggestions.set;
 export function clearSuggestions(worktree: string) {
-  suggestionsByWorktree.update((s) => (s[worktree]?.length ? { ...s, [worktree]: [] } : s));
+  // Skip the write when already empty — same map identity fires no subscribers.
+  _suggestions.store.update((s) => (s[worktree]?.length ? { ...s, [worktree]: [] } : s));
 }
 
 // ---- Font ----
@@ -507,106 +531,22 @@ export const systemPromptAppend = createPersistedString("trickshot.systemPromptA
 // worktree so `start_session` can resume it after a restart — restoring the
 // agent's *context*. (Resume does NOT replay messages, so the *visible* history
 // is restored separately by persisting the transcript below.)
-export const sessionByWorktree = createPersisted<Record<string, string>>(
-  "trickshot.sessionByWorktree",
-  {},
-  { parse: parseJsonObject },
-);
+const _session = createWorktreeMap<string>({ persistKey: "trickshot.sessionByWorktree" });
+export const sessionByWorktree = _session.store;
 export function setWorktreeSession(worktree: string, id: string) {
-  sessionByWorktree.update((m) => (m[worktree] === id ? m : { ...m, [worktree]: id }));
+  // Skip the write when the id is unchanged — same map identity fires no subscribers.
+  _session.store.update((m) => (m[worktree] === id ? m : { ...m, [worktree]: id }));
 }
 /** Forget a worktree's persisted session + transcript (e.g. on worktree removal,
  *  so a recreated worktree at the same path starts clean). */
-export function forgetWorktreeSession(worktree: string) {
-  sessionByWorktree.update((m) => {
-    if (!(worktree in m)) return m;
-    const next = { ...m };
-    delete next[worktree];
-    return next;
-  });
-}
+export const forgetWorktreeSession = _session.remove;
 
-// ---- Per-worktree transcripts (batched appends, persisted) ----
-// A burst of streamed lines coalesces into one store write per 16ms across all
-// worktrees. Each message gets a stable `__key` for identity-keyed {#each}.
-// Transcripts persist to localStorage so chat history survives restarts (resume
-// restores agent context but not the rendered messages — see above).
-// `.v2` because the persisted message shape changed (raw SDK messages -> the
-// neutral AgentMessage schema). Bumping the key drops pre-v2 transcripts on
-// upgrade rather than rendering them blank; resume still restores agent context.
-const TRANSCRIPTS_KEY = "trickshot.transcripts.v2";
-function loadTranscripts(): Record<string, TranscriptMessage[]> {
-  if (!hasLS) return {};
-  try {
-    const v = JSON.parse(localStorage.getItem(TRANSCRIPTS_KEY) ?? "{}");
-    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
-  } catch {
-    return {};
-  }
-}
-const _loaded = loadTranscripts();
-export const transcripts = writable<Record<string, TranscriptMessage[]>>(_loaded);
-
-// Continue keys above any rehydrated __key so identity-keyed {#each} stays unique
-// (the counter resets to 0 on reload, which would otherwise collide).
-let _key = 0;
-for (const list of Object.values(_loaded)) {
-  for (const m of list) {
-    const k = (m as { __key?: number }).__key;
-    if (typeof k === "number" && k >= _key) _key = k + 1;
-  }
-}
-
-// Persist on idle (debounced, reset on each change) so we never serialize the
-// whole map mid-stream — only ~600ms after a burst settles.
-if (hasLS) {
-  let _latest = _loaded;
-  let _saveTimer: ReturnType<typeof setTimeout> | null = null;
-  transcripts.subscribe((t) => {
-    _latest = t;
-    if (_saveTimer !== null) clearTimeout(_saveTimer);
-    _saveTimer = setTimeout(() => {
-      _saveTimer = null;
-      try {
-        localStorage.setItem(TRANSCRIPTS_KEY, JSON.stringify(_latest));
-      } catch {
-        /* ignore quota errors — history just won't persist past the limit */
-      }
-    }, 600);
-  });
-}
-
-const _buffers: Record<string, TranscriptMessage[]> = {};
-let _flushTimer: ReturnType<typeof setTimeout> | null = null;
-
-function flush() {
-  _flushTimer = null;
-  const keys = Object.keys(_buffers);
-  if (keys.length === 0) return;
-  transcripts.update((t) => {
-    const next = { ...t };
-    for (const k of keys) {
-      const batch = _buffers[k];
-      if (!batch) continue;
-      next[k] = (next[k] ?? []).concat(batch);
-      delete _buffers[k];
-    }
-    return next;
-  });
-}
-
-/** Append a message to a worktree's transcript (stable key + batched write). */
-export function appendMessage(worktree: string, msg: TranscriptMessage) {
-  (msg as { __key?: number }).__key = _key++;
-  (_buffers[worktree] ??= []).push(msg);
-  if (_flushTimer === null) _flushTimer = setTimeout(flush, 16);
-}
-
-/** Clear a worktree's transcript and drop any buffered (un-flushed) messages. */
-export function resetTranscript(worktree: string) {
-  delete _buffers[worktree];
-  transcripts.update((t) => ({ ...t, [worktree]: [] }));
-}
+// ---- Per-worktree transcripts ----
+// The batching / persistence / windowing / grouping engine lives in
+// `transcript.ts` (a self-contained subsystem with its own invariants); re-export
+// the mutators so `import { appendMessage } from "./stores"` keeps working and
+// transcript writes still have ONE home (see CLAUDE.md).
+export { appendMessage, resetTranscript, transcripts };
 
 /** Send a user turn to a worktree's agent: optimistically render the `user_local`
  *  bubble, mark the session busy, clear any stale suggestions, then fire the IPC
@@ -636,7 +576,7 @@ export async function submitUserTurn(worktree: string, text: string) {
  *  start promise so callers flip status / handle errors at their call site. */
 export function ensureSession(worktree: string): Promise<void> {
   return api.startSession(worktree, {
-    resume: get(sessionByWorktree)[worktree],
+    resumeSessionId: get(sessionByWorktree)[worktree],
     permissionMode: get(permissionModeByWorktree)[worktree] ?? DEFAULT_PERMISSION_MODE,
     systemPromptAppend: get(systemPromptAppend),
     mcpServers: getMcpServers(),
@@ -664,32 +604,25 @@ export function requestOnce(
   request(worktree);
 }
 
-/** Build a compact recent-conversation string (user + assistant turns only) to
- *  seed suggestion generation. Includes the un-flushed buffer so the just-ended
- *  turn is present. Caps length so the cheap suggest model stays cheap. */
+/** Build a compact recent-conversation string for a worktree to seed suggestion
+ *  generation. Combines the persisted transcript with the un-flushed buffer so the
+ *  just-ended turn is present, then defers to the pure `summarizeConversation`. */
 export function recentConversation(worktree: string, maxMessages = 8, maxChars = 400): string {
-  const all = (get(transcripts)[worktree] ?? []).concat(_buffers[worktree] ?? []);
-  const lines: string[] = [];
-  for (const m of all) {
-    if (m.type === "user_local") lines.push(`User: ${m.text.slice(0, maxChars)}`);
-    else if (m.type === "assistant") lines.push(`Assistant: ${m.text.slice(0, maxChars)}`);
-  }
-  return lines.slice(-maxMessages).join("\n");
+  const all = (get(transcripts)[worktree] ?? []).concat(bufferedMessages(worktree));
+  return summarizeConversation(all, maxMessages, maxChars);
 }
 
 // ---- Per-worktree pending permission (dormant under bypassPermissions) ----
-export const pendingPermission = writable<Record<string, PermissionReq | null>>({});
+const _pendingPerm = createWorktreeMap<PermissionReq | null>();
+export const pendingPermission = _pendingPerm.store;
 /** Set (or clear, with null) a worktree's pending permission request. */
-export function setPendingPermission(worktree: string, req: PermissionReq | null) {
-  pendingPermission.update((m) => ({ ...m, [worktree]: req }));
-}
+export const setPendingPermission = _pendingPerm.set;
 
 // ---- Per-worktree pending question (the agent's `ask_user`) ----
-export const pendingQuestion = writable<Record<string, QuestionReq | null>>({});
+const _pendingQuestion = createWorktreeMap<QuestionReq | null>();
+export const pendingQuestion = _pendingQuestion.store;
 /** Set (or clear, with null) a worktree's pending `ask_user` question. */
-export function setPendingQuestion(worktree: string, req: QuestionReq | null) {
-  pendingQuestion.update((m) => ({ ...m, [worktree]: req }));
-}
+export const setPendingQuestion = _pendingQuestion.set;
 
 // ---- Derived views for the currently selected worktree ----
 export const activeMessages = derived([transcripts, selectedWorktree], ([$t, $sel]) =>
@@ -702,102 +635,38 @@ export const activeMessages = derived([transcripts, selectedWorktree], ([$t, $se
  *  active transcript (same O(total) order as the per-flush copy already done each
  *  burst — see CLAUDE.md PERFORMANCE), not the window, so a call always finds its
  *  result even when it sits near the window edge. */
-export const toolResultsById = derived(activeMessages, ($m) => {
-  const map: Record<string, { content: string; isError: boolean }> = {};
-  for (const msg of $m) {
-    if (msg.type === "tool_result") map[msg.id] = { content: msg.content, isError: !!msg.isError };
-  }
-  return map;
-});
-
-// ---- Transcript windowing (bound the DOM) ----
-// A transcript only grows (except on resetTranscript), and naive full-mount tops
-// out at ~hundreds of messages (see CLAUDE.md PERFORMANCE). Chat mounts only the
-// newest RENDER_WINDOW messages; older ones stay in the persisted transcript but
-// out of the DOM. Identity-keyed `{#each}` means windowing just drops the top
-// node and adds a bottom one per append. Measure before raising this.
-export const RENDER_WINDOW = 300;
+export const toolResultsById = derived(activeMessages, indexToolResults);
 
 /** The newest `RENDER_WINDOW` messages of the selected transcript — what Chat
  *  actually mounts. Same object identities as `activeMessages` (a tail slice),
  *  so `__key` keying stays stable. */
-export const renderedMessages = derived(activeMessages, ($m) =>
-  $m.length > RENDER_WINDOW ? $m.slice(-RENDER_WINDOW) : $m,
-);
+export const renderedMessages = derived(activeMessages, ($m) => windowTail($m));
 
 /** How many older messages sit above the render window (0 when nothing hidden). */
-export const hiddenMessageCount = derived(activeMessages, ($m) =>
-  Math.max(0, $m.length - RENDER_WINDOW),
-);
+export const hiddenMessageCount = derived(activeMessages, ($m) => hiddenCount($m.length));
 
-// ---- Tool-call grouping (batch consecutive tool activity) ----
-// A turn can fire dozens of tool calls; rendering one row each spams the chat.
-// We bundle a maximal RUN of tool messages (tool_call + tool_result, no prose in
-// between) into one collapsible group (see ToolGroup.svelte). `tool_result`s are
-// folded into their call (toolResultsById) and don't render, but they DON'T break
-// a run. Everything else (assistant/user_local/system/error) is its own group.
-type ToolCallMsg = Extract<TranscriptMessage, { type: "tool_call" }>;
-export type RenderedGroup =
-  | { kind: "single"; key: string; message: TranscriptMessage }
-  | { kind: "tools"; key: string; tools: ToolCallMsg[] };
+/** `renderedMessages` collapsed into render groups (see `groupMessages`). */
+export const renderedGroups = derived(renderedMessages, groupMessages);
 
-/** `renderedMessages` collapsed into render groups. Keyed stably by the first
- *  member's `__key` (prefixed) so identity-keyed `{#each}` reconciles efficiently:
- *  appending a tool call grows the open run's array (same group key), and the
- *  group's own `{#each tools (__key)}` adds just the new row. */
-export const renderedGroups = derived(renderedMessages, ($msgs): RenderedGroup[] => {
-  const groups: RenderedGroup[] = [];
-  let run: { kind: "tools"; key: string; tools: ToolCallMsg[] } | null = null;
-  for (const m of $msgs) {
-    if (m.type === "tool_call") {
-      if (!run) {
-        run = { kind: "tools", key: `g${m.__key}`, tools: [] };
-        groups.push(run);
-      }
-      run.tools.push(m);
-    } else if (m.type === "tool_result") {
-      // Folded into its call (renders nothing); does not break the current run.
-    } else {
-      run = null;
-      groups.push({ kind: "single", key: `m${m.__key}`, message: m });
-    }
-  }
-  return groups;
-});
-export const activePending = derived([pendingPermission, selectedWorktree], ([$p, $sel]) =>
-  $sel ? ($p[$sel] ?? null) : null,
-);
+// ---- Derived "active" views (the SELECTED worktree's value, via the factory) ----
+/** The selected worktree's pending permission request (null when none). */
+export const activePending = _pendingPerm.active(null);
 /** The selected worktree's pending question (null when none). */
-export const activeQuestion = derived([pendingQuestion, selectedWorktree], ([$q, $sel]) =>
-  $sel ? ($q[$sel] ?? null) : null,
-);
+export const activeQuestion = _pendingQuestion.active(null);
 /** The current model of the selected worktree's chat (null until its session
  *  reports a `models` event). */
-export const activeModel = derived([modelByWorktree, selectedWorktree], ([$m, $sel]) =>
-  $sel ? ($m[$sel] ?? null) : null,
-);
+export const activeModel = _model.active(null);
 /** The selected worktree's current agent activity (null when idle). */
-export const activeActivity = derived([worktreeActivity, selectedWorktree], ([$a, $sel]) =>
-  $sel ? ($a[$sel] ?? null) : null,
-);
+export const activeActivity = _activity.active(null);
 /** The selected worktree's last-completed-turn summary (null until a turn ends). */
-export const activeSummary = derived([turnSummary, selectedWorktree], ([$s, $sel]) =>
-  $sel ? ($s[$sel] ?? null) : null,
-);
+export const activeSummary = _summary.active(null);
 /** The selected worktree's change summary (null until fetched / when none). */
-export const activeGitStat = derived([gitStatByWorktree, selectedWorktree], ([$m, $sel]) =>
-  $sel ? ($m[$sel] ?? null) : null,
-);
+export const activeGitStat = _gitStat.active(null);
 /** The selected worktree's suggested next replies (empty when none). */
-export const activeSuggestions = derived([suggestionsByWorktree, selectedWorktree], ([$s, $sel]) =>
-  $sel ? ($s[$sel] ?? []) : [],
-);
+export const activeSuggestions = _suggestions.active<string[]>([]);
 /** The session default when a worktree has no explicit choice — preserves the
  *  historical silent-run behavior so enabling prompts is opt-in. */
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "bypassPermissions";
 export { PERMISSION_MODES };
 /** The selected worktree's permission mode (falls back to the default). */
-export const activePermissionMode = derived(
-  [permissionModeByWorktree, selectedWorktree],
-  ([$m, $sel]) => ($sel ? ($m[$sel] ?? DEFAULT_PERMISSION_MODE) : DEFAULT_PERMISSION_MODE),
-);
+export const activePermissionMode = _permMode.active(DEFAULT_PERMISSION_MODE);

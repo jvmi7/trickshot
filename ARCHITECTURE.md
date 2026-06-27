@@ -26,7 +26,7 @@ End-to-end map of the MVP. Three processes, one event stream.
    native `claude` binary  ──>  Anthropic API
 ```
 
-The sidecar is split: **`core.ts` is a provider-neutral transport** (frames JSON, dispatches `Inbound` to the selected provider) and **`providers/<id>.ts` is the adapter** that runs the actual agent loop and maps its native events into the neutral `AgentMessage` schema. Selected via the `AGENT_PROVIDER` env (default `claude`). See *Providers* below.
+The sidecar is split: **`core.ts` is a provider-neutral transport** (frames JSON, dispatches `Inbound` to the selected provider) and **`providers/<id>.ts` is the adapter** that runs the actual agent loop and maps its native events into the neutral `AgentMessage` schema. Selected via `config.provider` from the `SESSION_CONFIG` blob (default `claude`). See *Providers* below.
 
 ## The conversation flow
 
@@ -81,7 +81,7 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 
 - **`sidecar/providers/types.ts`** — the `AgentProvider` interface (`start`, `pushTurn`, `setModel`, `interrupt`, `publishModels`, `publishConnectors`, `toggleConnector`, `reconnectConnector`, `replyPermission`) + `ProviderContext` (`cliPath`, `projectDir`, `resumeSessionId`, `permissionMode`, `emit`).
 - **`sidecar/providers/claude.ts`** — the only Claude-aware module: wraps the Claude Agent SDK and maps `SDKMessage` → `AgentMessage`. The Claude tier→pips heuristic lives here (not the UI).
-- **`sidecar/providers/registry.ts`** — id → factory; `core.ts` selects via `AGENT_PROVIDER` (default `claude`), plumbed from Rust `start_session(provider?)`.
+- **`sidecar/providers/registry.ts`** — id → factory; `core.ts` selects via `config.provider` parsed from the `SESSION_CONFIG` blob (default `claude`).
 
 **Add a provider:** implement `AgentProvider` in `providers/<id>.ts`, map its native events to `AgentMessage`, register it. No protocol or UI change. (A runtime needing a different native binary also needs its own `agent.<platform>.ts` embed — the binary is provider-specific; the rest is not.)
 
@@ -99,7 +99,7 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 | `worktree_commit` | `worktreePath, message` | `string` | Commits staged changes (git stdout) |
 | `worktree_push` | `worktreePath, setUpstream` | `string` | `setUpstream` pushes `-u origin <branch>` |
 | `worktree_merge` | `repoPath, branch` | `string` | Merges `branch` into the branch checked out at `repoPath` |
-| `start_session` | `worktree, resume?, permissionMode?, systemPromptAppend?, mcpServers?, agents?, provider?` | `void` | Spawns a sidecar (cwd = worktree); idempotent. `resume` → `RESUME_SESSION` env. `permissionMode` → `PERMISSION_MODE` env (default `bypassPermissions`). `systemPromptAppend` → `SYSTEM_PROMPT_APPEND` env. `mcpServers` (JSON) → `MCP_SERVERS` env. `agents` (JSON) → `AGENTS` env. `provider` (default `claude`) → `AGENT_PROVIDER` env → which adapter the sidecar loads |
+| `start_session` | `worktree, config?` (JSON string) | `void` | Spawns a sidecar (cwd = worktree); idempotent. `config` is the app's `SessionConfig` blob (`provider`/`resumeSessionId`/`permissionMode`/`systemPromptAppend`/`mcpServers`/`agents`), forwarded verbatim as the `SESSION_CONFIG` env var; the sidecar parses it once in `core.ts`. Rust never enumerates the fields, so a new session knob doesn't touch this command. `PROJECT_DIR` (= worktree) is set separately |
 | `send_to_session` | `worktree, payload` (JSON string) | `void` | Writes a line to that worktree's sidecar stdin |
 | `stop_session` | `worktree` | `void` | Kills that worktree's sidecar |
 | `notify` | `title, body` | `void` | Shows a desktop notification (tauri-plugin-notification) |

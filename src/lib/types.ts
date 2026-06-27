@@ -20,6 +20,7 @@ export type {
   PermissionMode,
   Question,
   QuestionOption,
+  SessionConfig,
   SlashCommandInfo,
   TurnUsage,
 } from "../../shared/protocol";

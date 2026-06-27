@@ -10,6 +10,7 @@ import type {
   Inbound,
   Outbound,
   PermissionMode,
+  SessionConfig,
   UsageInfo,
   Worktree,
 } from "./types";
@@ -72,32 +73,15 @@ export const worktreeMerge = (repoPath: string, branch: string) =>
 // ---- Per-worktree agent sessions ----------------------------------------
 // Each worktree runs its own sidecar concurrently, keyed by its path.
 
-/** Start (or no-op if already running) the agent session for a worktree.
- *  Options: `resume` (a prior session id) restores that session's context;
- *  `permissionMode` sets the initial tool-permission gate (default
- *  bypassPermissions; a non-bypass value activates the Allow/Deny modal);
- *  `systemPromptAppend` adds custom text to the preset system prompt; `provider`
- *  picks a model-provider adapter (default "claude"). */
-export const startSession = (
-  worktree: string,
-  opts: {
-    resume?: string;
-    permissionMode?: PermissionMode;
-    systemPromptAppend?: string;
-    mcpServers?: Record<string, unknown>;
-    agents?: Record<string, unknown>;
-    provider?: string;
-  } = {},
-) =>
-  invoke<void>("start_session", {
-    worktree,
-    resume: opts.resume ?? null,
-    permissionMode: opts.permissionMode ?? null,
-    systemPromptAppend: opts.systemPromptAppend ?? null,
-    mcpServers: opts.mcpServers ? JSON.stringify(opts.mcpServers) : null,
-    agents: opts.agents ? JSON.stringify(opts.agents) : null,
-    provider: opts.provider ?? null,
-  });
+/** Start (or no-op if already running) the agent session for a worktree. The
+ *  whole start-up config rides in one JSON blob (`SessionConfig`): `resumeSessionId`
+ *  restores a prior session's context, `permissionMode` sets the initial
+ *  tool-permission gate (default bypassPermissions; a non-bypass value activates
+ *  the Allow/Deny modal), `systemPromptAppend` adds custom prompt text, `provider`
+ *  picks a model-provider adapter (default "claude"). Rust forwards the blob
+ *  opaquely; the sidecar parses it once (see SessionConfig). */
+export const startSession = (worktree: string, config: SessionConfig = {}) =>
+  invoke<void>("start_session", { worktree, config: JSON.stringify(config) });
 
 /** Kill a worktree's agent session. */
 export const stopSession = (worktree: string) => invoke<void>("stop_session", { worktree });

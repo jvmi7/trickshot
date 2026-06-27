@@ -142,6 +142,31 @@ export type Inbound =
  *  `permission_request` the UI answers with `permission_reply`. */
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
 
+/** Session start-up configuration the app hands the sidecar. Serialized to JSON
+ *  and passed via the `start_session` command → the `SESSION_CONFIG` env var →
+ *  parsed ONCE in `core.ts` into the provider's `ProviderContext`. Shared by both
+ *  TS ends (the app builds it in `ensureSession`, the sidecar reads it in
+ *  `core.ts`) so the contract is compiler-checked, not hand-mirrored. Rust
+ *  forwards the blob opaquely — adding a session knob is a field here plus reading
+ *  it in the provider, with NO Rust signature or env-plumbing change. Every field
+ *  is optional and provider-neutral. */
+export interface SessionConfig {
+  /** Which provider adapter the sidecar loads (default "claude"). */
+  provider?: string;
+  /** Prior agent session id to resume — restores the agent's context (NOT the
+   *  rendered transcript, which the app rehydrates separately). */
+  resumeSessionId?: string;
+  /** Initial tool-permission mode (default `bypassPermissions`). */
+  permissionMode?: PermissionMode;
+  /** Extra text appended to the preset system prompt for custom behavior. */
+  systemPromptAppend?: string;
+  /** Provider-specific MCP server config (opaque blob, e.g. `.mcp.json`'s
+   *  `mcpServers`). */
+  mcpServers?: Record<string, unknown>;
+  /** Provider-specific subagent definitions (opaque blob). */
+  agents?: Record<string, unknown>;
+}
+
 /** Messages flowing FROM the sidecar TO the app. `message` carries the neutral
  *  `AgentMessage`; `session` reports the (provider-specific) resumable session
  *  id once known. */
