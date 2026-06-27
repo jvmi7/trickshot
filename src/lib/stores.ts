@@ -311,7 +311,7 @@ export function bumpUnread(worktree: string) {
 }
 export function clearUnread(worktree: string) {
   // Set to 0 (not remove) and skip the write when already cleared — returning the
-  // same map identity fires no subscribers.
+  // same map identity skips the allocation + primitive-derived re-renders (see stores.test.ts).
   _unread.store.update((m) => (m[worktree] ? { ...m, [worktree]: 0 } : m));
 }
 
@@ -486,7 +486,7 @@ const _suggestions = createWorktreeMap<string[]>();
 export const suggestionsByWorktree = _suggestions.store;
 export const setSuggestions = _suggestions.set;
 export function clearSuggestions(worktree: string) {
-  // Skip the write when already empty — same map identity fires no subscribers.
+  // Skip the write when already empty — same map identity skips the allocation + primitive-derived re-renders (see stores.test.ts).
   _suggestions.store.update((s) => (s[worktree]?.length ? { ...s, [worktree]: [] } : s));
 }
 
@@ -535,7 +535,7 @@ export const systemPromptAppend = createPersistedString("trickshot.systemPromptA
 const _session = createWorktreeMap<string>({ persistKey: "trickshot.sessionByWorktree" });
 export const sessionByWorktree = _session.store;
 export function setWorktreeSession(worktree: string, id: string) {
-  // Skip the write when the id is unchanged — same map identity fires no subscribers.
+  // Skip the write when the id is unchanged — same map identity skips the allocation + primitive-derived re-renders (see stores.test.ts).
   _session.store.update((m) => (m[worktree] === id ? m : { ...m, [worktree]: id }));
 }
 /** Forget a worktree's persisted session + transcript (e.g. on worktree removal,
