@@ -54,13 +54,11 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 | app → sidecar | `reconnect_connector` | `{ name }` — reconnect an MCP connector (e.g. after a failure / needs-auth) |
 | app → sidecar | `get_commands` | — request a (re-)emit of `commands` (available slash commands) |
 | app → sidecar | `interrupt` | — |
-| app → sidecar | `rewind` | `{ messageId }` — revert file changes made after that user turn (file checkpoint; requires `enableFileCheckpointing`) |
 | app → sidecar | `set_mcp_servers` | `{ servers }` — replace live MCP servers (opaque config blob) |
 | app → sidecar | `get_mcp_status` | — request a (re-)emit of `mcp_status` |
 | app → sidecar | `suggest` | `{ conversation }` — ask the provider to generate suggested next user replies for the recent-conversation text; answered async by `suggestions`. A separate cheap one-shot call (Claude: Haiku, no tools), NOT the main agent loop |
 | sidecar → app | `ready` | — |
 | sidecar → app | `suggestions` | `{ suggestions: string[] }` — suggested next user replies (answer to `suggest`); empty = none. Shown as pick-to-send chips above the composer (`Suggestions.svelte`) with a "type your own" option |
-| sidecar → app | `checkpoint` | `{ id }` — the provider-assigned id of a user turn, stored on the `user_local` bubble as its `rewind` target |
 | sidecar → app | `commands` | `{ commands: {name,description}[] }` — available slash commands (on ready and after `get_commands`) |
 | sidecar → app | `mcp_status` | `{ servers: {name,status}[] }` — MCP server connection statuses |
 | sidecar → app | `notification` | `{ message, notificationType? }` — agent wants attention (from the Notification hook); the app raises an OS notification for a backgrounded worktree |

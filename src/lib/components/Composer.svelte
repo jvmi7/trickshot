@@ -6,7 +6,6 @@
     clearActivity,
     availableCommands,
     submitUserTurn,
-    composerPrefill,
   } from "../stores";
   import { onDestroy } from "svelte";
   import * as api from "../api";
@@ -21,32 +20,85 @@
   let text = "";
   let focused = false;
   let textareaEl: HTMLTextAreaElement | null = null;
+  let phEl: HTMLDivElement | null = null;
 
   // Animated placeholder: "Start building..." deletes itself char-by-char on focus
   // (so the field reads empty when you click in); restored on blur if still empty.
   const PLACEHOLDER = "Start building...";
-  let ph = PLACEHOLDER;
-  let phTimer: ReturnType<typeof setInterval> | undefined;
-  function onFocus() {
-    focused = true;
+  // How long the highlighted chunk stays selected before it's deleted — brief, so
+  // the highlight registers without a noticeable pause before the backspace.
+  const HIGHLIGHT_MS = 95;
+  let ph = PLACEHOLDER; // visible (left) placeholder text, backspaced char-by-char
+  let phSel = ""; // the highlighted right-hand chunk (shown, then deleted in one go)
+  let phTimer: ReturnType<typeof setInterval> | undefined; // backspace / type-back loop
+  let phSelTimer: ReturnType<typeof setTimeout> | undefined; // delay before deleting phSel
+
+  function clearPhTimers() {
+    clearInterval(phTimer);
+    clearTimeout(phSelTimer);
+  }
+
+  // Char-by-char backspace of the (left) placeholder text.
+  function backspacePlaceholder() {
     clearInterval(phTimer);
     phTimer = setInterval(() => {
       ph = ph.slice(0, -1);
       if (!ph) clearInterval(phTimer);
     }, 9);
   }
+
+  // Map a click's x to the nearest character boundary in the rendered placeholder
+  // (measured per-glyph so it's correct for any font/variable widths).
+  function placeholderIndexAt(clientX: number): number {
+    const node = phEl?.firstChild;
+    if (!node || node.nodeType !== Node.TEXT_NODE) return PLACEHOLDER.length;
+    const len = (node as Text).length;
+    const range = document.createRange();
+    for (let i = 0; i < len; i++) {
+      range.setStart(node, i);
+      range.setEnd(node, i + 1);
+      const r = range.getBoundingClientRect();
+      if (clientX < r.left + r.width / 2) return i;
+    }
+    return len;
+  }
+
+  // Clicking into the (full) placeholder mimics select-to-end → delete → backspace:
+  // the text RIGHT of the click is highlighted (theme selection style), held briefly,
+  // deleted as one chunk, then the left part backspaces. Fires before focus, so
+  // onFocus defers to this sequence.
+  function onPointerDown(e: PointerEvent) {
+    if (!alive || text !== "" || ph !== PLACEHOLDER || phSel) return;
+    const i = placeholderIndexAt(e.clientX);
+    if (i >= PLACEHOLDER.length) return; // clicked at/after the end → onFocus full-backspaces
+    clearPhTimers();
+    ph = PLACEHOLDER.slice(0, i);
+    phSel = PLACEHOLDER.slice(i);
+    phSelTimer = setTimeout(() => {
+      phSel = ""; // delete the highlighted chunk in one go
+      backspacePlaceholder(); // then backspace the rest from the cursor
+    }, HIGHLIGHT_MS);
+  }
+
+  function onFocus() {
+    focused = true;
+    // A click already kicked off the highlight-then-delete sequence — let it run.
+    if (phSel) return;
+    backspacePlaceholder();
+  }
   function onBlur() {
     focused = false;
-    clearInterval(phTimer);
+    clearPhTimers();
+    phSel = "";
     if (text.trim()) return; // a real message is showing; leave the placeholder hidden
-    // type "start cooking" back in, char by char (continues from wherever the
+    // type "Start building..." back in, char by char (continues from wherever the
     // delete left off, since `ph` is always a prefix of PLACEHOLDER).
     phTimer = setInterval(() => {
       ph = PLACEHOLDER.slice(0, ph.length + 1);
       if (ph === PLACEHOLDER) clearInterval(phTimer);
     }, 9);
   }
-  onDestroy(() => clearInterval(phTimer));
+  onDestroy(clearPhTimers);
 
   // The animated placeholder is rendered as our own overlay (not the native
   // `placeholder` attr) so a blinking caret can ride the END of the backspacing
@@ -87,15 +139,6 @@
     // submitUserTurn does the optimistic bubble + status + IPC + error handling
     // (shared with the suggestion chips, so the flow stays identical).
     void submitUserTurn(wt, t);
-  }
-
-  // A picked suggestion lands in the editable input (focus so the user can edit
-  // immediately). React per-nonce so re-picking the same text still applies.
-  let lastPrefillNonce = 0;
-  $: if ($composerPrefill.nonce !== lastPrefillNonce) {
-    lastPrefillNonce = $composerPrefill.nonce;
-    text = $composerPrefill.text;
-    textareaEl?.focus();
   }
 
   function stop() {
@@ -145,25 +188,30 @@
         bind:value={text}
         bind:ref={textareaEl}
         onkeydown={onKeydown}
+        onpointerdown={onPointerDown}
         onfocus={onFocus}
         onblur={onBlur}
         disabled={!alive}
-        rows={2}
-        class="max-h-48 min-h-[3.25rem] w-full resize-none rounded-none border-0 bg-transparent px-0 pt-2 pb-1 text-base md:text-base shadow-none outline-none transition-colors hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent {showPhCaret ? 'caret-transparent' : 'caret-primary'}"
+        rows={1}
+        class="max-h-48 min-h-[2.25rem] w-full resize-none select-text rounded-none border-0 bg-transparent px-0 py-1.5 text-base md:text-base shadow-none outline-none transition-colors hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent {showPhCaret ? 'caret-transparent' : 'caret-foreground'}"
       />
       {#if text === ""}
         <div
-          class="text-muted-foreground group-hover:text-foreground pointer-events-none absolute inset-0 pt-2 text-base whitespace-pre transition-colors select-none"
+          bind:this={phEl}
+          class="text-muted-foreground group-hover:text-foreground pointer-events-none absolute inset-0 flex items-center text-base whitespace-pre transition-colors select-none"
           aria-hidden="true"
-        >{alive ? ph : "Select a worktree to start"}{#if showPhCaret}<span class="ph-caret"></span>{/if}</div>
+        >{alive ? ph : "Select a worktree to start"}{#if alive && phSel}<span class="ph-sel">{phSel}</span>{:else if showPhCaret}<span class="ph-caret"></span>{/if}</div>
       {/if}
     </div>
     {#if working}
-      <Button variant="secondary" size="icon" class="size-9 shrink-0 rounded-full" title="Stop" aria-label="Stop" onclick={stop}>
+      <Button variant="ghost" size="icon" class="size-9 shrink-0 rounded-full bg-destructive/20 text-destructive hover:bg-destructive/30 hover:text-destructive" title="Stop" aria-label="Stop" onclick={stop}>
         <Square class="size-3.5 fill-current" />
       </Button>
     {:else}
-      <Button variant="default" size="icon" class="size-9 shrink-0 rounded-full" title="Send" aria-label="Send" onclick={send} disabled={!canSend}>
+      <!-- Grey the disabled state via COLOR (full opacity), not opacity — fading a
+           thin SVG's opacity makes its strokes render lighter/thinner (looks like a
+           bold/position shift); a color swap keeps the stroke rendering identical. -->
+      <Button variant="ghost" size="icon" class="size-9 shrink-0 rounded-full disabled:opacity-100 disabled:text-muted-foreground" title="Send" aria-label="Send" onclick={send} disabled={!canSend}>
         <ArrowUp class="size-5" />
       </Button>
     {/if}

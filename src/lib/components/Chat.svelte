@@ -39,15 +39,16 @@
       {#if $renderedGroups.length === 0}
         <div class="empty">{$selectedWorktree ? "No messages yet." : "No workspace selected."}</div>
       {/if}
+      <!-- The live "thinking…" / end-of-turn "Finished in…" line is part of the
+           chat transcript, so it scrolls with the messages (not pinned to the input). -->
+      <LoadingState />
     </div>
-    <!-- Edge fades: messages fade out as they slide past the top/bottom and
-         fade in as they enter, tracking the custom scroll. -->
+    <!-- Edge fades: messages fade out as they slide past the top/bottom. -->
     <div class="edge-fade edge-fade-top" class:show={topFade}></div>
     <div class="edge-fade edge-fade-bottom" class:show={bottomFade}></div>
     <ScrollIndicator />
   </div>
 
-  <LoadingState />
   <Suggestions />
   <Composer />
   <PermissionModal />

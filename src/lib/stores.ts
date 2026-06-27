@@ -1,5 +1,6 @@
 import { derived, get, writable } from "svelte/store";
 import * as api from "./api";
+import { DEFAULT_THEME, THEMES as THEME_DEFS } from "./themes";
 import type {
   ConnectorInfo,
   McpStatusInfo,
@@ -108,19 +109,14 @@ export interface ThemeOption {
   id: string;
   label: string;
 }
-/** Selectable color themes. Each (except the default) overrides the `--base-*`
- *  palette under `[data-theme="<id>"]` in app.css. "terracotta" is the :root
- *  default and has no override block. To add a theme: add a `[data-theme]`
- *  block in app.css and an entry here — nothing else. See THEMING.md. */
-export const THEMES: ThemeOption[] = [
-  { id: "terracotta", label: "Terracotta" },
-  { id: "ocean", label: "Ocean" },
-  { id: "forest", label: "Forest" },
-];
+/** Selectable color themes — DERIVED from the single theme config (`themes.ts`).
+ *  To add/remove a theme, edit `THEMES` there; this list (and the injected CSS)
+ *  follow automatically. See THEMING.md. */
+export const THEMES: ThemeOption[] = THEME_DEFS.map((t) => ({ id: t.id, label: t.label }));
 const THEME_KEY = "trickshot.theme";
 function loadTheme(): string {
   const saved = hasLS ? localStorage.getItem(THEME_KEY) : null;
-  return saved && THEMES.some((t) => t.id === saved) ? saved : "terracotta";
+  return saved && THEMES.some((t) => t.id === saved) ? saved : DEFAULT_THEME;
 }
 /** Active theme id. Reflects to `<html data-theme>` (which the `--base-*`
  *  override blocks key off) and persists to localStorage. */
@@ -476,15 +472,6 @@ export function clearSuggestions(worktree: string) {
   suggestionsByWorktree.update((s) => (s[worktree]?.length ? { ...s, [worktree]: [] } : s));
 }
 
-// Drop text into the composer's editable input (picking a suggestion lands here so
-// the user can edit it before sending, rather than it firing off immediately). The
-// monotonic nonce lets the Composer react to each request — even re-picking the
-// same text — without it being a persisted value.
-export const composerPrefill = writable<{ text: string; nonce: number }>({ text: "", nonce: 0 });
-export function prefillComposer(text: string) {
-  composerPrefill.update((p) => ({ text, nonce: p.nonce + 1 }));
-}
-
 // ---- Font ----
 export interface FontOption {
   id: string;
@@ -659,35 +646,6 @@ export function appendMessage(worktree: string, msg: TranscriptMessage) {
 export function resetTranscript(worktree: string) {
   delete _buffers[worktree];
   transcripts.update((t) => ({ ...t, [worktree]: [] }));
-}
-
-/** Attach a rewind checkpoint id to the most recent `user_local` turn that
- *  doesn't have one yet (the turn the agent just echoed). No-op if none found.
- *  Checks the un-flushed buffer first, then the store. */
-export function attachRewindId(worktree: string, id: string) {
-  const buf = _buffers[worktree];
-  if (buf) {
-    for (let i = buf.length - 1; i >= 0; i--) {
-      const m = buf[i];
-      if (m && m.type === "user_local" && !m.rewindId) {
-        m.rewindId = id;
-        return;
-      }
-    }
-  }
-  transcripts.update((t) => {
-    const list = t[worktree];
-    if (!list) return t;
-    for (let i = list.length - 1; i >= 0; i--) {
-      const m = list[i];
-      if (m && m.type === "user_local" && !m.rewindId) {
-        const next = list.slice();
-        next[i] = { ...m, rewindId: id };
-        return { ...t, [worktree]: next };
-      }
-    }
-    return t;
-  });
 }
 
 /** Send a user turn to a worktree's agent: optimistically render the `user_local`

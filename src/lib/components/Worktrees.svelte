@@ -23,9 +23,18 @@
   import type { Worktree } from "../types";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
+  import * as Tooltip from "$lib/components/ui/tooltip";
+  import IconButton from "./IconButton.svelte";
   import House from "@lucide/svelte/icons/house";
+  import FolderPlus from "@lucide/svelte/icons/folder-plus";
+  import Plus from "@lucide/svelte/icons/plus";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
 
   let creatingFor: string | null = null; // repo path the inline create field is open for
+  let collapsed: Record<string, boolean> = {}; // repo paths whose worktree list is folded
+  function toggleRepo(path: string) {
+    collapsed = { ...collapsed, [path]: !collapsed[path] };
+  }
   let newBranch = "";
   let creating = false;
   let error = "";
@@ -64,28 +73,6 @@
     } catch (e) {
       error = String(e);
     }
-  }
-
-  async function removeRepo(repoPath: string) {
-    const wts = $worktreesByRepo[repoPath] ?? [];
-    for (const wt of wts) {
-      try {
-        await api.stopSession(wt.path);
-      } catch {
-        /* ignore */
-      }
-      resetTranscript(wt.path);
-      forgetWorktreeSession(wt.path);
-    }
-    const paths = wts.map((w) => w.path);
-    if ($selectedWorktree && paths.includes($selectedWorktree)) selectedWorktree.set(null);
-    pruneStatus(paths);
-    repos.update((rs) => rs.filter((r) => r.path !== repoPath));
-    worktreesByRepo.update((m) => {
-      const next = { ...m };
-      delete next[repoPath];
-      return next;
-    });
   }
 
   // Selecting a worktree = activating its session (no manual start/stop) and
@@ -170,39 +157,73 @@
 </script>
 
 <div class="wt">
+  <div class="wt-section">
+    <span>Projects</span>
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <IconButton {...props} aria-label="Add repository" onclick={addRepo}>
+            <FolderPlus />
+          </IconButton>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content>Add repository</Tooltip.Content>
+    </Tooltip.Root>
+  </div>
+
   {#each $repos as repo (repo.path)}
-    <div class="repo-group">
+    <div class="repo-group group/repo">
       <div class="repo-head">
-        <span class="repo-name" title={repo.path}>{repo.name}</span>
-        <div class="repo-actions">
-          <Button variant="ghost" size="icon-sm" title="New worktree" onclick={() => startCreate(repo.path)}>+</Button>
-          <Button variant="ghost" size="icon-sm" title="Remove repository from sidebar" onclick={() => removeRepo(repo.path)}>−</Button>
-        </div>
+        <button
+          class="repo-toggle"
+          title={repo.path}
+          aria-expanded={!collapsed[repo.path]}
+          onclick={() => toggleRepo(repo.path)}
+        >
+          <span class="repo-chevron" class:collapsed={collapsed[repo.path]}><ChevronDown class="size-3.5" /></span>
+          <span class="repo-name">{repo.name}</span>
+        </button>
+        <Tooltip.Root>
+          <Tooltip.Trigger>
+            {#snippet child({ props })}
+              <IconButton
+                {...props}
+                class="opacity-0 group-hover/repo:opacity-100"
+                aria-label="New worktree"
+                onclick={() => startCreate(repo.path)}
+              >
+                <Plus />
+              </IconButton>
+            {/snippet}
+          </Tooltip.Trigger>
+          <Tooltip.Content>New worktree</Tooltip.Content>
+        </Tooltip.Root>
       </div>
 
-      {#if creatingFor === repo.path}
-        <Input
-          class="my-1"
-          placeholder="branch name…  (Enter)"
-          bind:value={newBranch}
-          bind:ref={branchInput}
-          onkeydown={(e: KeyboardEvent) => {
-            if (e.key === "Enter") create(repo.path);
-            else if (e.key === "Escape") creatingFor = null;
-          }}
-          onblur={() => (creatingFor = null)}
-        />
-      {/if}
+      {#if !collapsed[repo.path]}
+        {#if creatingFor === repo.path}
+          <Input
+            class="my-1"
+            placeholder="branch name…  (Enter)"
+            bind:value={newBranch}
+            bind:ref={branchInput}
+            onkeydown={(e: KeyboardEvent) => {
+              if (e.key === "Enter") create(repo.path);
+              else if (e.key === "Escape") creatingFor = null;
+            }}
+            onblur={() => (creatingFor = null)}
+          />
+        {/if}
 
-      <div class="wt-rows">
-        {#each $worktreesByRepo[repo.path] ?? [] as wt (wt.path)}
+        <div class="wt-rows">
+          {#each $worktreesByRepo[repo.path] ?? [] as wt (wt.path)}
           <div
             class="wt-row group/row"
             class:active={$selectedWorktree === wt.path}
             role="button"
             tabindex="0"
-            on:click={() => select(wt)}
-            on:keydown={(e) => (e.key === "Enter" || e.key === " ") && select(wt)}
+            onclick={() => select(wt)}
+            onkeydown={(e) => (e.key === "Enter" || e.key === " ") && select(wt)}
           >
             <span
               class="dot"
@@ -228,13 +249,16 @@
                 onclick={(e: Event) => remove(repo.path, wt, e)}
               >×</Button>
             {/if}
-          </div>
-        {/each}
-      </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
   {/each}
 
-  <Button variant="outline" class="mt-1 w-full" onclick={addRepo}>+ Add repository</Button>
+  {#if $repos.length === 0}
+    <div class="wt-empty">No projects yet — add a repository above.</div>
+  {/if}
 
   {#if error}<div class="error-box">{error}</div>{/if}
 </div>

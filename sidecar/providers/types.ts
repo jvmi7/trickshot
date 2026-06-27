@@ -45,8 +45,6 @@ export interface AgentProvider {
   setPermissionMode(mode: PermissionMode): void;
   /** Interrupt the in-flight turn. */
   interrupt(): void;
-  /** Revert file changes made after the given user-turn id (file checkpoint). */
-  rewind(messageId: string): void;
   /** (Re-)emit the `models` event (catalog + current). */
   publishModels(): void;
   /** (Re-)emit the `connectors` event (MCP servers + their tools/status). */

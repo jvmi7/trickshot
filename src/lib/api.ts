@@ -131,10 +131,6 @@ export const interruptAgent = (worktree: string) => send(worktree, { kind: "inte
 export const requestSuggestions = (worktree: string, conversation: string) =>
   send(worktree, { kind: "suggest", conversation });
 
-/** Revert file changes made after a given user turn (its checkpoint id). */
-export const rewind = (worktree: string, messageId: string) =>
-  send(worktree, { kind: "rewind", messageId });
-
 /** Switch the model this worktree's chat uses. The sidecar confirms by
  *  re-emitting a `models` event with the updated `current`. */
 export const setModel = (worktree: string, model: string) =>

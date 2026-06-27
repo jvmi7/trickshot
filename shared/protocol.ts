@@ -125,7 +125,6 @@ export type Inbound =
   | { kind: "reconnect_connector"; name: string }
   | { kind: "get_commands" }
   | { kind: "interrupt" }
-  | { kind: "rewind"; messageId: string }
   // Provider-specific MCP server config (opaque blob, e.g. `.mcp.json`'s
   // `mcpServers`). Applied live; `get_mcp_status` requests a status refresh.
   | { kind: "set_mcp_servers"; servers: Record<string, unknown> }
@@ -155,9 +154,6 @@ export type Outbound =
   | { kind: "models"; models: ModelInfo[]; current: string }
   | { kind: "connectors"; servers: ConnectorInfo[] }
   | { kind: "error"; error: string }
-  // The provider-assigned id of a user turn, usable as a `rewind` target (file
-  // checkpoint). Emitted once the agent backend echoes the turn with its id.
-  | { kind: "checkpoint"; id: string }
   // The session's available slash commands (on ready and after get_commands).
   | { kind: "commands"; commands: SlashCommandInfo[] }
   // MCP server connection statuses (on ready and after get_mcp_status / set_mcp_servers).

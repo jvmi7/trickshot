@@ -29,7 +29,7 @@ export type {
  *  is the stable per-message id assigned on append (see stores.appendMessage). */
 export type TranscriptMessage = (
   | AgentMessage
-  | { type: "user_local"; text: string; rewindId?: string }
+  | { type: "user_local"; text: string }
   | { type: "error"; error: string }
 ) & { __key?: number };
 

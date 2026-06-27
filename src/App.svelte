@@ -46,7 +46,6 @@
     gitRefreshNonce,
     setGitStat,
     activeGitStat,
-    attachRewindId,
     availableCommands,
     systemPromptAppend,
     mcpStatus,
@@ -79,6 +78,7 @@
   }
   import Header from "./lib/components/Header.svelte";
   import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
+  import ViewToggle from "./lib/components/ViewToggle.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import Chat from "./lib/components/Chat.svelte";
   import GitPanel from "./lib/components/GitPanel.svelte";
@@ -193,9 +193,6 @@
         } else if (evt.kind === "suggestions") {
           // Suggested next replies arrived (answer to a `suggest` request).
           setSuggestions(worktree, evt.suggestions);
-        } else if (evt.kind === "checkpoint") {
-          // Tag the just-sent user turn with its rewindable checkpoint id.
-          attachRewindId(worktree, evt.id);
         } else if (evt.kind === "commands") {
           availableCommands.set(evt.commands);
         } else if (evt.kind === "mcp_status") {
@@ -315,7 +312,7 @@
   });
 </script>
 
-<Tooltip.Provider delayDuration={300}>
+<Tooltip.Provider delayDuration={100}>
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
   <!-- Sidebar toggle floats over the top-left (just past the traffic lights) so
        it stays put when the sidebar slides away and can always reopen it. -->
@@ -373,30 +370,9 @@
           <span class="dim">select or create a worktree on the left</span>
         {/if}
       </div>
-      <div slot="actions" class="view-tabs">
+      <div slot="actions">
         {#if $centerView !== "settings"}
-          <Button
-            size="sm"
-            variant={$mainView === "chat" ? "secondary" : "ghost"}
-            class="h-7 text-xs"
-            onclick={() => mainView.set("chat")}>Chat</Button
-          >
-          {#if $activeGitStat && $activeGitStat.changed > 0}
-            <Button
-              size="sm"
-              variant={$mainView === "changes" ? "secondary" : "ghost"}
-              class="h-7 gap-1.5 text-xs"
-              onclick={() => mainView.set("changes")}
-            >
-              Changes
-              {#if $activeGitStat.insertions > 0}
-                <span class="diff-add">+{$activeGitStat.insertions}</span>
-              {/if}
-              {#if $activeGitStat.deletions > 0}
-                <span class="diff-del">−{$activeGitStat.deletions}</span>
-              {/if}
-            </Button>
-          {/if}
+          <ViewToggle />
         {/if}
       </div>
     </Header>
