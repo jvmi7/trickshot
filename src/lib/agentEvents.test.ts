@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { get } from "svelte/store";
 import { handleAgentEvent, handleSessionStatus } from "./agentEvents";
+import * as api from "./api";
 import {
   availableModels,
   connectorsByWorktree,
@@ -10,6 +11,8 @@ import {
   selectedWorktree,
   sessionByWorktree,
   sessionStatus,
+  setGlobalConnectorPref,
+  setWorktreeModel,
   transcripts,
   turnSummary,
   worktreeActivity,
@@ -80,6 +83,26 @@ describe("handleAgentEvent — models", () => {
   });
 });
 
+describe("handleAgentEvent — models (re-apply persisted choice)", () => {
+  test("re-applies a differing persisted choice instead of adopting current", () => {
+    const w = wt();
+    const spy = spyOn(api, "setModel").mockResolvedValue(undefined);
+    // Persisted choice differs from the sidecar's reported current.
+    setWorktreeModel(w, "m1");
+    const models = [
+      { value: "m1", displayName: "M1" },
+      { value: "m2", displayName: "M2" },
+    ];
+    handleAgentEvent(w, { kind: "models", models, current: "m2" });
+    // The convergence branch re-applies the saved choice via the live command…
+    expect(spy).toHaveBeenCalledWith(w, "m1");
+    // …and does NOT overwrite the store with `current` (the sidecar will confirm
+    // by re-emitting `models` with the updated current).
+    expect(get(modelByWorktree)[w]).toBe("m1");
+    spy.mockRestore();
+  });
+});
+
 describe("handleAgentEvent — connectors", () => {
   test("stores the connector list; toggles nothing when no preference is set", () => {
     const w = wt();
@@ -87,6 +110,21 @@ describe("handleAgentEvent — connectors", () => {
     handleAgentEvent(w, { kind: "connectors", servers });
     // want === undefined for every server (no global pref) → setConnectors only.
     expect(get(connectorsByWorktree)[w]).toEqual(servers);
+  });
+
+  test("toggles a connector whose live state differs from the saved preference", () => {
+    const w = wt();
+    const spy = spyOn(api, "toggleConnector").mockResolvedValue(undefined);
+    // Unique name so the global (connector-name-keyed) pref can't leak into the
+    // sibling test above. Saved pref says OFF, but the server reports it ON.
+    const name = "conv-test-connector";
+    setGlobalConnectorPref(name, false);
+    handleAgentEvent(w, {
+      kind: "connectors",
+      servers: [{ name, status: "connected", tools: [] }],
+    });
+    expect(spy).toHaveBeenCalledWith(w, name, false);
+    spy.mockRestore();
   });
 });
 

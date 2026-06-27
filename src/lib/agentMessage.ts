@@ -40,7 +40,9 @@ export function toolLabel(name: string): string {
     case "TodoWrite":
       return "Updating plan";
     default:
-      return "Running " + name.replace(/^mcp__/, "").replace(/_/g, " ");
+      // Humanize an unknown/MCP tool name: drop the `mcp__` prefix and collapse
+      // each underscore run (MCP uses `__` as a separator) to a single space.
+      return "Running " + name.replace(/^mcp__/, "").replace(/_+/g, " ");
   }
 }
 

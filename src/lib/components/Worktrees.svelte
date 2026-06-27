@@ -8,6 +8,7 @@
     addWorktree,
     removeWorktreeFromRepo,
     selectedWorktree,
+    selectWorktree,
     sessionStatus,
     setStatus,
     clearStatus,
@@ -24,6 +25,7 @@
   import type { Worktree } from "../types";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
+  import * as Dialog from "$lib/components/ui/dialog";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import IconButton from "./IconButton.svelte";
   import House from "@lucide/svelte/icons/house";
@@ -39,6 +41,9 @@
   let newBranch = $state("");
   let creating = $state(false);
   let error = $state("");
+  // Set when a remove is pending confirmation because the worktree has
+  // uncommitted work (force-remove discards it). Drives the confirm Dialog.
+  let confirmRemove = $state<{ repoPath: string; wt: Worktree; fileCount: number } | null>(null);
   // null (not undefined): Input's `ref` is $bindable(null); Svelte throws on
   // bind:ref={undefined} when the bindable has a fallback value.
   let branchInput = $state<HTMLInputElement | null>(null);
@@ -67,7 +72,7 @@
   // Selecting a worktree = activating its session (no manual start/stop) and
   // returning the center pane to the chat (leaving the Settings page if open).
   async function select(wt: Worktree) {
-    selectedWorktree.set(wt.path);
+    selectWorktree(wt.path);
     setCenterView("chat");
     clearUnread(wt.path);
     try {
@@ -105,31 +110,34 @@
     }
   }
 
+  // Begin removal: if the worktree has uncommitted work, open the confirm Dialog
+  // first (we force-remove, which discards it); otherwise remove straight away.
   async function remove(repoPath: string, wt: Worktree, e: Event) {
     e.stopPropagation();
     error = "";
     try {
-      // Guard against silently discarding uncommitted work (we force-remove below).
-      try {
-        const st = await api.worktreeStatus(wt.path);
-        if (
-          st.files.length > 0 &&
-          !confirm(
-            `"${wt.branch ?? wt.path}" has ${st.files.length} uncommitted change${st.files.length === 1 ? "" : "s"}. Remove anyway and discard them?`,
-          )
-        ) {
-          return;
-        }
-      } catch {
-        // status check failed (e.g. not a git dir) — proceed with removal
+      const st = await api.worktreeStatus(wt.path);
+      if (st.files.length > 0) {
+        confirmRemove = { repoPath, wt, fileCount: st.files.length };
+        return;
       }
+    } catch {
+      // status check failed (e.g. not a git dir) — proceed with removal
+    }
+    await doRemove(repoPath, wt);
+  }
+
+  // Force-remove the worktree and drop all of its local state.
+  async function doRemove(repoPath: string, wt: Worktree) {
+    error = "";
+    try {
       await api.stopSession(wt.path);
       await api.removeWorktree(repoPath, wt.path, true);
       resetTranscript(wt.path);
       forgetWorktreeSession(wt.path);
       clearStatus(wt.path);
       removeWorktreeFromRepo(repoPath, wt.path);
-      if ($selectedWorktree === wt.path) selectedWorktree.set(null);
+      if ($selectedWorktree === wt.path) selectWorktree(null);
     } catch (err) {
       error = String(err);
     }
@@ -242,3 +250,26 @@
 
   {#if error}<div class="error-box">{error}</div>{/if}
 </div>
+
+<Dialog.Root open={!!confirmRemove} onOpenChange={(open) => !open && (confirmRemove = null)}>
+  <Dialog.Content>
+    <Dialog.Header>
+      <Dialog.Title>Remove worktree?</Dialog.Title>
+      <Dialog.Description>
+        "{confirmRemove?.wt.branch ?? confirmRemove?.wt.path}" has {confirmRemove?.fileCount} uncommitted
+        change{confirmRemove?.fileCount === 1 ? "" : "s"}. Removing discards them.
+      </Dialog.Description>
+    </Dialog.Header>
+    <Dialog.Footer>
+      <Button variant="secondary" onclick={() => (confirmRemove = null)}>Cancel</Button>
+      <Button
+        variant="destructive"
+        onclick={() => {
+          const c = confirmRemove;
+          confirmRemove = null;
+          if (c) doRemove(c.repoPath, c.wt);
+        }}>Remove</Button
+      >
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
