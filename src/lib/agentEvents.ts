@@ -9,6 +9,7 @@ import { get } from "svelte/store";
 import { toolDetail, toolLabel } from "./agentMessage";
 import { notify, requestSuggestions, setModel, toggleConnector } from "./api";
 import {
+  appendCommentDelta,
   appendMessage,
   bumpGitRefresh,
   bumpUnread,
@@ -22,6 +23,8 @@ import {
   setActivity,
   setAvailableCommands,
   setAvailableModels,
+  setCommentError,
+  setCommentPending,
   setConnectors,
   setMcpStatus,
   setPendingPermission,
@@ -102,6 +105,13 @@ export function handleAgentEvent(worktree: string, evt: Outbound) {
   } else if (evt.kind === "suggestions") {
     // Suggested next replies arrived (answer to a `suggest` request).
     setSuggestions(worktree, evt.suggestions);
+  } else if (evt.kind === "comment_reply") {
+    // Out-of-band inline-comment answer (streamed). Routed ONLY to the comment
+    // thread's store — deliberately NOT to the transcript/status/usage, so a
+    // comment never affects the main chat (the whole point of the feature).
+    if (evt.error) setCommentError(worktree, evt.id, evt.error);
+    else if (evt.delta) appendCommentDelta(worktree, evt.id, evt.delta);
+    if (evt.done && !evt.error) setCommentPending(worktree, evt.id, false);
   } else if (evt.kind === "commands") {
     setAvailableCommands(evt.commands);
   } else if (evt.kind === "mcp_status") {

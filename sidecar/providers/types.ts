@@ -67,6 +67,15 @@ export interface AgentProvider {
    *  text and emit them as a `suggestions` event. Best-effort: a failure emits an
    *  empty list, never throws. Runs as a one-shot call independent of the main loop. */
   suggest(conversation: string): void;
+  /** Run an OUT-OF-BAND agent turn for an inline comment thread (`id`), streaming
+   *  the answer back as `comment_reply` events tagged with that id. `prompt` is the
+   *  app-assembled thread context. Runs as a SEPARATE isolated query (no resume, no
+   *  tools) independent of the main loop — never touches the main session/transcript.
+   *  Supersedes any in-flight turn for the same id. */
+  commentTurn(id: string, prompt: string): void;
+  /** Abort an in-flight `commentTurn` for `id` (popup close / supersede). No-op if
+   *  nothing is running for that id. */
+  cancelComment(id: string): void;
 }
 
 export type ProviderFactory = (ctx: ProviderContext) => AgentProvider;

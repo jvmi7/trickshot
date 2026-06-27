@@ -14,6 +14,10 @@
   import QuestionModal from "./QuestionModal.svelte";
   import ScrollIndicator from "./ScrollIndicator.svelte";
   import LoadingState from "./LoadingState.svelte";
+  import CommentLayer from "./CommentLayer.svelte";
+
+  // The scroll viewport, handed to CommentLayer to scope selection + highlighting.
+  let viewportEl = $state<HTMLElement | null>(null);
 
   // Edge fades are purely positional (not tied to active scrolling): show the top
   // fade whenever there's content scrolled off above, the bottom fade whenever
@@ -24,7 +28,7 @@
 </script>
 
 <div class="chat">
-  <div class="messages-viewport" use:customScroll>
+  <div class="messages-viewport" use:customScroll bind:this={viewportEl}>
     <div class="messages" data-scroll-inner>
       {#if $hiddenMessageCount > 0}
         <div class="empty">{$hiddenMessageCount} earlier message{$hiddenMessageCount === 1 ? "" : "s"} hidden</div>
@@ -53,4 +57,5 @@
   <Composer />
   <PermissionModal />
   <QuestionModal />
+  <CommentLayer viewport={viewportEl} />
 </div>

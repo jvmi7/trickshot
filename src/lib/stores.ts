@@ -1,5 +1,6 @@
 import { derived, get, type Readable, type Writable, writable } from "svelte/store";
 import * as api from "./api";
+import { buildCommentPrompt, type CommentMessage, type CommentThread } from "./comments";
 import { DEFAULT_THEME, THEMES as THEME_DEFS } from "./themes";
 import {
   appendMessage,
@@ -200,6 +201,18 @@ export function setSidebarWidth(w: number) {
  *  or the git "changes" (diff) panel. Ephemeral UI state. */
 export const mainView = writable<"chat" | "changes">("chat");
 
+/** Which inline-comment thread popup is open (its id), or null. Ephemeral, global
+ *  (the selection is always within the on-screen chat); cleared on worktree switch. */
+export const activeCommentId = writable<string | null>(null);
+/** Open a comment thread's popup. */
+export function openComment(id: string) {
+  activeCommentId.set(id);
+}
+/** Close the open comment popup (no cancel — the caller aborts any in-flight turn). */
+export function closeComment() {
+  activeCommentId.set(null);
+}
+
 /** Bumped to ask an open GitPanel to re-fetch status/diff (e.g. after a turn that
  *  likely touched files). A monotonic counter the panel watches. */
 export const gitRefreshNonce = writable<number>(0);
@@ -297,6 +310,8 @@ export const selectedWorktree = createPersisted<string | null>("trickshot.select
  *  selection — components call this, not `selectedWorktree.set()` inline. */
 export function selectWorktree(path: string | null) {
   selectedWorktree.set(path);
+  // Close any open comment popup — it belongs to the chat we're leaving.
+  activeCommentId.set(null);
 }
 
 // ---- Per-worktree session status ----
@@ -635,6 +650,114 @@ const _pendingQuestion = createWorktreeMap<QuestionReq | null>();
 export const pendingQuestion = _pendingQuestion.store;
 /** Set (or clear, with null) a worktree's pending `ask_user` question. */
 export const setPendingQuestion = _pendingQuestion.set;
+
+// ---- Per-worktree inline comments (persisted, anchored to chat text) ----
+// Notion-style comment threads anchored to a span of transcript text. Each thread
+// is an OUT-OF-BAND conversation (see comments.ts): turns are answered by an
+// isolated sidecar query and NEVER enter the main session/transcript. Persisted so
+// highlights + threads survive a restart. `pending`/`error` are runtime-only — the
+// load guard resets them so a mid-stream crash can't leave a thread stuck pending.
+const _comments = createWorktreeMap<CommentThread[]>({
+  persistKey: "trickshot.commentsByWorktree",
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    if (!isPlainObject(v)) return {};
+    const out: Record<string, CommentThread[]> = {};
+    for (const [wt, list] of Object.entries(v)) {
+      if (!Array.isArray(list)) continue;
+      out[wt] = list
+        .filter((t): t is CommentThread => isPlainObject(t) && typeof t.id === "string")
+        // Drop transient state: an answer can't still be streaming across a reload.
+        .map((t) => ({ ...t, pending: false, error: undefined }));
+    }
+    return out;
+  },
+});
+export const commentsByWorktree = _comments.store;
+/** The selected worktree's comment threads (empty when none). */
+export const activeComments = _comments.active<CommentThread[]>([]);
+
+/** Update one thread in a worktree's list (no-op if absent). */
+function updateThread(worktree: string, id: string, fn: (t: CommentThread) => CommentThread) {
+  _comments.update(worktree, (cur) => (cur ?? []).map((t) => (t.id === id ? fn(t) : t)));
+}
+/** Add a new comment thread to a worktree. */
+export function addComment(worktree: string, thread: CommentThread) {
+  _comments.update(worktree, (cur) => [...(cur ?? []), thread]);
+}
+/** Remove a comment thread (e.g. an empty draft closed without sending). */
+export function removeComment(worktree: string, id: string) {
+  _comments.update(worktree, (cur) => (cur ?? []).filter((t) => t.id !== id));
+}
+/** Append a finished message (user question / agent answer) to a thread. */
+export function appendCommentMessage(worktree: string, id: string, msg: CommentMessage) {
+  updateThread(worktree, id, (t) => ({ ...t, messages: [...t.messages, msg] }));
+}
+/** Append a streamed answer delta: extend the current turn's assistant message, or
+ *  start one if the last message is the user's question (no answer yet this turn). */
+export function appendCommentDelta(worktree: string, id: string, text: string) {
+  updateThread(worktree, id, (t) => {
+    const last = t.messages[t.messages.length - 1];
+    if (last && last.role === "assistant") {
+      const messages = t.messages.slice(0, -1).concat({ ...last, text: last.text + text });
+      return { ...t, messages };
+    }
+    return { ...t, messages: [...t.messages, { role: "assistant", text }] };
+  });
+}
+/** Mark a thread's answer as streaming / settled. */
+export function setCommentPending(worktree: string, id: string, pending: boolean) {
+  updateThread(worktree, id, (t) => ({ ...t, pending }));
+}
+/** Record a failed comment turn (also clears pending). */
+export function setCommentError(worktree: string, id: string, error: string) {
+  updateThread(worktree, id, (t) => ({ ...t, pending: false, error }));
+}
+/** Drop ALL comments for a worktree (on transcript reset / worktree removal so
+ *  orphaned anchors don't linger). Same no-op identity guard as the map factory. */
+export const removeComments = _comments.remove;
+
+/** The full text of an anchored transcript message (for prompt context), or "". */
+function anchoredMessageText(worktree: string, messageKey: number): string {
+  for (const m of get(transcripts)[worktree] ?? []) {
+    if (m.__key !== messageKey) continue;
+    if (m.type === "assistant" || m.type === "user_local") return m.text;
+    return "";
+  }
+  return "";
+}
+
+/** Submit one turn of an inline comment thread (the ONE submit path). Appends the
+ *  user's question, marks the thread pending, assembles the out-of-band prompt
+ *  (surrounding chat + anchored message + selected text + prior thread Q&A + the
+ *  new question) and fires the isolated IPC. NEVER touches the transcript or
+ *  session status — comments are out-of-band. The streamed answer arrives via
+ *  `comment_reply` (see agentEvents.ts). */
+export async function submitCommentTurn(worktree: string, id: string, question: string) {
+  const q = question.trim();
+  if (!q) return;
+  const thread = (get(commentsByWorktree)[worktree] ?? []).find((t) => t.id === id);
+  if (!thread) return;
+  // Prior turns BEFORE we append the new question (the thread's memory).
+  const priorMessages = thread.messages.slice();
+  appendCommentMessage(worktree, id, { role: "user", text: q });
+  setCommentPending(worktree, id, true);
+  // Surrounding main-chat context: the anchored message in full + the recent
+  // conversation summary (both read-only background for the isolated agent).
+  const anchored = anchoredMessageText(worktree, thread.anchor.messageKey);
+  const chatContext = [anchored, recentConversation(worktree)].filter(Boolean).join("\n\n");
+  const prompt = buildCommentPrompt({
+    chatContext,
+    selectedText: thread.selectedText,
+    priorMessages,
+    newQuestion: q,
+  });
+  try {
+    await api.sendCommentTurn(worktree, id, prompt);
+  } catch (e) {
+    setCommentError(worktree, id, `failed to send: ${e}`);
+  }
+}
 
 // ---- Derived views for the currently selected worktree ----
 export const activeMessages = derived([transcripts, selectedWorktree], ([$t, $sel]) =>

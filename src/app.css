@@ -870,6 +870,19 @@ html, body {
 :where(.markdown, .diff) .hljs-deletion { color: var(--app-danger); }
 :where(.markdown, .diff) .hljs-emphasis { font-style: italic; }
 :where(.markdown, .diff) .hljs-strong { font-weight: 600; }
+/* ---- inline comment highlight: the anchored span of a Notion-style comment
+   thread (see CommentLayer.svelte). A subtle warning-tinted underline/background
+   so the marked text stays readable; click it to (re)open the thread. ---- */
+.comment-highlight {
+  background: color-mix(in srgb, var(--base-warning) 22%, transparent);
+  border-bottom: 2px solid var(--base-warning);
+  border-radius: 2px;
+  color: inherit;
+  cursor: pointer;
+}
+.comment-highlight:hover {
+  background: color-mix(in srgb, var(--base-warning) 34%, transparent);
+}
 /* ---- compact tool rows (a tool_call + its folded-in result; see
    ToolActivity.svelte). Dim and one-line by default so assistant prose
    dominates; click the head to expand input + result. ---- */

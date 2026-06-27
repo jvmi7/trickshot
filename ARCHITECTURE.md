@@ -56,8 +56,11 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 | app → sidecar | `interrupt` | — |
 | app → sidecar | `set_mcp_servers` | `{ servers }` — replace live MCP servers (opaque config blob); sidecar re-emits `mcp_status` after |
 | app → sidecar | `suggest` | `{ conversation }` — ask the provider to generate suggested next user replies for the recent-conversation text; answered async by `suggestions`. A separate cheap one-shot call (Claude: Haiku, no tools), NOT the main agent loop |
+| app → sidecar | `comment_turn` | `{ id, prompt }` — run an OUT-OF-BAND agent turn for an inline comment thread (`id`); `prompt` is the app-assembled thread context (surrounding chat + selected text + prior thread Q&A + new question). Answer streams back via `comment_reply`. A separate isolated query (no `resume`, no tools), NOT the main agent loop — never touches the main session/transcript |
+| app → sidecar | `comment_cancel` | `{ id }` — abort an in-flight `comment_turn` for `id` (on popup close / supersede); no-op if nothing is running |
 | sidecar → app | `ready` | — |
 | sidecar → app | `suggestions` | `{ suggestions: string[] }` — suggested next user replies (answer to `suggest`); empty = none. Shown as pick-to-send chips above the composer (`Suggestions.svelte`) with a "type your own" option |
+| sidecar → app | `comment_reply` | `{ id, delta?, done?, error? }` — streamed answer to a `comment_turn` (thread `id`): `delta` is incremental assistant text, `done` marks completion, `error` a failure. Routed to the comment thread's store (`CommentPopup.svelte`), NEVER the main transcript |
 | sidecar → app | `commands` | `{ commands: {name,description}[] }` — available slash commands (on ready and after `get_commands`) |
 | sidecar → app | `mcp_status` | `{ servers: {name,status}[] }` — MCP server connection statuses (on ready and after `set_mcp_servers`) |
 | sidecar → app | `notification` | `{ message, notificationType? }` — agent wants attention (from the Notification hook); the app raises an OS notification for a backgrounded worktree |
