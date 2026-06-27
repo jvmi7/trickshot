@@ -15,6 +15,7 @@
     ensureSession,
     resetTranscript,
     forgetWorktreeSession,
+    removeComments,
     setCenterView,
     unreadByWorktree,
     clearUnread,
@@ -135,6 +136,7 @@
       await api.removeWorktree(repoPath, wt.path, true);
       resetTranscript(wt.path);
       forgetWorktreeSession(wt.path);
+      removeComments(wt.path);
       clearStatus(wt.path);
       removeWorktreeFromRepo(repoPath, wt.path);
       if ($selectedWorktree === wt.path) selectWorktree(null);

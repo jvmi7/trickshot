@@ -134,7 +134,17 @@ export type Inbound =
   // Ask the provider to generate short suggested NEXT user replies for the given
   // recent-conversation text. Answered async with a `suggestions` Outbound. Runs
   // as a SEPARATE cheap one-shot call, not through the main agent loop.
-  | { kind: "suggest"; conversation: string };
+  | { kind: "suggest"; conversation: string }
+  // Run an OUT-OF-BAND agent turn for an inline comment thread (Notion-style):
+  // the answer streams back as `comment_reply` events tagged with the same `id`
+  // and NEVER enters the main session/transcript. `prompt` is the fully assembled
+  // thread context (surrounding chat + selected text + prior thread Q&A + new
+  // question), built app-side so the sidecar stays stateless. Like `suggest`, it
+  // runs as a SEPARATE isolated one-shot query, not through the main agent loop.
+  | { kind: "comment_turn"; id: string; prompt: string }
+  // Abort an in-flight `comment_turn` for the given thread `id` (on popup close /
+  // supersede). A no-op if nothing is running for that id.
+  | { kind: "comment_cancel"; id: string };
 
 /** Provider-neutral permission modes (mirrors the Claude SDK's `PermissionMode`).
  *  `bypassPermissions` runs every tool without prompting (the historical
@@ -191,4 +201,9 @@ export type Outbound =
   // Suggested next user replies (answer to a `suggest` request). Provider-neutral;
   // empty array = none available (the UI renders nothing). The UI shows these as
   // pick-to-send chips alongside a "type your own" option.
-  | { kind: "suggestions"; suggestions: string[] };
+  | { kind: "suggestions"; suggestions: string[] }
+  // Streamed answer to a `comment_turn`, tagged with the thread `id`. `delta` is
+  // incremental assistant text (one per assistant message, appended in order);
+  // `done` marks the turn complete; `error` carries a failure. Out-of-band — the
+  // app routes these to the comment thread's store, NEVER the main transcript.
+  | { kind: "comment_reply"; id: string; delta?: string; done?: boolean; error?: string };

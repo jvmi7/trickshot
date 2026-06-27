@@ -115,6 +115,16 @@ export const interruptAgent = (worktree: string) => send(worktree, { kind: "inte
 export const requestSuggestions = (worktree: string, conversation: string) =>
   send(worktree, { kind: "suggest", conversation });
 
+/** Run an OUT-OF-BAND agent turn for an inline comment thread. `prompt` is the
+ *  app-assembled thread context; the answer streams back via `comment_reply`
+ *  events tagged with `id`. Never touches the main session/transcript. */
+export const sendCommentTurn = (worktree: string, id: string, prompt: string) =>
+  send(worktree, { kind: "comment_turn", id, prompt });
+
+/** Abort an in-flight comment answer for thread `id` (popup close / supersede). */
+export const cancelComment = (worktree: string, id: string) =>
+  send(worktree, { kind: "comment_cancel", id });
+
 /** Switch the model this worktree's chat uses. The sidecar confirms by
  *  re-emitting a `models` event with the updated `current`. */
 export const setModel = (worktree: string, model: string) =>

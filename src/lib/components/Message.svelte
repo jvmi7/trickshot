@@ -10,11 +10,11 @@
 </script>
 
 {#if m.type === "user_local"}
-  <div class="msg user">
+  <div class="msg user" data-msg-key={m.__key}>
     <div class="body">{m.text}</div>
   </div>
 {:else if m.type === "assistant"}
-  <div class="msg assistant" class:subagent={m.parentId}>
+  <div class="msg assistant" class:subagent={m.parentId} data-msg-key={m.__key}>
     {#if m.parentId}<div class="role">subagent</div>{/if}
     <div class="body"><Markdown text={m.text} /></div>
   </div>

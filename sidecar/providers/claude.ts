@@ -20,6 +20,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { ConnectorInfo, ModelInfo, PermissionMode } from "../../shared/protocol";
+import { streamCommentReply } from "./claudeComment";
 import { toNeutral } from "./claudeMapping";
 import { DEFAULT_MODEL, ratings } from "./claudeModels";
 import { generateSuggestions } from "./claudeSuggest";
@@ -55,6 +56,10 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
   // In-flight suggestion request; aborted when superseded or when the user sends
   // a turn (they've moved on, so a late suggestion is stale).
   let suggestAbort: AbortController | null = null;
+  // In-flight inline-comment answers, keyed by comment thread id. Each is an
+  // isolated query (see claudeComment.ts); a new turn or a cancel for the same id
+  // aborts the prior one. Independent of the main loop and of each other.
+  const commentAborts = new Map<string, AbortController>();
 
   // Single source for the stream-error path: normalize any thrown value and emit
   // it as an `error` Outbound. `onFlush` fires once the line hits stdout (used to
@@ -456,6 +461,50 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
         suggestAbort = null;
         ctx.emit({ kind: "suggestions", suggestions });
       })();
+    },
+
+    commentTurn(id, prompt) {
+      // Supersede any in-flight answer for this thread, then run the isolated query.
+      commentAborts.get(id)?.abort();
+      const abort = new AbortController();
+      commentAborts.set(id, abort);
+      void (async () => {
+        try {
+          await streamCommentReply({
+            prompt,
+            // Answer on the worktree's current model (quality), not the cheap
+            // suggest model — this is a real question, not a tiny text task.
+            model: currentModel,
+            cliPath: ctx.cliPath,
+            projectDir: ctx.projectDir,
+            abort,
+            onDelta: (text) => {
+              // Drop late deltas if a newer turn/cancel superseded this one.
+              if (commentAborts.get(id) !== abort) return;
+              ctx.emit({ kind: "comment_reply", id, delta: text });
+            },
+          });
+          if (commentAborts.get(id) !== abort) return; // superseded/cancelled
+          commentAborts.delete(id);
+          ctx.emit({ kind: "comment_reply", id, done: true });
+        } catch (e) {
+          // A real failure (not an abort). An abort just stops iteration without
+          // throwing, so reaching here means the query errored.
+          if (commentAborts.get(id) !== abort) return;
+          commentAborts.delete(id);
+          ctx.emit({
+            kind: "comment_reply",
+            id,
+            error: e instanceof Error ? e.message : String(e),
+            done: true,
+          });
+        }
+      })();
+    },
+
+    cancelComment(id) {
+      commentAborts.get(id)?.abort();
+      commentAborts.delete(id);
     },
   };
 }
