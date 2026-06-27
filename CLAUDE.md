@@ -42,7 +42,7 @@ The line-delimited JSON protocol (`Inbound` / `Outbound` `kind` unions) plus the
 - `src-tauri/src/agent.rs` — the `AgentEvent { worktree, kind, data }` struct emitted on `agent-event`. **No compiler link to the TS side — still hand-mirrored.**
 - `ARCHITECTURE.md` — the human-readable protocol + command tables.
 
-**When you add or change a `kind`, payload, or the event envelope, edit `shared/protocol.ts`, the Rust struct (if the envelope changes), and `ARCHITECTURE.md` in the SAME commit.** A one-sided edit toward Rust is silently ignored: `api.ts` swallows unparseable stdout lines, so nothing throws — it just breaks. Both TS ends are now typechecked in CI (`check` for the webview, `check:sidecar` for the sidecar+shared) and `core.ts`'s dispatch + `App.svelte`'s consumer have `never` exhaustiveness guards, so an unhandled new `kind` is a COMPILE error on the TS side; the Rust ↔ TS match is still on you.
+**When you add or change a `kind`, payload, or the event envelope, edit `shared/protocol.ts`, the Rust struct (if the envelope changes), and `ARCHITECTURE.md` in the SAME commit.** A one-sided edit toward Rust is silently ignored: `api.ts` swallows unparseable stdout lines, so nothing throws — it just breaks. Both TS ends are now typechecked in CI (`check` for the webview, `check:sidecar` for the sidecar+shared) and `core.ts`'s dispatch + `App.svelte`'s consumer have `never` exhaustiveness guards, so an unhandled new `kind` is a COMPILE error on the TS side; the Rust ↔ TS match is still on you. That remaining hand-mirrored seam (and the docs↔code tables) is now guarded by `src/lib/conformance.test.ts` — a `bun test` that fails when a wire `kind` is undocumented, the `lib.rs` command set ≠ the `api.ts` `invoke()` set, the `AgentEvent` struct ≠ `AgentEnvelope`, or the theme/font CSS fallbacks drift from their TS source. Add the matching doc/code entry in the same commit and it stays green; forget one and CI catches it.
 
 Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 - Command **args are camelCase** (`repoPath`, `worktree`, `worktreePath`, `baseRef`, `payload`); Rust commands declare them snake_case and Tauri maps automatically.
@@ -58,6 +58,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Per-worktree state: persisted repos, worktrees, selection, session status, etc. — each a `createWorktreeMap<T>` (store + `set`/`update`/`remove`/`active`, optionally persisted) | `src/lib/stores.ts` |
 | Transcript engine: per-worktree message log — batched `appendMessage`, persistence, windowing, tool-call grouping | `src/lib/transcript.ts` (re-exported via `stores.ts`) |
 | Agent-event router: the central reducer over the sidecar stream (`handleAgentEvent`/`handleSessionStatus`) | `src/lib/agentEvents.ts` (wired in `App.svelte`) |
+| Cross-process conformance gates (the no-compiler-link seams: kinds↔docs, commands↔api↔docs, `AgentEvent`↔`AgentEnvelope`, theme/font CSS fallbacks, no raw IPC in `.svelte`) | `src/lib/conformance.test.ts` |
 | UI components (one per concern) | `src/lib/components/*.svelte` |
 | Tool-label helpers for the loading footer | `src/lib/agentMessage.ts` |
 | Neutral `AgentMessage` rendering (branches on `type`) | `src/lib/components/Message.svelte` |
@@ -146,6 +147,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 Test **pure, deterministic logic**; don't test I/O, UI, or the live agent loop. The bar is "branchy logic that would silently break" — parsers, reducers, native→neutral mappers, the transcript engine.
 
 - DO colocate a `*.test.ts` next to the module and run it with `bun test`. The existing set IS the template: `transcript.test.ts` (batching/windowing/grouping), `agentEvents.test.ts` (the event reducer), `sidecar/providers/claude.test.ts` (the `claudeMapping` native→neutral conversion + `claudeSuggest`). Extend the matching file when you touch that logic; add a sibling `*.test.ts` for a new pure module.
+- DO put the cross-process "do these hand-mirrored seams still line up?" checks in `src/lib/conformance.test.ts` (the ONE home for them) — it reads source/docs as text and asserts the protocol/command/envelope/theme/font seams that have no compiler link. It's the exception to "test pure logic only": it guards the SYNC RULE so drift fails CI instead of production. Extend it (don't fork a parallel checker) when you add a seam that the compiler can't see.
 - DO put Rust parser/helper tests in an inline `#[cfg(test)] mod tests` in the same file (see `worktree.rs`'s git status/diff parsers), run by `cargo test`.
 - DON'T write tests for Svelte components, `api.ts` IPC plumbing, Rust command wiring, or anything that needs a running sidecar/`claude` binary — those are covered by the typecheck/clippy gates and the CI prod-build job, not unit tests.
 
