@@ -77,7 +77,8 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
     })();
 
   // Historical default is bypassPermissions (silent tool use); the app overrides
-  // it per-worktree via the PERMISSION_MODE env (read into ctx by core.ts).
+  // it per-worktree via the SESSION_CONFIG blob (config.permissionMode, parsed
+  // into ctx by core.ts).
   const initialPermissionMode: PermissionMode = ctx.permissionMode ?? "bypassPermissions";
 
   // Gate one tool call. The SDK calls this ONLY when the active permission mode

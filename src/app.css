@@ -512,7 +512,6 @@
   --app-text: var(--base-text);
   --app-dim: var(--base-text-muted);
   --app-accent: var(--base-accent);
-  --app-accent-text: var(--base-on-accent);
   --app-danger: var(--base-danger);
   /* Text-selection colors — theme-driven, derived from the base palette (no raw hex).
      Selected text recolors to the brand accent; the highlight fill is the per-theme

@@ -2,7 +2,8 @@
 // `AgentMessage`/`ModelInfo`) live in `shared/protocol.ts` and are imported by
 // BOTH this file and the sidecar (`sidecar/core.ts`) so the two TS mirrors can't
 // drift. This file re-exports them and adds the app-only types (`TranscriptMessage`,
-// `Worktree`, `Repo`, `AgentEnvelope`). The sidecar writes one JSON object per
+// `Worktree`, `Repo`, the git-review `GitFileStatus`/`GitStatus`, the subscription
+// `UsageWindow`/`UsageInfo`, and the `AgentEnvelope` event wrapper). The sidecar writes one JSON object per
 // line to stdout; Rust relays each line as a worktree-tagged `agent-event` Tauri
 // event; api.ts parses them.
 

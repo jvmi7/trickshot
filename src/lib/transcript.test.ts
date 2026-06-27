@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { get } from "svelte/store";
 import {
   appendMessage,
   bufferedMessages,
@@ -6,10 +7,14 @@ import {
   hiddenCount,
   indexToolResults,
   RENDER_WINDOW,
+  resetTranscript,
   summarizeConversation,
+  transcripts,
   windowTail,
 } from "./transcript";
 import type { TranscriptMessage } from "./types";
+
+const tick = () => new Promise((r) => setTimeout(r, 25)); // > the 16ms append flush
 
 // Helpers build transcript messages with a `__key` so grouping keys are stable.
 let k = 0;
@@ -118,5 +123,40 @@ describe("appendMessage / bufferedMessages", () => {
     const buf = bufferedMessages(wt);
     expect(buf.length).toBe(before + 1);
     expect(typeof buf[buf.length - 1]?.__key).toBe("number");
+  });
+
+  test("a burst of appends coalesces into one flushed list", async () => {
+    const wt = `wt-burst-${Math.random()}`;
+    for (let i = 0; i < 20; i++) appendMessage(wt, { type: "user_local", text: `m${i}` });
+    // All 20 sit in the buffer until the 16ms flush lands them in the store.
+    expect(bufferedMessages(wt)).toHaveLength(20);
+    expect(get(transcripts)[wt]).toBeUndefined();
+    await tick();
+    expect(bufferedMessages(wt)).toHaveLength(0);
+    expect(get(transcripts)[wt]).toHaveLength(20);
+  });
+});
+
+describe("resetTranscript", () => {
+  test("drops the un-flushed buffer so a recreated worktree inherits nothing", async () => {
+    const wt = `wt-reset-${Math.random()}`;
+    appendMessage(wt, { type: "user_local", text: "stale" });
+    expect(bufferedMessages(wt)).toHaveLength(1); // buffered, not yet flushed
+    resetTranscript(wt);
+    // Both the buffer AND the store entry must be empty immediately…
+    expect(bufferedMessages(wt)).toHaveLength(0);
+    expect(get(transcripts)[wt]).toEqual([]);
+    // …and the dropped message must NOT reappear when the flush timer fires.
+    await tick();
+    expect(get(transcripts)[wt]).toEqual([]);
+  });
+
+  test("clears a previously flushed transcript", async () => {
+    const wt = `wt-reset2-${Math.random()}`;
+    appendMessage(wt, { type: "user_local", text: "one" });
+    await tick();
+    expect(get(transcripts)[wt]).toHaveLength(1);
+    resetTranscript(wt);
+    expect(get(transcripts)[wt]).toEqual([]);
   });
 });

@@ -14,10 +14,11 @@ export interface ProviderContext {
   projectDir: string;
   /** Prior session id to resume; provider-specific, may be ignored. */
   resumeSessionId?: string;
-  /** Initial permission mode for tool use, set per-worktree by Rust via the
-   *  PERMISSION_MODE env (see core.ts) and defaulting to bypassPermissions.
-   *  A non-bypass value activates the canUseTool path so the app's Allow/Deny
-   *  modal becomes a real kill-switch; switchable live via setPermissionMode. */
+  /** Initial permission mode for tool use, set per-worktree via the SESSION_CONFIG
+   *  blob (`config.permissionMode`, parsed in core.ts) and defaulting to
+   *  bypassPermissions. A non-bypass value activates the canUseTool path so the
+   *  app's Allow/Deny modal becomes a real kill-switch; switchable live via
+   *  setPermissionMode. */
   permissionMode?: PermissionMode;
   /** Optional text appended to the preset system prompt for custom behavior. */
   systemPromptAppend?: string;
