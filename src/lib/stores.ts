@@ -459,8 +459,9 @@ export async function refreshUsage(force = false) {
 // ---- Per-worktree permission mode (persisted) ----
 // Controls how the agent's tool use is gated. `bypassPermissions` (the historical
 // default) runs every tool silently; the others route tool use through the
-// Allow/Deny modal. Applied at session start (PERMISSION_MODE env) and switched
-// live via the `set_permission_mode` command.
+// Allow/Deny modal. Applied at session start (via the SESSION_CONFIG blob's
+// `permissionMode`, see ensureSession) and switched live via the
+// `set_permission_mode` command.
 const PERMISSION_MODES: PermissionMode[] = ["bypassPermissions", "acceptEdits", "default", "plan"];
 const _permMode = createWorktreeMap<PermissionMode>({
   persistKey: "trickshot.permissionModeByWorktree",
@@ -607,8 +608,14 @@ export function requestOnce(
 /** Build a compact recent-conversation string for a worktree to seed suggestion
  *  generation. Combines the persisted transcript with the un-flushed buffer so the
  *  just-ended turn is present, then defers to the pure `summarizeConversation`. */
-export function recentConversation(worktree: string, maxMessages = 8, maxChars = 400): string {
+export function recentConversation(
+  worktree: string,
+  maxMessages?: number,
+  maxChars?: number,
+): string {
   const all = (get(transcripts)[worktree] ?? []).concat(bufferedMessages(worktree));
+  // Pass through (undefined falls back to summarizeConversation's own defaults) so
+  // the message/char caps live in ONE place, not duplicated here.
   return summarizeConversation(all, maxMessages, maxChars);
 }
 

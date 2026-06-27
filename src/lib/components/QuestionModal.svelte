@@ -70,6 +70,9 @@
 
     {#if $activeQuestion}
       <div class="flex flex-col gap-5">
+        <!-- Keyed by index on purpose: a question_request is replaced wholesale per
+             prompt (never mutated in place) and `selections` is index-aligned and
+             reset on id change, so index ↔ selection can't desync. -->
         {#each $activeQuestion.questions as q, qi (qi)}
           <div class="flex flex-col gap-2">
             <div class="flex items-baseline gap-2">

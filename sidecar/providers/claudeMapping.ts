@@ -49,6 +49,8 @@ export function toNeutral(msg: SDKMessage): AgentMessage[] {
   switch (msg.type) {
     case "assistant": {
       const out: AgentMessage[] = [];
+      // Only `text` and `tool_use` blocks map to transcript bubbles; `thinking`
+      // (extended-thinking) blocks are intentionally NOT rendered as prose.
       for (const b of contentBlocks(msg)) {
         if (b?.type === "text" && typeof b.text === "string") {
           out.push({ type: "assistant", text: b.text, ...sub });

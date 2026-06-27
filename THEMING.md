@@ -38,15 +38,22 @@ entire UI follows.
 | `text` | `--base-text` | primary text | `--foreground` + `*-foreground` | `--app-text` |
 | `textMuted` | `--base-text-muted` | dim / secondary text | `--muted-foreground` | `--app-dim` |
 | `accent` | `--base-accent` | brand accent | `--primary`, `--ring`, `--sidebar-primary/ring`, `--chart-1` | `--app-accent`, `--app-selection-text` |
-| `onAccent` | `--base-on-accent` | text/icon on accent fills | `--primary-foreground` | `--app-accent-text` |
+| `onAccent` | `--base-on-accent` | text/icon on accent fills | `--primary-foreground` | — (consumed via `--primary-foreground`) |
 | `danger` | `--base-danger` | errors / destructive | `--destructive` | `--app-danger` |
-| `success` | `--base-success` | online / running dot | `--chart-2` | — (`.dot.on`) |
-| `info` / `warning` / `special` | `--base-info` / `-warning` / `-special` | chart accents | `--chart-3/4/5` | — |
+| `success` | `--base-success` | online / running dot, diff additions | `--chart-2`† | — (`.dot.on`, `.diff-add`, diffstat, `.hljs-string`) |
+| `info` / `warning` / `special` | `--base-info` / `-warning` / `-special` | chart accents + syntax/state hues | `--chart-3/4/5`† | — (`warning`→`.wt-pending`/`.hljs-number`; `special`→`.hljs-keyword`) |
 | `overlay` | `--base-overlay` | modal scrim | — (`[data-slot=dialog-overlay]`) | — |
 | `selection` | `--base-selection` | text-selection highlight *fill* (rendered at 20%); selected text recolors to `--base-accent` (`::selection`, `.ph-sel`) | — | `--app-selection-bg` |
 
 \* In a dark theme `onAccent` and `bg` often share a value; they're separate keys so a
 light theme can decouple them.
+
+† The shadcn `--chart-*` tokens are stock-registry scaffolding with **no current UI
+consumer** (no chart/badge component renders them yet), so `--chart-1/2/3/4/5` — and
+`--base-info`, which feeds only `--chart-3` — are presently inert. They're kept for
+registry compatibility (like the inert light `:root` values); a future shadcn `Chart`
+would consume them. `success`/`warning`/`special` are still live via their non-chart
+consumers above.
 
 ## Adding / removing a theme
 

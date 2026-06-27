@@ -2,11 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { get } from "svelte/store";
 import { handleAgentEvent, handleSessionStatus } from "./agentEvents";
 import {
+  availableModels,
+  connectorsByWorktree,
+  modelByWorktree,
   pendingPermission,
   pendingQuestion,
+  selectedWorktree,
   sessionByWorktree,
   sessionStatus,
   transcripts,
+  turnSummary,
+  worktreeActivity,
 } from "./stores";
 
 // A fresh worktree key per test so store state never collides across tests.
@@ -57,6 +63,47 @@ describe("handleAgentEvent dispatch", () => {
     // The error channel must NOT unstick the session (it may be a non-fatal error
     // mid-turn) — status stays whatever it was.
     expect(get(sessionStatus)[w]).toBe("ready");
+  });
+});
+
+describe("handleAgentEvent — models", () => {
+  test("publishes the catalog and adopts current when no persisted choice differs", () => {
+    const w = wt();
+    const models = [
+      { value: "m1", displayName: "M1" },
+      { value: "m2", displayName: "M2" },
+    ];
+    handleAgentEvent(w, { kind: "models", models, current: "m2" });
+    expect(get(availableModels)).toEqual(models);
+    // No persisted choice for this fresh worktree → adopt the sidecar's current.
+    expect(get(modelByWorktree)[w]).toBe("m2");
+  });
+});
+
+describe("handleAgentEvent — connectors", () => {
+  test("stores the connector list; toggles nothing when no preference is set", () => {
+    const w = wt();
+    const servers = [{ name: "fs", status: "connected" as const, tools: [] }];
+    handleAgentEvent(w, { kind: "connectors", servers });
+    // want === undefined for every server (no global pref) → setConnectors only.
+    expect(get(connectorsByWorktree)[w]).toEqual(servers);
+  });
+});
+
+describe("handleAgentEvent — turn_end", () => {
+  test("ends the turn: ready status, a summary from activity, activity cleared", () => {
+    const w = wt();
+    // Foreground path (selected) so no OS notification / background unread fires.
+    selectedWorktree.set(w);
+    // A tool_call seeds the activity (a step + startedAt) that the summary reads.
+    handleAgentEvent(w, {
+      kind: "message",
+      message: { type: "tool_call", id: "t1", name: "Bash", input: {} },
+    });
+    handleAgentEvent(w, { kind: "message", message: { type: "turn_end" } });
+    expect(get(sessionStatus)[w]).toBe("ready");
+    expect(get(turnSummary)[w]).toMatchObject({ steps: 1 });
+    expect(get(worktreeActivity)[w]).toBeUndefined(); // cleared on turn end
   });
 });
 
