@@ -22,6 +22,8 @@ function parseSessionConfig(raw: string | undefined): SessionConfig {
   if (!raw) return {};
   try {
     const v = JSON.parse(raw);
+    // Cast WHY: the blob was serialized from the app's own `SessionConfig`; the
+    // plain-object guard is the only runtime check we make on the wire boundary.
     return v && typeof v === "object" && !Array.isArray(v) ? (v as SessionConfig) : {};
   } catch {
     return {};

@@ -55,7 +55,9 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | IPC surface (the only one) | `src/lib/api.ts` |
 | Wire protocol unions, provider-neutral (`Inbound`/`Outbound`/`AgentMessage`/`ModelInfo`) | `shared/protocol.ts` |
 | Protocol re-export + app-side types (`TranscriptMessage`/`Worktree`/`Repo`/`AgentEnvelope`) | `src/lib/types.ts` |
-| Per-worktree state: persisted repos, worktrees, selection, session status, per-worktree transcripts (`appendMessage` batching) | `src/lib/stores.ts` |
+| Per-worktree state: persisted repos, worktrees, selection, session status, etc. — each a `createWorktreeMap<T>` (store + `set`/`update`/`remove`/`active`, optionally persisted) | `src/lib/stores.ts` |
+| Transcript engine: per-worktree message log — batched `appendMessage`, persistence, windowing, tool-call grouping | `src/lib/transcript.ts` (re-exported via `stores.ts`) |
+| Agent-event router: the central reducer over the sidecar stream (`handleAgentEvent`/`handleSessionStatus`) | `src/lib/agentEvents.ts` (wired in `App.svelte`) |
 | UI components (one per concern) | `src/lib/components/*.svelte` |
 | Tool-label helpers for the loading footer | `src/lib/agentMessage.ts` |
 | Neutral `AgentMessage` rendering (branches on `type`) | `src/lib/components/Message.svelte` |
