@@ -114,10 +114,12 @@
   const showPhCaret = $derived(alive && focused && text === "");
 
   // Slash-command palette: while typing a leading "/<name>" (no space yet), show
-  // matching session commands. Resiliently (re-)request the list when missing.
+  // matching session commands. Resiliently (re-)request the list when missing; the
+  // instance-scoped `seen` Set lets a remount/session-restart re-request.
+  const requestedCmds = new Set<string>();
   $effect(() => {
     if (wt && alive && $availableCommands.length === 0) {
-      requestOnce(wt, "commands", api.requestCommands);
+      requestOnce(requestedCmds, wt, "commands", api.requestCommands);
     }
   });
   const cmdQuery = $derived(

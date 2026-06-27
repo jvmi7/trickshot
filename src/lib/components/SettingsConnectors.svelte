@@ -40,9 +40,12 @@
     const sel = $selectedWorktree;
     if (sel && !alive(sel)) ensureSession(sel).then(() => setStatus(sel, "ready")).catch(() => {});
   });
+  // Instance-scoped so reopening Settings (a remount) re-requests if the catalog
+  // is still empty — the resilience the prior per-mount Set provided.
+  const requested = new Set<string>();
   $effect(() => {
     if (sourceWt && alive(sourceWt) && servers.length === 0) {
-      requestOnce(sourceWt, "connectors", api.requestConnectors);
+      requestOnce(requested, sourceWt, "connectors", api.requestConnectors);
     }
   });
 

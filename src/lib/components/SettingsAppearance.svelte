@@ -5,8 +5,10 @@
   import * as api from "../api";
   import {
     font,
+    setFont,
     FONTS,
     theme,
+    setTheme,
     THEMES,
     systemPromptAppend,
     selectedWorktree,
@@ -59,7 +61,7 @@
 <div class="flex flex-col gap-4">
   <div class="flex items-center justify-between gap-4">
     <span class="text-sm text-muted-foreground">Theme</span>
-    <Select.Root type="single" value={$theme} onValueChange={(v) => v && theme.set(v)}>
+    <Select.Root type="single" value={$theme} onValueChange={(v) => v && setTheme(v)}>
       <Select.Trigger class="w-44" aria-label="Color theme">{themeLabel}</Select.Trigger>
       <Select.Content align="end">
         {#each THEMES as t (t.id)}
@@ -71,7 +73,7 @@
 
   <div class="flex items-center justify-between gap-4">
     <span class="text-sm text-muted-foreground">Font</span>
-    <Select.Root type="single" value={$font} onValueChange={(v) => v && font.set(v)}>
+    <Select.Root type="single" value={$font} onValueChange={(v) => v && setFont(v)}>
       <Select.Trigger class="w-44" aria-label="UI font">{fontLabel}</Select.Trigger>
       <Select.Content align="end">
         {#each FONTS as f (f.id)}

@@ -70,11 +70,31 @@ function createPersisted<T>(
   return store;
 }
 
+/** A persisted store of a raw string (identity parse/serialize) — the JSON
+ *  helpers' string counterpart. Optional `validate` clamps a stored value to a
+ *  known set (e.g. theme/font ids), falling back when it doesn't match. */
+function createPersistedString(
+  key: string,
+  fallback = "",
+  validate?: (raw: string) => string,
+): Writable<string> {
+  return createPersisted<string>(key, fallback, {
+    parse: validate ?? ((raw) => raw),
+    serialize: (v) => v,
+  });
+}
+
+/** The shape guard shared by every "is this a plain JSON object?" check
+ *  (object, not null, not array). */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
 /** `createPersisted` parse fn for "a JSON object map of V" with the standard
- *  shape guard (object, not array). Anything else → the empty map. */
+ *  shape guard. Anything else → the empty map. */
 function parseJsonObject<V>(raw: string): Record<string, V> {
   const v = JSON.parse(raw);
-  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, V>) : {};
+  return isPlainObject(v) ? (v as Record<string, V>) : {};
 }
 
 /** Parse a free-text JSON config blob (MCP servers / agent defs) into an object,
@@ -84,7 +104,7 @@ function parseConfigBlob(raw: string): Record<string, unknown> | undefined {
   if (!trimmed) return undefined;
   try {
     const v = JSON.parse(trimmed);
-    return v && typeof v === "object" && !Array.isArray(v) ? v : undefined;
+    return isPlainObject(v) ? v : undefined;
   } catch {
     return undefined;
   }
@@ -163,13 +183,16 @@ export interface ThemeOption {
 export const THEMES: ThemeOption[] = THEME_DEFS.map((t) => ({ id: t.id, label: t.label }));
 /** Active theme id. Reflects to `<html data-theme>` (which the `--base-*`
  *  override blocks key off) and persists to localStorage. */
-export const theme = createPersisted<string>("trickshot.theme", DEFAULT_THEME, {
-  parse: (raw) => (THEMES.some((t) => t.id === raw) ? raw : DEFAULT_THEME),
-  serialize: (v) => v,
-});
+export const theme = createPersistedString("trickshot.theme", DEFAULT_THEME, (raw) =>
+  THEMES.some((t) => t.id === raw) ? raw : DEFAULT_THEME,
+);
 theme.subscribe((t) => {
   if (typeof document !== "undefined") document.documentElement.dataset.theme = t;
 });
+/** Switch the active theme (validated against THEMES by the store's parse). */
+export function setTheme(id: string) {
+  theme.set(id);
+}
 
 // ---- Persisted repos ----
 /** Repos added to the sidebar. Persisted to localStorage. */
@@ -313,10 +336,7 @@ export function setAvailableCommands(commands: SlashCommandInfo[]) {
 // ---- MCP integrations ----
 // MCP server config is a JSON object (same shape as `.mcp.json`'s `mcpServers`),
 // edited as raw JSON in Settings and applied at session start / live. Persisted.
-export const mcpServersJson = createPersisted<string>("trickshot.mcpServersJson", "", {
-  parse: (raw) => raw,
-  serialize: (v) => v,
-});
+export const mcpServersJson = createPersistedString("trickshot.mcpServersJson");
 /** Parse the saved MCP JSON into a config object, or undefined if empty/invalid. */
 export function getMcpServers(): Record<string, unknown> | undefined {
   return parseConfigBlob(get(mcpServersJson));
@@ -331,10 +351,7 @@ export function setMcpStatus(servers: McpStatusInfo[]) {
 // Optional user-defined subagents as JSON (Record<name, {description, prompt,
 // model?, tools?, ...}>), edited in Settings and applied at session start.
 // Repo `.claude/agents` are also loaded automatically via settingSources.
-export const agentsJson = createPersisted<string>("trickshot.agentsJson", "", {
-  parse: (raw) => raw,
-  serialize: (v) => v,
-});
+export const agentsJson = createPersistedString("trickshot.agentsJson");
 /** Parse the saved subagents JSON into a config object, or undefined if empty/invalid. */
 export function getAgents(): Record<string, unknown> | undefined {
   return parseConfigBlob(get(agentsJson));
@@ -469,21 +486,21 @@ export const FONTS: FontOption[] = [
   { id: "sn-pro", label: "SN Pro" },
 ];
 /** Active font id. Reflects to `<html data-font>` and persists. */
-export const font = createPersisted<string>("trickshot.font", "sans-code", {
-  parse: (raw) => (FONTS.some((f) => f.id === raw) ? raw : "sans-code"),
-  serialize: (v) => v,
-});
+export const font = createPersistedString("trickshot.font", "sans-code", (raw) =>
+  FONTS.some((f) => f.id === raw) ? raw : "sans-code",
+);
 font.subscribe((f) => {
   if (typeof document !== "undefined") document.documentElement.dataset.font = f;
 });
+/** Switch the active font (validated against FONTS by the store's parse). */
+export function setFont(id: string) {
+  font.set(id);
+}
 
 // ---- Custom system-prompt append (global, persisted) ----
 // Appended to the `claude_code` preset system prompt at session start (applies to
 // NEW sessions; existing ones need a restart). Empty = no append.
-export const systemPromptAppend = createPersisted<string>("trickshot.systemPromptAppend", "", {
-  parse: (raw) => raw,
-  serialize: (v) => v,
-});
+export const systemPromptAppend = createPersistedString("trickshot.systemPromptAppend");
 
 // ---- Per-worktree agent session id (for resume) ----
 // The SDK reports a session_id on every message; we persist the latest per
@@ -627,14 +644,23 @@ export function ensureSession(worktree: string): Promise<void> {
   });
 }
 
-const _requestedOnce = new Set<string>();
-/** Fire `request(worktree)` at most once per (worktree, key) pair — the resilient
- *  "(re-)request when the list is still empty" pattern shared by the model /
- *  command / connector fetchers (the ready-time broadcast can race the listener). */
-export function requestOnce(worktree: string, key: string, request: (wt: string) => void) {
-  const id = `${key} ${worktree}`;
-  if (_requestedOnce.has(id)) return;
-  _requestedOnce.add(id);
+/** Fire `request(worktree)` at most once per (worktree, key) pair within the
+ *  lifetime of the caller-owned `seen` Set — the resilient "(re-)request when the
+ *  list is still empty" pattern shared by the model / command / connector fetchers
+ *  (the ready-time broadcast can race the listener). The Set is passed IN (one per
+ *  component instance) on purpose: scoping it to the component means it resets when
+ *  the component remounts or its session restarts, so a lost broadcast recovers on
+ *  the next mount. A module-global Set would latch the request for the whole app
+ *  lifetime and never re-fire. */
+export function requestOnce(
+  seen: Set<string>,
+  worktree: string,
+  key: string,
+  request: (wt: string) => void,
+) {
+  const id = `${key} ${worktree}`;
+  if (seen.has(id)) return;
+  seen.add(id);
   request(worktree);
 }
 

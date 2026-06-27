@@ -289,7 +289,7 @@
   }
   .wt-file.active,
   .wt-file:hover {
-    background: var(--app-panel);
+    background: var(--accent);
   }
   .wt-file-main {
     display: flex;

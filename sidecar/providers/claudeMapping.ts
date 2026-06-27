@@ -20,14 +20,20 @@ export type ContentBlock = {
   is_error?: unknown;
 };
 
+/** The single site that reads an SDK message's `message.content` into a typed
+ *  block array (loose `unknown` → `ContentBlock[]`, empty when absent). Every
+ *  content walk below goes through here so the SDK-shape access lives in one place. */
+function contentBlocks(msg: SDKMessage): ContentBlock[] {
+  const content = (msg as { message?: { content?: unknown } }).message?.content;
+  return (Array.isArray(content) ? content : []) as ContentBlock[];
+}
+
 /** Read an assistant message's content blocks into a single concatenated string
  *  of its `text` blocks (ignores tool_use blocks). The one-shot suggestion path
- *  reuses this so it doesn't re-walk the SDK content shape (one parsing site). */
+ *  reuses this so it doesn't re-walk the SDK content shape. */
 export function assistantText(msg: SDKMessage): string {
-  const content = (msg as { message?: { content?: unknown } }).message?.content;
-  const blocks = (Array.isArray(content) ? content : []) as ContentBlock[];
   let text = "";
-  for (const b of blocks) {
+  for (const b of contentBlocks(msg)) {
     if (b?.type === "text" && typeof b.text === "string") text += b.text;
   }
   return text;
@@ -42,10 +48,8 @@ export function toNeutral(msg: SDKMessage): AgentMessage[] {
   const sub = parentId ? { parentId } : {};
   switch (msg.type) {
     case "assistant": {
-      const content = (msg as { message?: { content?: unknown } }).message?.content;
-      const blocks = (Array.isArray(content) ? content : []) as ContentBlock[];
       const out: AgentMessage[] = [];
-      for (const b of blocks) {
+      for (const b of contentBlocks(msg)) {
         if (b?.type === "text" && typeof b.text === "string") {
           out.push({ type: "assistant", text: b.text, ...sub });
         } else if (b?.type === "tool_use") {
@@ -61,10 +65,8 @@ export function toNeutral(msg: SDKMessage): AgentMessage[] {
       return out;
     }
     case "user": {
-      const content = (msg as { message?: { content?: unknown } }).message?.content;
-      const blocks = (Array.isArray(content) ? content : []) as ContentBlock[];
       const out: AgentMessage[] = [];
-      for (const b of blocks) {
+      for (const b of contentBlocks(msg)) {
         if (b?.type === "tool_result") {
           out.push({
             type: "tool_result",
