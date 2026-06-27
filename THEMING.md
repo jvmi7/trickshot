@@ -37,13 +37,13 @@ entire UI follows.
 | `border` | `--base-border` | dividers, inputs | `--border`, `--input`, `--sidebar-border` | `--app-border` |
 | `text` | `--base-text` | primary text | `--foreground` + `*-foreground` | `--app-text` |
 | `textMuted` | `--base-text-muted` | dim / secondary text | `--muted-foreground` | `--app-dim` |
-| `accent` | `--base-accent` | brand accent | `--primary`, `--ring`, `--sidebar-primary/ring`, `--chart-1` | `--app-accent` |
+| `accent` | `--base-accent` | brand accent | `--primary`, `--ring`, `--sidebar-primary/ring`, `--chart-1` | `--app-accent`, `--app-selection-text` |
 | `onAccent` | `--base-on-accent` | text/icon on accent fills | `--primary-foreground` | `--app-accent-text` |
 | `danger` | `--base-danger` | errors / destructive | `--destructive` | `--app-danger` |
 | `success` | `--base-success` | online / running dot | `--chart-2` | — (`.dot.on`) |
 | `info` / `warning` / `special` | `--base-info` / `-warning` / `-special` | chart accents | `--chart-3/4/5` | — |
 | `overlay` | `--base-overlay` | modal scrim | — (`[data-slot=dialog-overlay]`) | — |
-| `selection` | `--base-selection` | text-selection highlight *background*; selected text recolors to `--base-accent` + glows (`::selection`) | — | — |
+| `selection` | `--base-selection` | text-selection highlight *fill* (rendered at 20%); selected text recolors to `--base-accent` (`::selection`, `.ph-sel`) | — | `--app-selection-bg` |
 
 \* In a dark theme `onAccent` and `bg` often share a value; they're separate keys so a
 light theme can decouple them.

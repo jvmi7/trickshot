@@ -44,7 +44,7 @@ export interface ThemePalette {
   special: string;
   /** modal scrim */
   overlay: string;
-  /** text-selection highlight background (selected text recolors to accent + glows) */
+  /** text-selection highlight fill, rendered at 20% (selected text recolors to --base-accent) */
   selection: string;
 }
 

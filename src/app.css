@@ -352,7 +352,7 @@
   --base-warning: #d9b257;        /* chart / warning */
   --base-special: #b57fd9;        /* chart / extra */
   --base-overlay: rgb(0 0 0 / 0.5); /* modal scrim */
-  --base-selection: #837c7c; /* text-selection highlight base (neutral grey); ::selection itself is blue */
+  --base-selection: #837c7c; /* text-selection highlight fill (rendered at 20%); selected text uses --base-accent */
 }
 
 /* Named themes are NO LONGER hand-written here. They live in `src/lib/themes.ts`
@@ -514,12 +514,12 @@
   --app-accent: var(--base-accent);
   --app-accent-text: var(--base-on-accent);
   --app-danger: var(--base-danger);
-  /* Text-selection colors (fixed blue, theme-constant). The text and the highlight
-     fill are independent colors; the fill renders at 20%. Shared by ::selection and
-     the placeholder .ph-sel so they render identically. */
-  --app-selection-text: #009dff; /* selected text */
-  --app-selection-fill: #0066ff; /* highlight base color (rendered at 20% below) */
-  --app-selection-bg: color-mix(in srgb, var(--app-selection-fill) 20%, transparent);
+  /* Text-selection colors — theme-driven, derived from the base palette (no raw hex).
+     Selected text recolors to the brand accent; the highlight fill is the per-theme
+     `selection` tone rendered at 20%. Shared by ::selection and the placeholder
+     .ph-sel so they render identically. */
+  --app-selection-text: var(--base-accent); /* selected text → brand accent */
+  --app-selection-bg: color-mix(in srgb, var(--base-selection) 20%, transparent);
   /* Markdown prose palette (see Markdown.svelte / `.markdown` below). Color is
      reserved for CODE only — prose (titles, body, links) all share `--app-text`.
      The inline-code chip + code identifiers route through `--base-accent` so they
@@ -964,10 +964,9 @@ html, body {
   background-color: var(--base-overlay);
 }
 
-/* Text-selection highlight: a blue fill + blue text + soft glow (text-shadow is
-   one of the few properties ::selection honors), all from the theme blue. */
+/* Text-selection highlight: accent-colored text on the per-theme selection tone at
+   20% — all from the base palette (shared tokens; .ph-sel matches exactly). */
 ::selection {
-  /* Blue text on the same blue at 20% (shared tokens; .ph-sel matches exactly). */
   background-color: var(--app-selection-bg);
   color: var(--app-selection-text);
 }
