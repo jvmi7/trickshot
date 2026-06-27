@@ -126,9 +126,8 @@ export type Inbound =
   | { kind: "get_commands" }
   | { kind: "interrupt" }
   // Provider-specific MCP server config (opaque blob, e.g. `.mcp.json`'s
-  // `mcpServers`). Applied live; `get_mcp_status` requests a status refresh.
+  // `mcpServers`). Applied live; the provider re-emits `mcp_status` after.
   | { kind: "set_mcp_servers"; servers: Record<string, unknown> }
-  | { kind: "get_mcp_status" }
   // Answer to a `question_request`: per-question, the chosen option labels (one
   // for single-select, one-or-more for multiSelect). Order mirrors `questions`.
   | { kind: "question_reply"; id: string; answers: string[][] }
@@ -156,7 +155,7 @@ export type Outbound =
   | { kind: "error"; error: string }
   // The session's available slash commands (on ready and after get_commands).
   | { kind: "commands"; commands: SlashCommandInfo[] }
-  // MCP server connection statuses (on ready and after get_mcp_status / set_mcp_servers).
+  // MCP server connection statuses (on ready and after set_mcp_servers).
   | { kind: "mcp_status"; servers: McpStatusInfo[] }
   // The agent wants attention (e.g. needs input). The app may raise an OS
   // notification, especially for a backgrounded (non-selected) worktree.

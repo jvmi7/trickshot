@@ -79,9 +79,6 @@ export function run(cliPath: string) {
       case "get_commands":
         provider.publishCommands();
         break;
-      case "get_mcp_status":
-        provider.publishMcpStatus();
-        break;
       case "set_mcp_servers":
         provider.setMcpServers(cmd.servers);
         break;

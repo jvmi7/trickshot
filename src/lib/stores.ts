@@ -1,4 +1,4 @@
-import { derived, get, writable } from "svelte/store";
+import { derived, get, type Writable, writable } from "svelte/store";
 import * as api from "./api";
 import { DEFAULT_THEME, THEMES as THEME_DEFS } from "./themes";
 import type {
@@ -34,6 +34,82 @@ export type SessionStatus = "ready" | "busy" | "stopped";
 
 const hasLS = typeof localStorage !== "undefined";
 
+// ---- Persistence primitive (the ONE template) ----
+// A localStorage-backed writable: load() with a shape guard + fallback, then a
+// subscribe() write-back that swallows quota errors, under a `trickshot.<name>`
+// key. Every persisted store below is built from this — the guard/quota invariant
+// is structural here instead of hand-copied per store (see CLAUDE.md). `parse`
+// turns the stored string into T and MAY throw or return the fallback for bad
+// data (load() catches and falls back); `serialize` defaults to JSON.
+function createPersisted<T>(
+  key: string,
+  fallback: T,
+  opts: { parse?: (raw: string) => T; serialize?: (value: T) => string } = {},
+): Writable<T> {
+  const serialize = opts.serialize ?? ((v: T) => JSON.stringify(v));
+  const parse = opts.parse ?? ((raw: string) => JSON.parse(raw) as T);
+  const load = (): T => {
+    if (!hasLS) return fallback;
+    const raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    try {
+      return parse(raw);
+    } catch {
+      return fallback;
+    }
+  };
+  const store = writable<T>(load());
+  store.subscribe((v) => {
+    if (!hasLS) return;
+    try {
+      localStorage.setItem(key, serialize(v));
+    } catch {
+      /* ignore quota errors */
+    }
+  });
+  return store;
+}
+
+/** A persisted store of a raw string (identity parse/serialize) — the JSON
+ *  helpers' string counterpart. Optional `validate` clamps a stored value to a
+ *  known set (e.g. theme/font ids), falling back when it doesn't match. */
+function createPersistedString(
+  key: string,
+  fallback = "",
+  validate?: (raw: string) => string,
+): Writable<string> {
+  return createPersisted<string>(key, fallback, {
+    parse: validate ?? ((raw) => raw),
+    serialize: (v) => v,
+  });
+}
+
+/** The shape guard shared by every "is this a plain JSON object?" check
+ *  (object, not null, not array). */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+/** `createPersisted` parse fn for "a JSON object map of V" with the standard
+ *  shape guard. Anything else → the empty map. */
+function parseJsonObject<V>(raw: string): Record<string, V> {
+  const v = JSON.parse(raw);
+  return isPlainObject(v) ? (v as Record<string, V>) : {};
+}
+
+/** Parse a free-text JSON config blob (MCP servers / agent defs) into an object,
+ *  or undefined if empty/invalid. The single parser behind getMcpServers/getAgents. */
+function parseConfigBlob(raw: string): Record<string, unknown> | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  try {
+    const v = JSON.parse(trimmed);
+    return isPlainObject(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // ---- UI state ----
 /** Whether the left sidebar is visible. Toggled from the global header. */
 export const sidebarOpen = writable<boolean>(true);
@@ -50,20 +126,12 @@ export function setCenterView(v: CenterView) {
 /** Sidebar width in px (drag-to-resize), persisted and clamped to [MIN,MAX]. */
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 520;
-const SIDEBAR_W_KEY = "trickshot.sidebarWidth";
-function loadSidebarWidth(): number {
-  if (!hasLS) return 320;
-  const v = Number(localStorage.getItem(SIDEBAR_W_KEY));
-  return Number.isFinite(v) && v >= SIDEBAR_MIN && v <= SIDEBAR_MAX ? v : 320;
-}
-export const sidebarWidth = writable<number>(loadSidebarWidth());
-sidebarWidth.subscribe((w) => {
-  if (!hasLS) return;
-  try {
-    localStorage.setItem(SIDEBAR_W_KEY, String(w));
-  } catch {
-    /* ignore quota errors */
-  }
+export const sidebarWidth = createPersisted<number>("trickshot.sidebarWidth", 320, {
+  parse: (raw) => {
+    const v = Number(raw);
+    return Number.isFinite(v) && v >= SIDEBAR_MIN && v <= SIDEBAR_MAX ? v : 320;
+  },
+  serialize: (v) => String(v),
 });
 /** Set the sidebar width, clamped to its allowed range (the drag handle's setter). */
 export function setSidebarWidth(w: number) {
@@ -113,51 +181,52 @@ export interface ThemeOption {
  *  To add/remove a theme, edit `THEMES` there; this list (and the injected CSS)
  *  follow automatically. See THEMING.md. */
 export const THEMES: ThemeOption[] = THEME_DEFS.map((t) => ({ id: t.id, label: t.label }));
-const THEME_KEY = "trickshot.theme";
-function loadTheme(): string {
-  const saved = hasLS ? localStorage.getItem(THEME_KEY) : null;
-  return saved && THEMES.some((t) => t.id === saved) ? saved : DEFAULT_THEME;
-}
 /** Active theme id. Reflects to `<html data-theme>` (which the `--base-*`
  *  override blocks key off) and persists to localStorage. */
-export const theme = writable<string>(loadTheme());
+export const theme = createPersistedString("trickshot.theme", DEFAULT_THEME, (raw) =>
+  THEMES.some((t) => t.id === raw) ? raw : DEFAULT_THEME,
+);
 theme.subscribe((t) => {
   if (typeof document !== "undefined") document.documentElement.dataset.theme = t;
-  if (!hasLS) return;
-  try {
-    localStorage.setItem(THEME_KEY, t);
-  } catch {
-    /* ignore quota errors */
-  }
 });
+/** Switch the active theme (validated against THEMES by the store's parse). */
+export function setTheme(id: string) {
+  theme.set(id);
+}
 
 // ---- Persisted repos ----
-const REPOS_KEY = "trickshot.repos";
-function loadRepos(): Repo[] {
-  if (!hasLS) return [];
-  try {
-    const v = JSON.parse(localStorage.getItem(REPOS_KEY) ?? "[]");
+/** Repos added to the sidebar. Persisted to localStorage. */
+export const repos = createPersisted<Repo[]>("trickshot.repos", [], {
+  parse: (raw) => {
+    const v = JSON.parse(raw);
     return Array.isArray(v)
       ? v.filter((r) => r && typeof r.path === "string" && typeof r.name === "string")
       : [];
-  } catch {
-    return [];
-  }
-}
-/** Repos added to the sidebar. Persisted to localStorage. */
-export const repos = writable<Repo[]>(loadRepos());
-repos.subscribe((r) => {
-  if (!hasLS) return;
-  try {
-    localStorage.setItem(REPOS_KEY, JSON.stringify(r));
-  } catch {
-    /* ignore quota errors */
-  }
+  },
 });
+/** Add a repo to the sidebar (de-duplicated by path). */
+export function addRepo(repo: Repo) {
+  repos.update((rs) => (rs.some((r) => r.path === repo.path) ? rs : [...rs, repo]));
+}
 
 /** Worktrees per repo path. Git is the source of truth — repopulated from
  *  `list_worktrees` on launch and after create/remove. */
 export const worktreesByRepo = writable<Record<string, Worktree[]>>({});
+/** Replace the worktree list for one repo path. */
+export function setWorktrees(repoPath: string, list: Worktree[]) {
+  worktreesByRepo.update((m) => ({ ...m, [repoPath]: list }));
+}
+/** Append one worktree to a repo's list. */
+export function addWorktree(repoPath: string, wt: Worktree) {
+  worktreesByRepo.update((m) => ({ ...m, [repoPath]: [...(m[repoPath] ?? []), wt] }));
+}
+/** Remove a worktree (by path) from a repo's list. */
+export function removeWorktreeFromRepo(repoPath: string, worktreePath: string) {
+  worktreesByRepo.update((m) => ({
+    ...m,
+    [repoPath]: (m[repoPath] ?? []).filter((w) => w.path !== worktreePath),
+  }));
+}
 
 // ---- Selection (persisted) ----
 const SEL_KEY = "trickshot.selected";
@@ -178,6 +247,15 @@ selectedWorktree.subscribe((s) => {
 export const sessionStatus = writable<Record<string, SessionStatus>>({});
 export function setStatus(worktree: string, status: SessionStatus) {
   sessionStatus.update((m) => ({ ...m, [worktree]: status }));
+}
+/** Drop a worktree's status entry entirely (e.g. on removal). */
+export function clearStatus(worktree: string) {
+  sessionStatus.update((m) => {
+    if (!(worktree in m)) return m;
+    const next = { ...m };
+    delete next[worktree];
+    return next;
+  });
 }
 
 // ---- Per-worktree unread activity (turns completed while not selected) ----
@@ -244,96 +322,49 @@ export function setTurnSummary(worktree: string, summary: TurnSummary) {
 // The switchable-model catalog is the same across worktrees (one Claude binary),
 // so it's a single global list; the *current* model is per-worktree.
 export const availableModels = writable<ModelInfo[]>([]);
+export function setAvailableModels(models: ModelInfo[]) {
+  availableModels.set(models);
+}
 
 // Available slash commands for the selected worktree's session (provider-supplied
 // via the `commands` event). Global list; refreshed on session ready / get_commands.
 export const availableCommands = writable<SlashCommandInfo[]>([]);
+export function setAvailableCommands(commands: SlashCommandInfo[]) {
+  availableCommands.set(commands);
+}
 
 // ---- MCP integrations ----
 // MCP server config is a JSON object (same shape as `.mcp.json`'s `mcpServers`),
 // edited as raw JSON in Settings and applied at session start / live. Persisted.
-const MCP_KEY = "trickshot.mcpServersJson";
-function loadMcpServersJson(): string {
-  if (!hasLS) return "";
-  const v = localStorage.getItem(MCP_KEY);
-  return typeof v === "string" ? v : "";
-}
-export const mcpServersJson = writable<string>(loadMcpServersJson());
-mcpServersJson.subscribe((s) => {
-  if (!hasLS) return;
-  try {
-    localStorage.setItem(MCP_KEY, s);
-  } catch {
-    /* ignore quota errors */
-  }
-});
+export const mcpServersJson = createPersistedString("trickshot.mcpServersJson");
 /** Parse the saved MCP JSON into a config object, or undefined if empty/invalid. */
 export function getMcpServers(): Record<string, unknown> | undefined {
-  const raw = get(mcpServersJson).trim();
-  if (!raw) return undefined;
-  try {
-    const v = JSON.parse(raw);
-    return v && typeof v === "object" && !Array.isArray(v) ? v : undefined;
-  } catch {
-    return undefined;
-  }
+  return parseConfigBlob(get(mcpServersJson));
 }
 /** Latest MCP server statuses for the selected session (via the `mcp_status` event). */
 export const mcpStatus = writable<McpStatusInfo[]>([]);
+export function setMcpStatus(servers: McpStatusInfo[]) {
+  mcpStatus.set(servers);
+}
 
 // ---- Subagent definitions ----
 // Optional user-defined subagents as JSON (Record<name, {description, prompt,
 // model?, tools?, ...}>), edited in Settings and applied at session start.
 // Repo `.claude/agents` are also loaded automatically via settingSources.
-const AGENTS_KEY = "trickshot.agentsJson";
-function loadAgentsJson(): string {
-  if (!hasLS) return "";
-  const v = localStorage.getItem(AGENTS_KEY);
-  return typeof v === "string" ? v : "";
-}
-export const agentsJson = writable<string>(loadAgentsJson());
-agentsJson.subscribe((s) => {
-  if (!hasLS) return;
-  try {
-    localStorage.setItem(AGENTS_KEY, s);
-  } catch {
-    /* ignore quota errors */
-  }
-});
+export const agentsJson = createPersistedString("trickshot.agentsJson");
 /** Parse the saved subagents JSON into a config object, or undefined if empty/invalid. */
 export function getAgents(): Record<string, unknown> | undefined {
-  const raw = get(agentsJson).trim();
-  if (!raw) return undefined;
-  try {
-    const v = JSON.parse(raw);
-    return v && typeof v === "object" && !Array.isArray(v) ? v : undefined;
-  } catch {
-    return undefined;
-  }
+  return parseConfigBlob(get(agentsJson));
 }
 
 // Per-worktree current model, persisted so a chat's model choice is sticky across
 // restarts. On a session's `models` event, App.svelte re-applies a persisted
 // choice that differs from the sidecar default (see onModelsEvent there).
-const MODELS_KEY = "trickshot.modelByWorktree";
-function loadModelByWorktree(): Record<string, string> {
-  if (!hasLS) return {};
-  try {
-    const v = JSON.parse(localStorage.getItem(MODELS_KEY) ?? "{}");
-    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
-  } catch {
-    return {};
-  }
-}
-export const modelByWorktree = writable<Record<string, string>>(loadModelByWorktree());
-modelByWorktree.subscribe((m) => {
-  if (!hasLS) return;
-  try {
-    localStorage.setItem(MODELS_KEY, JSON.stringify(m));
-  } catch {
-    /* ignore quota errors */
-  }
-});
+export const modelByWorktree = createPersisted<Record<string, string>>(
+  "trickshot.modelByWorktree",
+  {},
+  { parse: parseJsonObject },
+);
 export function setWorktreeModel(worktree: string, model: string) {
   modelByWorktree.update((m) => ({ ...m, [worktree]: model }));
 }
@@ -351,26 +382,12 @@ export function setConnectors(worktree: string, servers: ConnectorInfo[]) {
 // remember across sessions, so we persist the preference here and re-apply it on
 // each session's `connectors` event (see App.svelte). `undefined` for a connector
 // = leave it at the SDK's own default. Persisted via the standard template.
-const CONN_GLOBAL_KEY = "trickshot.connectorPrefs.global";
-function loadBoolMap(key: string): Record<string, boolean> {
-  if (!hasLS) return {};
-  try {
-    const v = JSON.parse(localStorage.getItem(key) ?? "{}");
-    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
-  } catch {
-    return {};
-  }
-}
 /** Global connector enable/disable preferences (connector name → enabled). */
-export const globalConnectorPrefs = writable<Record<string, boolean>>(loadBoolMap(CONN_GLOBAL_KEY));
-globalConnectorPrefs.subscribe((m) => {
-  if (!hasLS) return;
-  try {
-    localStorage.setItem(CONN_GLOBAL_KEY, JSON.stringify(m));
-  } catch {
-    /* ignore quota errors */
-  }
-});
+export const globalConnectorPrefs = createPersisted<Record<string, boolean>>(
+  "trickshot.connectorPrefs.global",
+  {},
+  { parse: parseJsonObject },
+);
 export function setGlobalConnectorPref(name: string, enabled: boolean) {
   globalConnectorPrefs.update((m) => ({ ...m, [name]: enabled }));
 }
@@ -381,25 +398,12 @@ export function setGlobalConnectorPref(name: string, enabled: boolean) {
 // aggressively rate-limited, so `refreshUsage()` is event-driven (session start,
 // turn end) and throttled to at most once per USAGE_REFRESH_MS — never polled.
 // The last value is persisted so the chip shows immediately (cached) on launch.
-const USAGE_KEY = "trickshot.usageLimits";
 const USAGE_REFRESH_MS = 90_000;
-function loadUsage(): UsageInfo | null {
-  if (!hasLS) return null;
-  try {
-    const v = JSON.parse(localStorage.getItem(USAGE_KEY) ?? "null");
+export const usageLimits = createPersisted<UsageInfo | null>("trickshot.usageLimits", null, {
+  parse: (raw) => {
+    const v = JSON.parse(raw);
     return v && typeof v === "object" && !Array.isArray(v) ? (v as UsageInfo) : null;
-  } catch {
-    return null;
-  }
-}
-export const usageLimits = writable<UsageInfo | null>(loadUsage());
-usageLimits.subscribe((u) => {
-  if (!hasLS) return;
-  try {
-    localStorage.setItem(USAGE_KEY, JSON.stringify(u));
-  } catch {
-    /* ignore quota errors */
-  }
+  },
 });
 /** Last fetch error (stale token, rate limit, offline), shown in the tooltip. */
 export const usageError = writable<string | null>(null);
@@ -430,33 +434,22 @@ export async function refreshUsage(force = false) {
 // default) runs every tool silently; the others route tool use through the
 // Allow/Deny modal. Applied at session start (PERMISSION_MODE env) and switched
 // live via the `set_permission_mode` command.
-const PERM_MODE_KEY = "trickshot.permissionModeByWorktree";
 const PERMISSION_MODES: PermissionMode[] = ["bypassPermissions", "acceptEdits", "default", "plan"];
-function loadPermissionModeByWorktree(): Record<string, PermissionMode> {
-  if (!hasLS) return {};
-  try {
-    const v = JSON.parse(localStorage.getItem(PERM_MODE_KEY) ?? "{}");
-    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
-    const out: Record<string, PermissionMode> = {};
-    for (const [k, mode] of Object.entries(v)) {
-      if (PERMISSION_MODES.includes(mode as PermissionMode)) out[k] = mode as PermissionMode;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-export const permissionModeByWorktree = writable<Record<string, PermissionMode>>(
-  loadPermissionModeByWorktree(),
+export const permissionModeByWorktree = createPersisted<Record<string, PermissionMode>>(
+  "trickshot.permissionModeByWorktree",
+  {},
+  {
+    parse: (raw) => {
+      const v = JSON.parse(raw);
+      if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+      const out: Record<string, PermissionMode> = {};
+      for (const [k, mode] of Object.entries(v)) {
+        if (PERMISSION_MODES.includes(mode as PermissionMode)) out[k] = mode as PermissionMode;
+      }
+      return out;
+    },
+  },
 );
-permissionModeByWorktree.subscribe((m) => {
-  if (!hasLS) return;
-  try {
-    localStorage.setItem(PERM_MODE_KEY, JSON.stringify(m));
-  } catch {
-    /* ignore quota errors */
-  }
-});
 export function setWorktreePermissionMode(worktree: string, mode: PermissionMode) {
   permissionModeByWorktree.update((m) => ({ ...m, [worktree]: mode }));
 }
@@ -492,66 +485,33 @@ export const FONTS: FontOption[] = [
   { id: "nunito", label: "Nunito" },
   { id: "sn-pro", label: "SN Pro" },
 ];
-const FONT_KEY = "trickshot.font";
-function loadFont(): string {
-  const saved = hasLS ? localStorage.getItem(FONT_KEY) : null;
-  return saved && FONTS.some((f) => f.id === saved) ? saved : "sans-code";
-}
 /** Active font id. Reflects to `<html data-font>` and persists. */
-export const font = writable<string>(loadFont());
+export const font = createPersistedString("trickshot.font", "sans-code", (raw) =>
+  FONTS.some((f) => f.id === raw) ? raw : "sans-code",
+);
 font.subscribe((f) => {
   if (typeof document !== "undefined") document.documentElement.dataset.font = f;
-  if (!hasLS) return;
-  try {
-    localStorage.setItem(FONT_KEY, f);
-  } catch {
-    /* ignore quota errors */
-  }
 });
+/** Switch the active font (validated against FONTS by the store's parse). */
+export function setFont(id: string) {
+  font.set(id);
+}
 
 // ---- Custom system-prompt append (global, persisted) ----
 // Appended to the `claude_code` preset system prompt at session start (applies to
 // NEW sessions; existing ones need a restart). Empty = no append.
-const SYS_PROMPT_KEY = "trickshot.systemPromptAppend";
-function loadSystemPromptAppend(): string {
-  if (!hasLS) return "";
-  const v = localStorage.getItem(SYS_PROMPT_KEY);
-  return typeof v === "string" ? v : "";
-}
-export const systemPromptAppend = writable<string>(loadSystemPromptAppend());
-systemPromptAppend.subscribe((s) => {
-  if (!hasLS) return;
-  try {
-    localStorage.setItem(SYS_PROMPT_KEY, s);
-  } catch {
-    /* ignore quota errors */
-  }
-});
+export const systemPromptAppend = createPersistedString("trickshot.systemPromptAppend");
 
 // ---- Per-worktree agent session id (for resume) ----
 // The SDK reports a session_id on every message; we persist the latest per
 // worktree so `start_session` can resume it after a restart — restoring the
 // agent's *context*. (Resume does NOT replay messages, so the *visible* history
 // is restored separately by persisting the transcript below.)
-const SESSION_KEY = "trickshot.sessionByWorktree";
-function loadSessionByWorktree(): Record<string, string> {
-  if (!hasLS) return {};
-  try {
-    const v = JSON.parse(localStorage.getItem(SESSION_KEY) ?? "{}");
-    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
-  } catch {
-    return {};
-  }
-}
-export const sessionByWorktree = writable<Record<string, string>>(loadSessionByWorktree());
-sessionByWorktree.subscribe((m) => {
-  if (!hasLS) return;
-  try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(m));
-  } catch {
-    /* ignore quota errors */
-  }
-});
+export const sessionByWorktree = createPersisted<Record<string, string>>(
+  "trickshot.sessionByWorktree",
+  {},
+  { parse: parseJsonObject },
+);
 export function setWorktreeSession(worktree: string, id: string) {
   sessionByWorktree.update((m) => (m[worktree] === id ? m : { ...m, [worktree]: id }));
 }
@@ -669,6 +629,41 @@ export async function submitUserTurn(worktree: string, text: string) {
   }
 }
 
+/** Start (or no-op, if already running) a worktree's agent session with the
+ *  standard config assembled from the stores. The ONE place the `start_session`
+ *  option bag is built — App's launch-resume, the Worktrees select, and the
+ *  Settings-page open all route through here so they can't drift. Returns the
+ *  start promise so callers flip status / handle errors at their call site. */
+export function ensureSession(worktree: string): Promise<void> {
+  return api.startSession(worktree, {
+    resume: get(sessionByWorktree)[worktree],
+    permissionMode: get(permissionModeByWorktree)[worktree] ?? DEFAULT_PERMISSION_MODE,
+    systemPromptAppend: get(systemPromptAppend),
+    mcpServers: getMcpServers(),
+    agents: getAgents(),
+  });
+}
+
+/** Fire `request(worktree)` at most once per (worktree, key) pair within the
+ *  lifetime of the caller-owned `seen` Set — the resilient "(re-)request when the
+ *  list is still empty" pattern shared by the model / command / connector fetchers
+ *  (the ready-time broadcast can race the listener). The Set is passed IN (one per
+ *  component instance) on purpose: scoping it to the component means it resets when
+ *  the component remounts or its session restarts, so a lost broadcast recovers on
+ *  the next mount. A module-global Set would latch the request for the whole app
+ *  lifetime and never re-fire. */
+export function requestOnce(
+  seen: Set<string>,
+  worktree: string,
+  key: string,
+  request: (wt: string) => void,
+) {
+  const id = `${key} ${worktree}`;
+  if (seen.has(id)) return;
+  seen.add(id);
+  request(worktree);
+}
+
 /** Build a compact recent-conversation string (user + assistant turns only) to
  *  seed suggestion generation. Includes the un-flushed buffer so the just-ended
  *  turn is present. Caps length so the cheap suggest model stays cheap. */
@@ -684,9 +679,17 @@ export function recentConversation(worktree: string, maxMessages = 8, maxChars =
 
 // ---- Per-worktree pending permission (dormant under bypassPermissions) ----
 export const pendingPermission = writable<Record<string, PermissionReq | null>>({});
+/** Set (or clear, with null) a worktree's pending permission request. */
+export function setPendingPermission(worktree: string, req: PermissionReq | null) {
+  pendingPermission.update((m) => ({ ...m, [worktree]: req }));
+}
 
 // ---- Per-worktree pending question (the agent's `ask_user`) ----
 export const pendingQuestion = writable<Record<string, QuestionReq | null>>({});
+/** Set (or clear, with null) a worktree's pending `ask_user` question. */
+export function setPendingQuestion(worktree: string, req: QuestionReq | null) {
+  pendingQuestion.update((m) => ({ ...m, [worktree]: req }));
+}
 
 // ---- Derived views for the currently selected worktree ----
 export const activeMessages = derived([transcripts, selectedWorktree], ([$t, $sel]) =>

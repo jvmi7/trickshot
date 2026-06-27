@@ -1,4 +1,7 @@
-<script lang="ts"></script>
+<script lang="ts">
+  import type { Snippet } from "svelte";
+  let { left, actions }: { left?: Snippet; actions?: Snippet } = $props();
+</script>
 
 <!--
   Top bar for the content column (custom titlebar region, macOS Overlay style).
@@ -8,7 +11,7 @@
   sidebar collapsing; this bar just holds right-aligned `actions`.
 -->
 <header class="app-header" data-tauri-drag-region>
-  <slot name="left" />
+  {@render left?.()}
   <span class="spacer" data-tauri-drag-region></span>
-  <slot name="actions" />
+  {@render actions?.()}
 </header>

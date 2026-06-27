@@ -14,12 +14,22 @@ pub struct Worktree {
     pub locked: bool,
 }
 
-/// Run `git -C <repo> <args...>`, returning stdout or a stderr-derived error.
-fn git(repo: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
-        .arg("-C")
+/// Build `git -C <repo> <args...>` as a Command. The ONE place the `-C <repo>` +
+/// program setup lives; callers that need custom exit-code handling (a status-only
+/// probe, a `--no-index` diff) build on this, while the common
+/// stdout-or-stderr-error case goes through `git`. Generic over the arg element so
+/// a `&[&str]` literal or an owned `Vec<String>` both work without a collect.
+fn git_command<S: AsRef<str>>(repo: &str, args: &[S]) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
         .arg(repo)
-        .args(args)
+        .args(args.iter().map(|a| AsRef::<str>::as_ref(a)));
+    cmd
+}
+
+/// Run `git -C <repo> <args...>`, returning stdout or a stderr-derived error.
+fn git<S: AsRef<str>>(repo: &str, args: &[S]) -> Result<String, String> {
+    let output = git_command(repo, args)
         .output()
         .map_err(|e| format!("failed to run git: {e}"))?;
     if !output.status.success() {
@@ -105,6 +115,44 @@ pub fn list_worktrees(repo_path: String) -> Result<Vec<Worktree>, String> {
     Ok(result)
 }
 
+/// Derive (and containment-check) the worktree directory for `branch` under the
+/// sibling `.<repo-name>-worktrees/` dir. Containment is an explicit, enforced
+/// invariant — not an emergent side effect of git's ref validation. (Lexical
+/// check; `validate_branch` already rejected the `..`/absolute cases that
+/// `starts_with` alone wouldn't catch.)
+fn worktree_path_for(repo_path: &str, branch: &str) -> Result<String, String> {
+    let repo = Path::new(repo_path);
+    let repo_name = repo.file_name().and_then(|s| s.to_str()).unwrap_or("repo");
+    let parent = repo
+        .parent()
+        .ok_or("repository path has no parent directory")?;
+
+    // Preserve slashes as nested directories (avoids feature/foo vs feature-foo
+    // collisions); `git worktree add` creates intermediate parent dirs.
+    let wt_base = parent.join(format!(".{repo_name}-worktrees"));
+    let wt_dir = wt_base.join(branch);
+    if !wt_dir.starts_with(&wt_base) {
+        return Err("refusing to create a worktree outside the worktrees directory".into());
+    }
+    Ok(wt_dir.to_string_lossy().to_string())
+}
+
+/// Whether `refs/heads/<branch>` already exists in the repo (a status-only probe).
+fn branch_exists(repo: &str, branch: &str) -> Result<bool, String> {
+    Ok(git_command(
+        repo,
+        &[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ],
+    )
+    .status()
+    .map_err(|e| format!("failed to run git: {e}"))?
+    .success())
+}
+
 /// Create a worktree (and the branch, if new) under a sibling
 /// `.<repo-name>-worktrees/<branch>` directory. This is the one-click primitive.
 #[tauri::command]
@@ -116,40 +164,9 @@ pub fn create_worktree(
     let branch = branch.trim().to_string();
     validate_branch(&branch)?;
 
-    let repo = Path::new(&repo_path);
-    let repo_name = repo.file_name().and_then(|s| s.to_str()).unwrap_or("repo");
-    let parent = repo
-        .parent()
-        .ok_or("repository path has no parent directory")?;
+    let wt_path = worktree_path_for(&repo_path, &branch)?;
 
-    // Preserve slashes as nested directories (avoids feature/foo vs feature-foo
-    // collisions); `git worktree add` creates intermediate parent dirs.
-    let wt_base = parent.join(format!(".{repo_name}-worktrees"));
-    let wt_dir = wt_base.join(&branch);
-    // Defense in depth: keep the worktree inside its base dir as an explicit,
-    // enforced invariant — not an emergent side effect of git's ref validation.
-    // (Lexical check; `validate_branch` already rejected the `..`/absolute cases
-    // that `starts_with` alone wouldn't catch.)
-    if !wt_dir.starts_with(&wt_base) {
-        return Err("refusing to create a worktree outside the worktrees directory".into());
-    }
-    let wt_path = wt_dir.to_string_lossy().to_string();
-
-    // Does the branch already exist?
-    let branch_exists = Command::new("git")
-        .arg("-C")
-        .arg(&repo_path)
-        .args([
-            "show-ref",
-            "--verify",
-            "--quiet",
-            &format!("refs/heads/{branch}"),
-        ])
-        .status()
-        .map_err(|e| format!("failed to run git: {e}"))?
-        .success();
-
-    if branch_exists {
+    if branch_exists(&repo_path, &branch)? {
         // base_ref has no meaning for an already-existing branch; fail loudly
         // rather than silently ignoring it.
         if base_ref.is_some() {
@@ -315,10 +332,7 @@ pub fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> 
 /// treat 0/1 as success and only >1 as a real error.
 fn git_no_index_diff(repo: &str, file: &str) -> Result<String, String> {
     let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(["diff", "--no-index", "--", null, file])
+    let output = git_command(repo, &["diff", "--no-index", "--", null, file])
         .output()
         .map_err(|e| format!("failed to run git: {e}"))?;
     match output.status.code() {
@@ -342,8 +356,7 @@ pub fn worktree_diff(
         args.push("--".into());
         args.push(f.clone());
     }
-    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let diff = git(&worktree_path, &refs)?;
+    let diff = git(&worktree_path, &args)?;
     if diff.trim().is_empty() {
         if let Some(f) = &file {
             return git_no_index_diff(&worktree_path, f);
@@ -362,8 +375,7 @@ pub fn worktree_stage(worktree_path: String, paths: Vec<String>) -> Result<(), S
         args.push("--".into());
         args.extend(paths);
     }
-    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    git(&worktree_path, &refs)?;
+    git(&worktree_path, &args)?;
     Ok(())
 }
 
@@ -377,8 +389,7 @@ pub fn worktree_unstage(worktree_path: String, paths: Vec<String>) -> Result<(),
         args.push("--".into());
         args.extend(paths);
     }
-    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    git(&worktree_path, &refs)?;
+    git(&worktree_path, &args)?;
     Ok(())
 }
 

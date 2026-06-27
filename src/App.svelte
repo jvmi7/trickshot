@@ -5,7 +5,6 @@
     onAgentEvent,
     listWorktrees,
     setModel,
-    startSession,
     toggleConnector,
     notify,
     worktreeStatus,
@@ -14,16 +13,16 @@
   import {
     repos,
     worktreesByRepo,
+    setWorktrees,
     selectedWorktree,
     appendMessage,
-    pendingPermission,
-    pendingQuestion,
+    setPendingPermission,
+    setPendingQuestion,
     setStatus,
     sidebarOpen,
-    availableModels,
+    setAvailableModels,
     modelByWorktree,
     setWorktreeModel,
-    sessionByWorktree,
     setWorktreeSession,
     setActivity,
     clearActivity,
@@ -39,28 +38,30 @@
     setSuggestions,
     clearSuggestions,
     recentConversation,
-    permissionModeByWorktree,
-    DEFAULT_PERMISSION_MODE,
+    ensureSession,
     mainView,
     bumpGitRefresh,
     gitRefreshNonce,
     setGitStat,
     activeGitStat,
-    availableCommands,
-    systemPromptAppend,
-    mcpStatus,
-    getMcpServers,
-    getAgents,
+    setAvailableCommands,
+    setMcpStatus,
     bumpUnread,
   } from "./lib/stores";
-
-  /** Basename of a worktree path, for notification labels. */
-  function shortName(path: string): string {
-    return path.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || path;
-  }
-
   import { toolLabel, toolDetail } from "./lib/agentMessage";
+  import { basename } from "./lib/utils";
   import type { AgentMessage } from "./lib/types";
+  import Header from "./lib/components/Header.svelte";
+  import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
+  import ViewToggle from "./lib/components/ViewToggle.svelte";
+  import Worktrees from "./lib/components/Worktrees.svelte";
+  import Chat from "./lib/components/Chat.svelte";
+  import GitPanel from "./lib/components/GitPanel.svelte";
+  import Settings from "./lib/components/Settings.svelte";
+  import { Button } from "./lib/components/ui/button";
+  import * as Tooltip from "./lib/components/ui/tooltip";
+  import PanelLeft from "@lucide/svelte/icons/panel-left";
+  import SettingsIcon from "@lucide/svelte/icons/settings";
 
   // ---- Verbose loading state: turn each neutral message into a human-readable
   // "what's happening now" for the chat's loading footer. ----
@@ -76,17 +77,6 @@
       setActivity(worktree, "Connecting", "");
     }
   }
-  import Header from "./lib/components/Header.svelte";
-  import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
-  import ViewToggle from "./lib/components/ViewToggle.svelte";
-  import Worktrees from "./lib/components/Worktrees.svelte";
-  import Chat from "./lib/components/Chat.svelte";
-  import GitPanel from "./lib/components/GitPanel.svelte";
-  import Settings from "./lib/components/Settings.svelte";
-  import { Button } from "./lib/components/ui/button";
-  import * as Tooltip from "./lib/components/ui/tooltip";
-  import PanelLeft from "@lucide/svelte/icons/panel-left";
-  import SettingsIcon from "@lucide/svelte/icons/settings";
 
   const toggleSidebar = () => sidebarOpen.update((v) => !v);
 
@@ -164,7 +154,7 @@
             // user notices a background agent finishing.
             if (worktree !== get(selectedWorktree)) {
               bumpUnread(worktree);
-              void notify("Agent finished", shortName(worktree));
+              void notify("Agent finished", basename(worktree));
             } else {
               // Offer suggested next replies for the on-screen chat only — it's a
               // cheap extra model call, so don't spend it on background worktrees.
@@ -181,27 +171,21 @@
           // can be restored after a restart (the provider reports it once known).
           setWorktreeSession(worktree, evt.id);
         } else if (evt.kind === "permission_request") {
-          pendingPermission.update((p) => ({
-            ...p,
-            [worktree]: { id: evt.id, tool: evt.tool, input: evt.input },
-          }));
+          setPendingPermission(worktree, { id: evt.id, tool: evt.tool, input: evt.input });
         } else if (evt.kind === "question_request") {
-          pendingQuestion.update((p) => ({
-            ...p,
-            [worktree]: { id: evt.id, questions: evt.questions },
-          }));
+          setPendingQuestion(worktree, { id: evt.id, questions: evt.questions });
         } else if (evt.kind === "suggestions") {
           // Suggested next replies arrived (answer to a `suggest` request).
           setSuggestions(worktree, evt.suggestions);
         } else if (evt.kind === "commands") {
-          availableCommands.set(evt.commands);
+          setAvailableCommands(evt.commands);
         } else if (evt.kind === "mcp_status") {
-          mcpStatus.set(evt.servers);
+          setMcpStatus(evt.servers);
         } else if (evt.kind === "notification") {
           // Agent wants attention — raise an OS notification if it's not the
           // worktree currently on screen.
           if (worktree !== get(selectedWorktree)) {
-            void notify(shortName(worktree), evt.message);
+            void notify(basename(worktree), evt.message);
           }
         } else if (evt.kind === "error") {
           // Surface only. Status is deliberately NOT reset here: this channel is
@@ -226,7 +210,7 @@
             if (want !== isOn) toggleConnector(worktree, s.name, want);
           }
         } else if (evt.kind === "models") {
-          availableModels.set(evt.models);
+          setAvailableModels(evt.models);
           // Each sidecar starts on the default model. If this worktree has a
           // persisted choice that differs (and is still offered), re-apply it;
           // otherwise adopt the sidecar's confirmed current as truth.
@@ -272,7 +256,7 @@
       for (const repo of get(repos)) {
         try {
           const wts = await listWorktrees(repo.path);
-          worktreesByRepo.update((m) => ({ ...m, [repo.path]: wts }));
+          setWorktrees(repo.path, wts);
         } catch {
           // repo moved/deleted — leave it empty in the sidebar
         }
@@ -287,16 +271,10 @@
         } else {
           // Resume the persisted selection's session on launch (idempotent) so
           // the chat — and its model switcher — are usable without re-selecting.
-          // Pass the persisted session id so the agent's context resumes too.
-          // The `ready`/`models` events flip status to ready and fill the catalog.
+          // ensureSession passes the persisted session id so the agent's context
+          // resumes too. The `ready`/`models` events flip status + fill the catalog.
           try {
-            await startSession(sel, {
-              resume: get(sessionByWorktree)[sel],
-              permissionMode: get(permissionModeByWorktree)[sel] ?? DEFAULT_PERMISSION_MODE,
-              systemPromptAppend: get(systemPromptAppend),
-              mcpServers: getMcpServers(),
-              agents: getAgents(),
-            });
+            await ensureSession(sel);
             setStatus(sel, "ready");
           } catch {
             // a real spawn failure surfaces via the agent-event error path
@@ -319,7 +297,7 @@
   <Tooltip.Root>
     <Tooltip.Trigger>
       {#snippet child({ props })}
-        <HeaderIconButton side="left" {...props} onclick={toggleSidebar} aria-label="Toggle sidebar">
+        <HeaderIconButton {...props} onclick={toggleSidebar} aria-label="Toggle sidebar">
           <PanelLeft />
         </HeaderIconButton>
       {/snippet}
@@ -361,20 +339,22 @@
   <main class="main">
     <!-- top bar: the workspace path sits inline in the header band. -->
     <Header>
-      <div slot="left" class="workspace-label">
-        {#if $centerView === "settings"}
-          <span class="path">Settings</span>
-        {:else if $selectedWorktree}
-          <span class="path">{$selectedWorktree}</span>
-        {:else}
-          <span class="dim">select or create a worktree on the left</span>
-        {/if}
-      </div>
-      <div slot="actions">
+      {#snippet left()}
+        <div class="workspace-label">
+          {#if $centerView === "settings"}
+            <span class="path">Settings</span>
+          {:else if $selectedWorktree}
+            <span class="path">{$selectedWorktree}</span>
+          {:else}
+            <span class="dim">select or create a worktree on the left</span>
+          {/if}
+        </div>
+      {/snippet}
+      {#snippet actions()}
         {#if $centerView !== "settings"}
           <ViewToggle />
         {/if}
-      </div>
+      {/snippet}
     </Header>
     <div class="content">
       {#if $centerView === "settings"}

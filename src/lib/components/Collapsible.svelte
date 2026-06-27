@@ -5,11 +5,10 @@
   import * as Collapsible from "$lib/components/ui/collapsible";
   import { buttonVariants } from "$lib/components/ui/button";
 
-  export let text: string;
-  export let max = 2000;
+  let { text, max = 2000 }: { text: string; max?: number } = $props();
 
-  let open = false;
-  $: truncated = text.length > max;
+  let open = $state(false);
+  const truncated = $derived(text.length > max);
 </script>
 
 {#if !truncated}

@@ -37,7 +37,7 @@ Svelte webview (Vite)
 
 The line-delimited JSON protocol (`Inbound` / `Outbound` `kind` unions) plus the worktree-tagged event envelope are **hand-mirrored across places**. The two TypeScript ends now share ONE source of truth; only the link to Rust is hand-mirrored:
 - `shared/protocol.ts` — the **single** TS source of truth for the wire unions (`Inbound`/`Outbound`/`AgentMessage`/`ModelInfo`), all **provider-neutral** (nothing Claude-specific). Imported by BOTH ends so the two TS mirrors can't drift:
-  - `src/lib/types.ts` re-exports them (binding `Outbound`'s message to the loose `SDKMessageLike`) and adds the app-only `Worktree`/`Repo`/`AgentEnvelope` (the last mirrors the Rust `AgentEvent` struct field-for-field).
+  - `src/lib/types.ts` re-exports them verbatim (the strict `AgentMessage` on `Outbound`'s message) and adds the app-only `Worktree`/`Repo`/`AgentEnvelope` (the last mirrors the Rust `AgentEvent` struct field-for-field).
   - `sidecar/core.ts` imports them (binding `Outbound`'s message to the SDK's own `SDKMessage`) + does by-hand `cmd.kind` parsing.
 - `src-tauri/src/agent.rs` — the `AgentEvent { worktree, kind, data }` struct emitted on `agent-event`. **No compiler link to the TS side — still hand-mirrored.**
 - `ARCHITECTURE.md` — the human-readable protocol + command tables.
@@ -98,7 +98,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 
 - **NO other icon library, ever** (no `lineicons`, `@phosphor-icons/*`, etc.) and **no hand-rolled inline `<svg>` icons** in app components — find the closest Lucide glyph instead. Both were removed deliberately; don't reintroduce them.
 - This is the icon set shadcn registry components already use, so newly `add`ed `ui/*` components need no icon rewrite. Currently used: dialog close (`x`), select (`check`, `chevron-down/up`), sidebar toggle (`panel-left`), settings (`settings`), composer (`pause`, `arrow-up`), worktree home (`house`).
-- Floating titlebar icon buttons (sidebar toggle, settings) share one primitive — `HeaderIconButton.svelte` (`.header-icon-btn`, which sizes its `svg`); reuse it so they stay uniform rather than restyling per-button.
+- The floating titlebar icon button (the sidebar toggle) is `HeaderIconButton.svelte` (`.header-icon-btn`, which sizes its `svg`) — a fixed-position wrapper over `IconButton`; reuse it for any other floating titlebar icon. (The settings entry now lives as a sidebar-foot `Button`, not a floating icon.)
 
 ## Styling (Tailwind v4)
 
@@ -118,10 +118,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 ## Conventions — Svelte (v5)
 
 - DO write **every NEW** component with runes (`$state`, `$derived`, `$props`, `$effect`) + snippets — never template a new component off a legacy one. Legacy syntax (`export let`, `$:`, `<slot>`) is **debt, not an equal option**: the target is 100% runes. When you edit a legacy file, convert the whole file to runes in that pass if it's small; otherwise match its existing mode for a minimal edit. NEVER mix runes and legacy in ONE component. Track progress in the migration list below.
-- **Migration tracker** (so you don't have to re-derive each component's mode). Migrate a file when you're already editing it; don't churn the others just to convert.
-  - ✅ **Runes** (don't regress to legacy): `Settings`, `ModelSelector`, `LoadingState`, `PermissionModal`, `QuestionModal`, `ScrollIndicator`, `HeaderIconButton`, `Message`, `Markdown`, `ToolActivity`, `ToolGroup`, and all `ui/*`.
-  - ⏳ **Legacy, to migrate**: `Header` (uses `<slot>` → convert to snippet props; this is the load-bearing one since `App.svelte` consumes it via `slot="left"`), `Worktrees`, `Composer`, `Chat`, `Collapsible`.
-  - ◐ **App.svelte** is runes-leaning but consumes `Header`'s legacy slots via `slot="left"`; flip it together with `Header`.
+- **Migration tracker.** The migration is **complete — every component (and `App.svelte`) is runes**: `App`, `Settings`, `SettingsAppearance`, `SettingsConnectors`, `ModelSelector`, `LoadingState`, `PermissionModal`, `QuestionModal`, `ScrollIndicator`, `HeaderIconButton`, `Header` (snippet props), `Worktrees`, `Composer`, `Chat`, `Collapsible`, `Message`, `Markdown`, `ToolActivity`, `ToolGroup`, and all `ui/*`. There is no remaining legacy syntax (`export let`/`$:`/`<slot>`/`on:`) anywhere — keep it that way; never reintroduce it.
 - DO route all transcript writes through `stores.appendMessage(worktree, msg)` / `resetTranscript(worktree)` (they assign the stable `__key` and batch per worktree). DON'T mutate the `transcripts` map directly — `resetTranscript` also drops the un-flushed buffer so a recreated worktree can't inherit stale messages.
 - DO render the user's own turn optimistically with `appendMessage(wt, { type: 'user_local', text })` before/alongside `api.sendUserTurn(wt, t)`. DON'T invent a new echo type — `user_local` is the UI-only "you" bubble, distinct from the SDK's own tool-result `user` messages.
 - DO render any large/unbounded text (tool inputs, tool results, file reads) through `Collapsible.svelte` (truncates to `max`, default 2000 chars, with a reveal toggle). DON'T dump raw `<pre>{text}</pre>`.

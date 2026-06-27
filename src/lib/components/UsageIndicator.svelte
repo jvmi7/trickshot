@@ -72,7 +72,7 @@
     user-select: none;
   }
   .usage-chip[data-severity="warn"] {
-    color: var(--app-warning, #d97706);
+    color: var(--base-warning);
   }
   .usage-chip[data-severity="danger"] {
     color: var(--destructive);

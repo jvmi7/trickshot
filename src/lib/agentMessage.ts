@@ -3,11 +3,7 @@
 // `tool_call`. Provider-neutral: unknown tool names fall back to a generic
 // label, so a non-Claude provider's tools render sensibly without changes.
 
-/** Last path segment of a file-ish value (for compact tool labels). */
-export const basename = (p: unknown) =>
-  String(p ?? "")
-    .split("/")
-    .pop() || String(p ?? "");
+import { basename } from "./utils";
 
 /** Collapse whitespace and clip to `n` chars with an ellipsis. */
 export function trunc(s: unknown, n = 64): string {
@@ -58,9 +54,9 @@ export function toolDetail(name: string, input?: unknown): string {
     case "Write":
     case "Edit":
     case "MultiEdit":
-      return basename(i.file_path);
+      return basename(String(i.file_path ?? ""));
     case "NotebookEdit":
-      return basename(i.notebook_path);
+      return basename(String(i.notebook_path ?? ""));
     case "Glob":
     case "Grep":
       return trunc(i.pattern);
