@@ -12,17 +12,19 @@
 //   stdout (sidecar -> app):  Outbound  { kind: "ready" | "session" | "message" | "models" | "error" | ... }
 
 import { createInterface } from "node:readline";
-import type { Inbound, Outbound, PermissionMode } from "../shared/protocol";
+import type { Inbound, Outbound, SessionConfig } from "../shared/protocol";
 import { createProvider, DEFAULT_PROVIDER } from "./providers/registry";
 
-/** Parse a JSON-object env var (MCP servers / agent defs) into a record, or undefined. */
-function parseJsonObject(raw: string | undefined): Record<string, unknown> | undefined {
-  if (!raw) return undefined;
+/** Parse the SESSION_CONFIG env blob (the app's `SessionConfig`, set by Rust) into
+ *  a typed object, or an empty config when absent/invalid. The single place the
+ *  session start-up config crosses into the sidecar. */
+function parseSessionConfig(raw: string | undefined): SessionConfig {
+  if (!raw) return {};
   try {
     const v = JSON.parse(raw);
-    return v && typeof v === "object" && !Array.isArray(v) ? v : undefined;
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as SessionConfig) : {};
   } catch {
-    return undefined;
+    return {};
   }
 }
 
@@ -33,14 +35,15 @@ export function run(cliPath: string) {
   const emit = (o: Outbound, onFlush?: () => void) =>
     process.stdout.write(JSON.stringify(o) + "\n", onFlush);
 
-  const provider = createProvider(process.env.AGENT_PROVIDER ?? DEFAULT_PROVIDER, {
+  const config = parseSessionConfig(process.env.SESSION_CONFIG);
+  const provider = createProvider(config.provider ?? DEFAULT_PROVIDER, {
     cliPath,
     projectDir: process.env.PROJECT_DIR ?? process.cwd(),
-    resumeSessionId: process.env.RESUME_SESSION || undefined,
-    permissionMode: (process.env.PERMISSION_MODE as PermissionMode) || undefined,
-    systemPromptAppend: process.env.SYSTEM_PROMPT_APPEND || undefined,
-    mcpServers: parseJsonObject(process.env.MCP_SERVERS),
-    agents: parseJsonObject(process.env.AGENTS),
+    resumeSessionId: config.resumeSessionId || undefined,
+    permissionMode: config.permissionMode || undefined,
+    systemPromptAppend: config.systemPromptAppend || undefined,
+    mcpServers: config.mcpServers,
+    agents: config.agents,
     emit,
   });
 

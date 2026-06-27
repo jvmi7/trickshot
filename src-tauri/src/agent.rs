@@ -3,7 +3,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_shell::process::{Command, CommandChild, CommandEvent};
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 /// One sidecar process per worktree, keyed by worktree path. Worktrees run
@@ -22,24 +22,6 @@ impl Sessions {
     }
 }
 
-/// Set `key` to `val` on a sidecar command when present (used for the always-set
-/// optional knobs). Returns the command so calls chain off the builder.
-fn env_opt(cmd: Command, key: &str, val: Option<&str>) -> Command {
-    match val {
-        Some(v) => cmd.env(key, v),
-        None => cmd,
-    }
-}
-
-/// Like `env_opt`, but also skips an empty string (for the JSON-blob / free-text
-/// knobs where "" means "unset", not "set to empty").
-fn env_nonempty(cmd: Command, key: &str, val: Option<&str>) -> Command {
-    match val {
-        Some(v) if !v.is_empty() => cmd.env(key, v),
-        _ => cmd,
-    }
-}
-
 /// Event relayed from a worktree's sidecar to the webview, tagged with the
 /// worktree it belongs to so the UI can route it to the right transcript.
 /// Emitted on a single `agent-event` channel.
@@ -53,19 +35,18 @@ struct AgentEvent {
 
 /// Start a sidecar for `worktree` (cwd = the worktree path). Idempotent: a
 /// no-op if one is already running for that worktree.
-// Many optional knobs (resume, permission mode, system-prompt append, MCP
-// servers, subagents, provider) ride in as separate Tauri command args.
-#[allow(clippy::too_many_arguments)]
+///
+/// All start-up knobs (provider, resume, permission mode, system-prompt append,
+/// MCP servers, subagents) ride in ONE opaque JSON blob (`config`, the app's
+/// `SessionConfig`) forwarded verbatim as the `SESSION_CONFIG` env var. Rust does
+/// not parse or enumerate the fields — the sidecar does that once in core.ts — so
+/// adding a knob never touches this signature. `PROJECT_DIR` (the worktree path,
+/// = the sidecar's project dir) stays a separate env var.
 #[tauri::command]
 pub fn start_session(
     app: AppHandle,
     worktree: String,
-    resume: Option<String>,
-    permission_mode: Option<String>,
-    system_prompt_append: Option<String>,
-    mcp_servers: Option<String>,
-    agents: Option<String>,
-    provider: Option<String>,
+    config: Option<String>,
     state: State<'_, Sessions>,
 ) -> Result<(), String> {
     // Hold the lock across spawn+insert so two concurrent calls can't both pass
@@ -76,29 +57,16 @@ pub fn start_session(
         return Ok(());
     }
 
-    let command = app
+    let mut command = app
         .shell()
         .sidecar("agent")
         .map_err(|e| e.to_string())?
-        .env("PROJECT_DIR", &worktree)
-        // Which provider adapter the sidecar loads (see sidecar/providers).
-        // Defaults to "claude" in the sidecar when unset.
-        .env("AGENT_PROVIDER", provider.as_deref().unwrap_or("claude"));
-    // Optional knobs, each forwarded as a sidecar env var. resume/permission_mode
-    // are set whenever present; the JSON-blob / free-text knobs also skip "".
-    //   RESUME_SESSION      — resume a prior agent session (restores its context)
-    //   PERMISSION_MODE     — default/acceptEdits/plan/bypassPermissions (sidecar defaults to bypass)
-    //   SYSTEM_PROMPT_APPEND — extra text appended to the preset system prompt
-    //   MCP_SERVERS / AGENTS — JSON object strings the sidecar parses
-    let command = env_opt(command, "RESUME_SESSION", resume.as_deref());
-    let command = env_opt(command, "PERMISSION_MODE", permission_mode.as_deref());
-    let command = env_nonempty(
-        command,
-        "SYSTEM_PROMPT_APPEND",
-        system_prompt_append.as_deref(),
-    );
-    let command = env_nonempty(command, "MCP_SERVERS", mcp_servers.as_deref());
-    let command = env_nonempty(command, "AGENTS", agents.as_deref());
+        .env("PROJECT_DIR", &worktree);
+    // Forward the session config blob verbatim (skip an empty/absent one so the
+    // sidecar falls back to its own defaults).
+    if let Some(cfg) = config.as_deref().filter(|c| !c.is_empty()) {
+        command = command.env("SESSION_CONFIG", cfg);
+    }
 
     let (mut rx, child) = command.spawn().map_err(|e| e.to_string())?;
     // Capture this child's pid so the reader task can prove it still owns the map

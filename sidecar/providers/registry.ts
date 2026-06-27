@@ -1,5 +1,5 @@
-// Provider registry. Map an id -> factory; `core.ts` picks one via the
-// AGENT_PROVIDER env (set by Rust `start_session`), defaulting to "claude".
+// Provider registry. Map an id -> factory; `core.ts` picks one via
+// `config.provider` from the SESSION_CONFIG blob, defaulting to "claude".
 // To add a provider: implement AgentProvider in `./<name>.ts` and add it here.
 
 import { createClaudeProvider } from "./claude";
