@@ -34,7 +34,7 @@ Built as three processes over one event stream: a **Tauri 2** Rust core, a **Sve
 
 ### Appearance
 - A **Settings page** (opened from the sidebar foot, it replaces the chat pane) with **Appearance** and **Connectors** tabs.
-- **Themes**: Terracotta (default), Ocean, Forest — each a full palette swap. **Fonts**: Sans Code (default), WenKai Mono, Comic Sans, IBM Plex Mono, Helvetica. Both persist.
+- **Themes**: Terracotta (default), Ocean, Forest — each a full palette swap. **Fonts**: Sans Code (default), WenKai Mono, Comic Sans, IBM Plex Mono, Helvetica, Geist, Mulish, Lexend, Nunito, SN Pro. Both persist.
 
 ### Tool permissions
 - By default the agent runs with `bypassPermissions` — tools execute automatically without prompting. The full **Allow/Deny** approval modal is wired and becomes a real kill-switch the moment a non-bypass permission mode is used (see `ARCHITECTURE.md` → conversation flow).

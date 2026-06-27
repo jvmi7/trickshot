@@ -101,17 +101,20 @@ fn read_credentials_file() -> Result<String, String> {
 /// Best-effort `claude-code/<version>` User-Agent. We try the installed CLI's
 /// version and fall back to a constant — the endpoint only needs a `claude-code/*`
 /// UA to avoid its stricter rate-limit bucket, not an exact match.
+/// Parse the CLI's `--version` stdout into a bare version string. The output
+/// looks like `"2.1.193 (Claude Code)"`, so we take the first whitespace-delimited
+/// token. `None` when there is no token (empty / whitespace-only output).
+fn parse_cli_version(stdout: &str) -> Option<String> {
+    stdout.split_whitespace().next().map(|v| v.to_string())
+}
+
 fn user_agent() -> String {
     let version = Command::new("claude")
         .arg("--version")
         .output()
         .ok()
         .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .and_then(|s| {
-            // Output looks like "2.1.193 (Claude Code)"; take the first token.
-            s.split_whitespace().next().map(|v| v.to_string())
-        })
+        .and_then(|o| parse_cli_version(&String::from_utf8_lossy(&o.stdout)))
         .unwrap_or_else(|| UA_FALLBACK_VERSION.to_string());
     format!("claude-code/{version}")
 }
@@ -140,4 +143,28 @@ pub async fn get_usage() -> Result<UsageInfo, String> {
     resp.json::<UsageInfo>()
         .await
         .map_err(|e| format!("could not parse usage response: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_cli_version;
+
+    #[test]
+    fn parses_first_token_as_version() {
+        assert_eq!(
+            parse_cli_version("2.1.193 (Claude Code)").as_deref(),
+            Some("2.1.193")
+        );
+    }
+
+    #[test]
+    fn tolerates_a_bare_version_with_trailing_newline() {
+        assert_eq!(parse_cli_version("2.0.0\n").as_deref(), Some("2.0.0"));
+    }
+
+    #[test]
+    fn empty_or_whitespace_only_yields_none() {
+        assert_eq!(parse_cli_version(""), None);
+        assert_eq!(parse_cli_version("   \n  "), None);
+    }
 }

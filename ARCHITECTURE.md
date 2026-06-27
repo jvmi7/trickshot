@@ -13,13 +13,13 @@ End-to-end map of the MVP. Three processes, one event stream.
 │   agent.rs    start_session / send_to_session / stop_session      │
 │               (Sessions: HashMap of worktree -> sidecar)          │
 │   worktree.rs pick_directory / list / create / remove_worktree    │
-│   lib.rs      registers plugins (shell, dialog) + commands         │
+│   lib.rs      registers plugins (shell, dialog, notification)+cmds │
 └───────┬──────────────────────────────▲───────────────────────────┘
  stdin  │ (JSON lines)         stdout   │ (JSON lines, line-buffered)
 ┌───────▼──────────────────────────────┴───────────────────────────┐
 │  One Bun sidecar PER WORKTREE                                     │
 │   core.ts (neutral transport)  ──>  providers/<id>.ts (adapter)   │
-│   providers/claude.ts: query({ prompt:<stream>, bypassPermissions})│
+│   providers/claude.ts: query({ prompt:<stream>, canUseTool, mode })│
 │   embeds + extracts the native Claude Code CLI (extractFromBunfs) │
 └───────┬───────────────────────────────────────────────────────────┘
         │ spawns
