@@ -952,6 +952,20 @@ html, body {
 }
 /* end @layer components */
 
+/* Kill the shadcn Button press-down nudge (`active:translate-y-px` in the base
+   variant) app-wide. Eased by the base's `transition-all`, that 1px nudge reads
+   as a visible "bob" — the icon eases down on mouse-press and back up on release —
+   on every shadcn Button (the git-panel refresh, the view toggle, …). The hand-
+   built `.icon-chrome-btn` (IconButton, e.g. add-repo) never had it, which is the
+   look we want everywhere. Tailwind v4 drives the nudge through the `translate`
+   property (transform pinned too for safety); scoping to :active leaves any other
+   button transform untouched. Unlayered so it beats the Tailwind utilities layer
+   (same rationale as the cursor rules below — an @layer rule would lose to it). */
+[data-slot="button"]:active {
+  translate: none;
+  transform: none;
+}
+
 @keyframes ph-caret-blink {
   0%, 50% { opacity: 1; }
   50.01%, 100% { opacity: 0; }
@@ -971,8 +985,8 @@ html, body {
   color: var(--app-selection-text);
 }
 
-/* The themed pointer (set on <html> by themedCursor.ts) is the default everywhere;
-   keep the I-beam on text fields and the system pointer on interactive elements. */
+/* System cursor everywhere; just keep the I-beam on text fields and a pointer on
+   interactive elements. */
 input,
 textarea,
 [contenteditable="true"] {

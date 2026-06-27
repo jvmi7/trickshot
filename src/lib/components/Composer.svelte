@@ -187,11 +187,11 @@
   {/if}
   <!-- The input area: a bubble-styled surface (matches the chat bubbles) holding a
        borderless textarea + the send button. The selector row sits below it. -->
-  <div class="composer-input mb-2">
+  <div class="composer-input group/input mb-2">
     <!-- The textarea's native placeholder is suppressed; the animated placeholder
          (with its trailing caret) is the overlay below, kept pixel-aligned with
          the textarea's text by matching its padding/leading/size. -->
-    <div class="group relative flex-1">
+    <div class="relative flex-1">
       <Textarea
         bind:value={text}
         bind:ref={textareaEl}
@@ -201,12 +201,12 @@
         onblur={onBlur}
         disabled={!alive}
         rows={1}
-        class="max-h-48 min-h-[2.25rem] w-full resize-none select-text rounded-none border-0 bg-transparent px-0 py-1.5 text-base md:text-base shadow-none outline-none transition-colors hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent {showPhCaret ? 'caret-transparent' : 'caret-foreground'}"
+        class="max-h-48 min-h-[2.25rem] w-full resize-none select-text rounded-none border-0 bg-transparent px-0 py-1.5 text-base md:text-base shadow-none outline-none transition-colors group-hover/input:text-foreground focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent {showPhCaret ? 'caret-transparent' : 'caret-foreground'}"
       />
       {#if text === ""}
         <div
           bind:this={phEl}
-          class="text-muted-foreground group-hover:text-foreground pointer-events-none absolute inset-0 flex items-center text-base whitespace-pre transition-colors select-none"
+          class="text-muted-foreground group-hover/input:text-foreground pointer-events-none absolute inset-0 flex items-center text-base whitespace-pre transition-colors select-none"
           aria-hidden="true"
         >{alive ? ph : "Select a worktree to start"}{#if alive && phSel}<span class="ph-sel">{phSel}</span>{:else if showPhCaret}<span class="ph-caret"></span>{/if}</div>
       {/if}

@@ -11,8 +11,11 @@
 
   const MAX_LINES = 2000;
   const lines = $derived(diff ? diff.split("\n") : []);
-  const shown = $derived(lines.length > MAX_LINES ? lines.slice(0, MAX_LINES) : lines);
-  const hidden = $derived(lines.length - shown.length);
+  // Drop git's file-header metadata (diff --git, index, mode, ---/+++); keep the
+  // code rows and the @@ hunk markers.
+  const content = $derived(lines.filter((l) => kind(l) !== "meta"));
+  const shown = $derived(content.length > MAX_LINES ? content.slice(0, MAX_LINES) : content);
+  const hidden = $derived(content.length - shown.length);
   // Highlighting is per-line (no cross-line context), the lightweight tradeoff:
   // a line inside a block comment may mis-color, but the DOM stays bounded and
   // there's no whole-file reconstruction. "" when the type is unknown → escaped
@@ -50,7 +53,7 @@
   }
 </script>
 
-{#if lines.length === 0}
+{#if shown.length === 0}
   <div class="diff-empty">No changes in this file.</div>
 {:else}
   <div class="diff">

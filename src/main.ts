@@ -1,7 +1,6 @@
 import "./app.css";
 import { mount } from "svelte";
 import App from "./App.svelte";
-import { initThemedCursor } from "./lib/themedCursor";
 import { installThemes } from "./lib/themes";
 
 // Inject the color-theme CSS (generated from the themes.ts config) before mount,
@@ -12,7 +11,5 @@ installThemes();
 const app = mount(App, {
   target: document.getElementById("app")!,
 });
-
-initThemedCursor();
 
 export default app;
