@@ -238,13 +238,11 @@ pub struct WorktreeStatus {
     pub files: Vec<FileStatus>,
 }
 
-/// Insertions/deletions vs HEAD (`git diff HEAD --shortstat`). Best-effort: a
-/// repo with no commits (no HEAD) or any git error yields (0, 0).
-fn diff_shortstat(worktree_path: &str) -> (i32, i32) {
-    let Ok(out) = git(worktree_path, &["diff", "HEAD", "--shortstat"]) else {
-        return (0, 0);
-    };
-    // e.g. ` 3 files changed, 12 insertions(+), 4 deletions(-)`
+/// Parse a `git diff --shortstat` line into (insertions, deletions). Pure (no git
+/// invocation) so it's unit-testable; `diff_shortstat` wraps it with the git call.
+/// e.g. ` 3 files changed, 12 insertions(+), 4 deletions(-)` → (12, 4). A line with
+/// only one side (or an empty/`0 files changed` line) leaves the other at 0.
+fn parse_shortstat(out: &str) -> (i32, i32) {
     let (mut ins, mut del) = (0, 0);
     for part in out.split(',') {
         let p = part.trim();
@@ -264,10 +262,19 @@ fn diff_shortstat(worktree_path: &str) -> (i32, i32) {
     (ins, del)
 }
 
-/// Parsed `git status --porcelain=v1 --branch` for a worktree.
-#[tauri::command]
-pub fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> {
-    let out = git(&worktree_path, &["status", "--porcelain=v1", "--branch"])?;
+/// Insertions/deletions vs HEAD (`git diff HEAD --shortstat`). Best-effort: a
+/// repo with no commits (no HEAD) or any git error yields (0, 0).
+fn diff_shortstat(worktree_path: &str) -> (i32, i32) {
+    let Ok(out) = git(worktree_path, &["diff", "HEAD", "--shortstat"]) else {
+        return (0, 0);
+    };
+    parse_shortstat(&out)
+}
+
+/// Parse `git status --porcelain=v1 --branch` output into (branch, ahead, behind,
+/// files). Pure (no git invocation) so it's unit-testable; `worktree_status` wraps
+/// it with the git call and folds in the diffstat.
+fn parse_status(out: &str) -> (Option<String>, i32, i32, Vec<FileStatus>) {
     let mut files = Vec::new();
     let mut branch = None;
     let mut ahead = 0;
@@ -316,6 +323,14 @@ pub fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> 
         });
     }
 
+    (branch, ahead, behind, files)
+}
+
+/// Parsed `git status --porcelain=v1 --branch` for a worktree.
+#[tauri::command]
+pub fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> {
+    let out = git(&worktree_path, &["status", "--porcelain=v1", "--branch"])?;
+    let (branch, ahead, behind, files) = parse_status(&out);
     let (insertions, deletions) = diff_shortstat(&worktree_path);
     Ok(WorktreeStatus {
         branch,
@@ -431,7 +446,7 @@ pub fn worktree_merge(repo_path: String, branch: String) -> Result<String, Strin
 
 #[cfg(test)]
 mod tests {
-    use super::validate_branch;
+    use super::{parse_shortstat, parse_status, validate_branch};
 
     #[test]
     fn accepts_ordinary_names() {
@@ -462,5 +477,105 @@ mod tests {
         assert!(validate_branch("").is_err());
         assert!(validate_branch("a\nb").is_err());
         assert!(validate_branch("a\0b").is_err());
+    }
+
+    // ---- parse_shortstat (git diff --shortstat) ----
+
+    #[test]
+    fn shortstat_parses_both_sides() {
+        let line = " 3 files changed, 12 insertions(+), 4 deletions(-)";
+        assert_eq!(parse_shortstat(line), (12, 4));
+    }
+
+    #[test]
+    fn shortstat_parses_insertions_only() {
+        // A new-file-only / additions-only change reports no deletions clause.
+        assert_eq!(parse_shortstat(" 1 file changed, 7 insertions(+)"), (7, 0));
+    }
+
+    #[test]
+    fn shortstat_parses_deletions_only() {
+        assert_eq!(parse_shortstat(" 1 file changed, 5 deletions(-)"), (0, 5));
+    }
+
+    #[test]
+    fn shortstat_handles_singular_units() {
+        // git uses the singular "insertion(+)"/"deletion(-)" for a count of 1 —
+        // the `contains("insertion")`/`contains("deletion")` match must still hit.
+        assert_eq!(
+            parse_shortstat(" 1 file changed, 1 insertion(+), 1 deletion(-)"),
+            (1, 1)
+        );
+    }
+
+    #[test]
+    fn shortstat_empty_or_garbage_is_zero() {
+        // Empty output (no HEAD / no changes) and unparseable text both yield (0, 0).
+        assert_eq!(parse_shortstat(""), (0, 0));
+        assert_eq!(parse_shortstat("not a shortstat line"), (0, 0));
+    }
+
+    // ---- parse_status (git status --porcelain=v1 --branch) ----
+
+    #[test]
+    fn status_parses_branch_with_ahead_behind() {
+        let out = "## main...origin/main [ahead 1, behind 2]\n";
+        let (branch, ahead, behind, files) = parse_status(out);
+        assert_eq!(branch.as_deref(), Some("main"));
+        assert_eq!((ahead, behind), (1, 2));
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn status_parses_branch_without_upstream() {
+        // A branch with no upstream has no `...origin/...` and no `[...]` clause.
+        let (branch, ahead, behind, _) = parse_status("## feature/foo\n");
+        assert_eq!(branch.as_deref(), Some("feature/foo"));
+        assert_eq!((ahead, behind), (0, 0));
+    }
+
+    #[test]
+    fn status_parses_ahead_only() {
+        let (_, ahead, behind, _) = parse_status("## main...origin/main [ahead 3]\n");
+        assert_eq!((ahead, behind), (3, 0));
+    }
+
+    #[test]
+    fn status_classifies_staged_and_unstaged() {
+        // XY codes: `M ` staged, ` M` unstaged, `MM` both, `??` untracked.
+        let out = "## main\nM  staged.rs\n M unstaged.rs\nMM both.rs\n?? new.rs\n";
+        let (_, _, _, files) = parse_status(out);
+        assert_eq!(files.len(), 4);
+
+        let staged = &files[0];
+        assert_eq!(staged.path, "staged.rs");
+        assert!(staged.staged);
+
+        let unstaged = &files[1];
+        assert_eq!(unstaged.path, "unstaged.rs");
+        assert!(!unstaged.staged); // index side is a space → unstaged
+
+        assert!(files[2].staged); // `MM` → staged side is `M`
+
+        let untracked = &files[3];
+        assert_eq!(untracked.path, "new.rs");
+        assert!(!untracked.staged); // `?` index is explicitly NOT staged
+    }
+
+    #[test]
+    fn status_keeps_rename_destination() {
+        // A rename reports `orig -> new`; we keep the destination path.
+        let (_, _, _, files) = parse_status("## main\nR  old.rs -> new.rs\n");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "new.rs");
+        assert!(files[0].staged);
+    }
+
+    #[test]
+    fn status_empty_yields_no_branch_no_files() {
+        let (branch, ahead, behind, files) = parse_status("");
+        assert!(branch.is_none());
+        assert_eq!((ahead, behind), (0, 0));
+        assert!(files.is_empty());
     }
 }
