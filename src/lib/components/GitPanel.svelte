@@ -238,7 +238,7 @@
 
     <div class="git-diff">
       {#if selectedFile}
-        <DiffView {diff} />
+        <DiffView {diff} path={selectedFile} />
       {:else}
         <div class="git-empty">Select a file to view its diff.</div>
       {/if}

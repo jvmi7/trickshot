@@ -293,6 +293,11 @@ export const selectedWorktree = createPersisted<string | null>("trickshot.select
   parse: (raw) => raw || null,
   serialize: (v) => v ?? "",
 });
+/** Select a worktree (or clear with `null`). The one mutator for the persisted
+ *  selection — components call this, not `selectedWorktree.set()` inline. */
+export function selectWorktree(path: string | null) {
+  selectedWorktree.set(path);
+}
 
 // ---- Per-worktree session status ----
 const _status = createWorktreeMap<SessionStatus>();

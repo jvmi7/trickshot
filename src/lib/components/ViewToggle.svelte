@@ -21,12 +21,12 @@
           {...props}
           size="icon-sm"
           variant="ghost"
-          class="view-toggle-item size-7 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground active:not-aria-[haspopup]:translate-y-0"
+          class="view-toggle-item size-7 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
           data-active={$mainView === "chat" ? "" : undefined}
           aria-label="Chat"
           onclick={() => mainView.set("chat")}
         >
-          <MessageSquare class="size-4 {$mainView === 'chat' ? 'fill-current' : ''}" />
+          <MessageSquare class="size-4" />
         </Button>
       {/snippet}
     </Tooltip.Trigger>
@@ -41,7 +41,7 @@
             {...props}
             size="sm"
             variant="ghost"
-            class="view-toggle-item h-7 gap-1.5 text-xs text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground active:not-aria-[haspopup]:translate-y-0"
+            class="view-toggle-item h-7 gap-1.5 text-xs text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
             data-active={$mainView === "changes" ? "" : undefined}
             onclick={() => mainView.set($mainView === "changes" ? "chat" : "changes")}
           >

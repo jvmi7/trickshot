@@ -858,17 +858,18 @@ html, body {
 .markdown table { border-collapse: collapse; margin: 0 0 8px; display: block; overflow-x: auto; }
 .markdown th, .markdown td { border: 1px solid var(--app-border); padding: 4px 8px; text-align: left; }
 /* highlight.js scopes → the theme's existing chart hues (no imported hljs theme,
-   so syntax color follows the active --base-* palette). */
-.markdown .hljs-comment, .markdown .hljs-quote { color: var(--app-dim); font-style: italic; }
-.markdown .hljs-keyword, .markdown .hljs-built_in, .markdown .hljs-literal, .markdown .hljs-type { color: var(--base-special); }
-.markdown .hljs-string, .markdown .hljs-regexp, .markdown .hljs-char, .markdown .hljs-addition { color: var(--base-success); }
-.markdown .hljs-number, .markdown .hljs-symbol { color: var(--base-warning); }
-.markdown .hljs-title, .markdown .hljs-name, .markdown .hljs-section, .markdown .hljs-selector-tag { color: var(--app-accent); }
-.markdown .hljs-attr, .markdown .hljs-attribute, .markdown .hljs-property, .markdown .hljs-variable, .markdown .hljs-template-variable { color: var(--app-accent); }
-.markdown .hljs-meta, .markdown .hljs-tag, .markdown .hljs-punctuation { color: var(--app-dim); }
-.markdown .hljs-deletion { color: var(--app-danger); }
-.markdown .hljs-emphasis { font-style: italic; }
-.markdown .hljs-strong { font-weight: 600; }
+   so syntax color follows the active --base-* palette). Shared by markdown fenced
+   code and the git diff (DiffView), which both emit `<span class="hljs-…">`. */
+:where(.markdown, .diff) .hljs-comment, :where(.markdown, .diff) .hljs-quote { color: var(--app-dim); font-style: italic; }
+:where(.markdown, .diff) .hljs-keyword, :where(.markdown, .diff) .hljs-built_in, :where(.markdown, .diff) .hljs-literal, :where(.markdown, .diff) .hljs-type { color: var(--base-special); }
+:where(.markdown, .diff) .hljs-string, :where(.markdown, .diff) .hljs-regexp, :where(.markdown, .diff) .hljs-char, :where(.markdown, .diff) .hljs-addition { color: var(--base-success); }
+:where(.markdown, .diff) .hljs-number, :where(.markdown, .diff) .hljs-symbol { color: var(--base-warning); }
+:where(.markdown, .diff) .hljs-title, :where(.markdown, .diff) .hljs-name, :where(.markdown, .diff) .hljs-section, :where(.markdown, .diff) .hljs-selector-tag { color: var(--app-accent); }
+:where(.markdown, .diff) .hljs-attr, :where(.markdown, .diff) .hljs-attribute, :where(.markdown, .diff) .hljs-property, :where(.markdown, .diff) .hljs-variable, :where(.markdown, .diff) .hljs-template-variable { color: var(--app-accent); }
+:where(.markdown, .diff) .hljs-meta, :where(.markdown, .diff) .hljs-tag, :where(.markdown, .diff) .hljs-punctuation { color: var(--app-dim); }
+:where(.markdown, .diff) .hljs-deletion { color: var(--app-danger); }
+:where(.markdown, .diff) .hljs-emphasis { font-style: italic; }
+:where(.markdown, .diff) .hljs-strong { font-weight: 600; }
 /* ---- compact tool rows (a tool_call + its folded-in result; see
    ToolActivity.svelte). Dim and one-line by default so assistant prose
    dominates; click the head to expand input + result. ---- */
@@ -951,6 +952,20 @@ html, body {
 }
 /* end @layer components */
 
+/* Kill the shadcn Button press-down nudge (`active:translate-y-px` in the base
+   variant) app-wide. Eased by the base's `transition-all`, that 1px nudge reads
+   as a visible "bob" — the icon eases down on mouse-press and back up on release —
+   on every shadcn Button (the git-panel refresh, the view toggle, …). The hand-
+   built `.icon-chrome-btn` (IconButton, e.g. add-repo) never had it, which is the
+   look we want everywhere. Tailwind v4 drives the nudge through the `translate`
+   property (transform pinned too for safety); scoping to :active leaves any other
+   button transform untouched. Unlayered so it beats the Tailwind utilities layer
+   (same rationale as the cursor rules below — an @layer rule would lose to it). */
+[data-slot="button"]:active {
+  translate: none;
+  transform: none;
+}
+
 @keyframes ph-caret-blink {
   0%, 50% { opacity: 1; }
   50.01%, 100% { opacity: 0; }
@@ -970,8 +985,8 @@ html, body {
   color: var(--app-selection-text);
 }
 
-/* The themed pointer (set on <html> by themedCursor.ts) is the default everywhere;
-   keep the I-beam on text fields and the system pointer on interactive elements. */
+/* System cursor everywhere; just keep the I-beam on text fields and a pointer on
+   interactive elements. */
 input,
 textarea,
 [contenteditable="true"] {

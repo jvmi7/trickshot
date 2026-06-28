@@ -7,6 +7,7 @@
     worktreesByRepo,
     setWorktrees,
     selectedWorktree,
+    selectWorktree,
     setStatus,
     sidebarOpen,
     sidebarWidth,
@@ -108,7 +109,7 @@
           list.some((w) => w.path === sel),
         );
         if (!exists) {
-          selectedWorktree.set(null);
+          selectWorktree(null);
         } else {
           // Resume the persisted selection's session on launch (idempotent) so
           // the chat — and its model switcher — are usable without re-selecting.
