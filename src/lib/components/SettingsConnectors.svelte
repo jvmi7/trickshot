@@ -136,10 +136,10 @@
               variant="ghost"
               size="icon-xs"
               title="Reconnect"
-              disabled={reconnecting[s.name]}
+              disabled={reconnecting[s.name] ?? false}
               onclick={() => reconnect(s.name)}
             >
-              <RotateCw class="size-3.5 {reconnecting[s.name] ? 'animate-spin' : ''}" />
+              <RotateCw class="size-3.5 {(reconnecting[s.name] ?? false) ? 'animate-spin' : ''}" />
             </Button>
           {/if}
           <Switch checked={checked(s)} onCheckedChange={(v) => toggle(s, v)} aria-label="Enable {s.name}" />
