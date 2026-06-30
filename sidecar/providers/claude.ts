@@ -350,7 +350,7 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
         type: "user",
         message: { role: "user", content: String(text ?? "") },
         parent_tool_use_id: null,
-      } as SDKUserMessage);
+      });
     },
 
     setModel(model) {
