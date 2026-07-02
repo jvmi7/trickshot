@@ -165,6 +165,16 @@ Test **pure, deterministic logic**; don't test I/O, UI, or the live agent loop. 
 - **Escape hatch:** `window.__trickshotMock.send(worktree, outbound)` / `.emitEnvelope(...)` inject arbitrary protocol events from a driver (edge cases the scripts don't cover); `.notifications` records `notify` calls for assertions.
 - **Keep the mock in sync:** it consumes the `Inbound`/`Outbound` unions with exhaustiveness guards, so a new protocol `kind` is a compile error there (fix it in the same commit); a new Tauri command must get a `handleCommand` case or mock-mode `invoke` rejects at runtime — the e2e suite is what catches that.
 
+## Feature workflow — test-first (TDD)
+
+**When asked to implement a feature, write the test FIRST, watch it fail, then implement until it passes.** The harness above makes this possible for UI behavior, not just pure logic. The loop:
+
+1. **Pick the layer by what the feature IS** (same split as the testing conventions): a parser/reducer/mapper/store mutator → a colocated `*.test.ts` (`bun test`); user-visible UI behavior → a spec in `e2e/*.e2e.ts` against the mock backend; a Rust parser/helper → an inline `#[cfg(test)]` test (`cargo test`). A feature that spans layers gets a test at EACH layer it adds logic to (e.g. a new protocol kind: reducer case in `agentEvents.test.ts` + rendered behavior in an e2e spec).
+2. **Extend the mock first if the test needs it.** If the e2e spec requires agent behavior the scripted mock doesn't produce, add the `mockBackend.ts` trigger (or drive `window.__trickshotMock.send(...)`) as part of writing the test — the mock extension is part of the test, not the implementation.
+3. **Run the new test and confirm it fails for the RIGHT reason** — an assertion about the missing behavior, not a selector typo, compile error, or missing fixture. A test that fails wrong will pass wrong.
+4. **Implement until that test passes**, then run the full gates (`lint`, `check`, `check:sidecar`, `bun test`, `e2e`) so the feature lands green.
+5. **Coverage is measured, not chased:** `bun run test:coverage` reports bun's line/function coverage over the pure modules. `api.ts`, Svelte components, and `mockBackend.ts` intentionally show low/no UNIT coverage — they're exercised behaviorally by the e2e suite and the conformance gates; don't unit-test UI to move the number.
+
 ## PERFORMANCE (first-class)
 
 The hot path is bursty, data-dependent streaming (big tool results). Preserve these; they are load-bearing, not optional.
@@ -189,6 +199,7 @@ bun run build          # release
 bun run check          # svelte-check typecheck (webview, src/** only)
 bun run check:sidecar  # tsc typecheck of the Bun sidecar + shared protocol — the half `check` does NOT cover (bun --compile doesn't typecheck)
 bun run test           # bun test (TS unit tests); Rust units run via `cargo test` in src-tauri
+bun run test:coverage  # bun test --coverage — line/function coverage over the pure modules (see the TDD section)
 bun run dev:mock       # the app in a plain browser against the MOCK backend (port 1420) — see the E2E harness section
 bun run e2e            # Playwright suite over the mock app (boots its own server on port 1421)
 bun run lint           # Biome lint + format check (TS/JS/JSON; `.svelte` is covered by svelte-check, not Biome)
