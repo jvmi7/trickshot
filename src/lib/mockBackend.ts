@@ -419,14 +419,19 @@ function handleInbound(worktree: string, s: MockSession, msg: Inbound) {
 
 // ---- Command surface (mirrors lib.rs' generate_handler! list) --------------
 
+/** Every `start_session` call this page-load, with its parsed config — lets a
+ *  driver assert the resume contract (a relaunch must carry `resumeSessionId`). */
+export const sessionStarts: { worktree: string; config: SessionConfig }[] = [];
+
 function startSession(worktree: string, configJson: string | undefined) {
-  if (sessions.has(worktree)) return; // idempotent, like agent.rs
   let config: SessionConfig = {};
   try {
     config = configJson ? (JSON.parse(configJson) as SessionConfig) : {};
   } catch {
     /* opaque blob, tolerate garbage like Rust does */
   }
+  sessionStarts.push({ worktree, config });
+  if (sessions.has(worktree)) return; // idempotent, like agent.rs
   const s: MockSession = {
     id: config.resumeSessionId ?? `mock-session-${++sessionCounter}`,
     model: "mock-opus",
@@ -566,6 +571,7 @@ declare global {
       send: typeof send;
       emitEnvelope: typeof emitEnvelope;
       notifications: typeof notifications;
+      sessionStarts: typeof sessionStarts;
     };
   }
 }
@@ -588,5 +594,5 @@ export function installMockBackend() {
   seedRepo(MOCK_REPO);
   mockWindows("main");
   mockIPC((cmd, args) => handleCommand(cmd, args), { shouldMockEvents: true });
-  window.__trickshotMock = { send, emitEnvelope, notifications };
+  window.__trickshotMock = { send, emitEnvelope, notifications, sessionStarts };
 }

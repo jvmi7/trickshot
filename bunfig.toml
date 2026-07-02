@@ -1,0 +1,5 @@
+# bun test config: preload the in-memory localStorage stub BEFORE any test file
+# (and therefore before stores.ts/transcript.ts evaluate their `hasLS` checks),
+# so the persistence template is exercised for real in unit tests.
+[test]
+preload = ["./src/lib/testSetup.ts"]

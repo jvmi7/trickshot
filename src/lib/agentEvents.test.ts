@@ -15,6 +15,7 @@ import {
   setWorktreeModel,
   transcripts,
   turnSummary,
+  unreadByWorktree,
   worktreeActivity,
 } from "./stores";
 
@@ -142,6 +143,19 @@ describe("handleAgentEvent — turn_end", () => {
     expect(get(sessionStatus)[w]).toBe("ready");
     expect(get(turnSummary)[w]).toMatchObject({ steps: 1 });
     expect(get(worktreeActivity)[w]).toBeUndefined(); // cleared on turn end
+  });
+
+  test("a BACKGROUND turn_end bumps unread + notifies instead of suggesting", () => {
+    const w = wt();
+    selectedWorktree.set(`${w}-other`); // some other worktree is on screen
+    const notifySpy = spyOn(api, "notify").mockResolvedValue(undefined);
+    const suggestSpy = spyOn(api, "requestSuggestions").mockResolvedValue(undefined);
+    handleAgentEvent(w, { kind: "message", message: { type: "turn_end" } });
+    expect(get(unreadByWorktree)[w]).toBe(1);
+    expect(notifySpy).toHaveBeenCalledWith("Agent finished", expect.any(String));
+    expect(suggestSpy).not.toHaveBeenCalled(); // suggestions are foreground-only
+    notifySpy.mockRestore();
+    suggestSpy.mockRestore();
   });
 });
 

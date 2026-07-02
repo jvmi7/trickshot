@@ -149,6 +149,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 
 Test **pure, deterministic logic**; don't test I/O, UI, or the live agent loop. The bar is "branchy logic that would silently break" — parsers, reducers, native→neutral mappers, the transcript engine.
 
+- `bun test` preloads an in-memory `localStorage` stub (`src/lib/testSetup.ts`, wired in `bunfig.toml`) so the persistence template runs for real in unit tests — don't re-stub storage per file.
 - DO colocate a `*.test.ts` next to the module and run it with `bun test`. The existing set IS the template: `transcript.test.ts` (batching/windowing/grouping), `agentEvents.test.ts` (the event reducer), `sidecar/providers/claude.test.ts` (the `claudeMapping` native→neutral conversion + `claudeSuggest`). Extend the matching file when you touch that logic; add a sibling `*.test.ts` for a new pure module.
 - DO put the cross-process "do these hand-mirrored seams still line up?" checks in `src/lib/conformance.test.ts` (the ONE home for them) — it reads source/docs as text and asserts the protocol/command/envelope/theme/font seams that have no compiler link. It's the exception to "test pure logic only": it guards the SYNC RULE so drift fails CI instead of production. Extend it (don't fork a parallel checker) when you add a seam that the compiler can't see.
 - DO put Rust parser/helper tests in an inline `#[cfg(test)] mod tests` in the same file (see `worktree.rs`'s git status/diff parsers), run by `cargo test`.

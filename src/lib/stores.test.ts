@@ -18,6 +18,7 @@ import {
   clearStatus,
   clearSuggestions,
   clearUnread,
+  createPersisted,
   sessionByWorktree,
   sessionStatus,
   setActivity,
@@ -112,5 +113,58 @@ describe("svelte store semantics the guard does NOT change (the limitation)", ()
     setActivity("conformance-unrelated", "Thinking", "");
     expect(calls).toBe(afterInit);
     unsub();
+  });
+});
+
+// ---- The persistence template (createPersisted) ----
+// Every `trickshot.*` store is a copy of this ONE template, so its guards are
+// pinned here: a regression in the shape fallback or the quota swallow would
+// corrupt every persisted store at once. Storage exists in bun tests via the
+// preloaded stub (testSetup.ts, wired in bunfig.toml).
+describe("createPersisted (the persistence template)", () => {
+  let n = 0;
+  const key = () => `trickshot.test.persist-${n++}`;
+
+  test("round-trips: a set value is written through and loaded by a fresh store", () => {
+    const k = key();
+    const a = createPersisted<number[]>(k, []);
+    a.set([1, 2, 3]);
+    expect(localStorage.getItem(k)).toBe("[1,2,3]");
+    // A store created later on the same key loads the persisted value.
+    expect(get(createPersisted<number[]>(k, []))).toEqual([1, 2, 3]);
+  });
+
+  test("garbage in storage → the fallback (a parse throw is caught)", () => {
+    const k = key();
+    localStorage.setItem(k, "not json{{{");
+    expect(get(createPersisted(k, "fallback"))).toBe("fallback");
+  });
+
+  test("a shape-guarding parse rejects wrong-shaped data to the fallback", () => {
+    const k = key();
+    localStorage.setItem(k, JSON.stringify({ an: "object" }));
+    const store = createPersisted<string[]>(k, [], {
+      parse: (raw) => {
+        const v = JSON.parse(raw);
+        if (!Array.isArray(v)) throw new Error("bad shape");
+        return v;
+      },
+    });
+    expect(get(store)).toEqual([]);
+  });
+
+  test("a storage write failure (quota) is swallowed; the in-memory value still updates", () => {
+    const k = key();
+    const store = createPersisted<string>(k, "start");
+    const orig = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = () => {
+      throw new Error("QuotaExceededError");
+    };
+    try {
+      expect(() => store.set("bigger")).not.toThrow();
+      expect(get(store)).toBe("bigger");
+    } finally {
+      localStorage.setItem = orig;
+    }
   });
 });

@@ -51,7 +51,10 @@ const hasLS = typeof localStorage !== "undefined";
 // is structural here instead of hand-copied per store (see CLAUDE.md). `parse`
 // turns the stored string into T and MAY throw or return the fallback for bad
 // data (load() catches and falls back); `serialize` defaults to JSON.
-function createPersisted<T>(
+// Exported for stores.test.ts ONLY — the template's guards (shape fallback,
+// quota swallow) are pinned there so a regression can't corrupt every persisted
+// store at once. App code never calls this outside this module.
+export function createPersisted<T>(
   key: string,
   fallback: T,
   opts: { parse?: (raw: string) => T; serialize?: (value: T) => string } = {},
