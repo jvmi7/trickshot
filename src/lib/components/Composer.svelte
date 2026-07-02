@@ -132,6 +132,13 @@
   );
   const showPalette = $derived(focused && cmdMatches.length > 0);
 
+  // Keyboard-highlighted palette row; reset to the top whenever the query changes.
+  let cmdIndex = $state(0);
+  $effect(() => {
+    void cmdQuery;
+    cmdIndex = 0;
+  });
+
   function pickCommand(name: string) {
     text = `/${name} `;
     textareaEl?.focus();
@@ -154,6 +161,22 @@
   }
 
   function onKeydown(e: KeyboardEvent) {
+    // While the slash palette is open it owns Arrow/Enter/Tab — otherwise Enter
+    // would send the partial "/cmd" text as a real turn.
+    if (showPalette) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        cmdIndex = (cmdIndex + step + cmdMatches.length) % cmdMatches.length;
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        const cmd = cmdMatches[cmdIndex] ?? cmdMatches[0];
+        if (cmd) pickCommand(cmd.name);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (canSend) send();
@@ -168,10 +191,10 @@
     <div
       class="bg-popover text-popover-foreground absolute bottom-full left-0 z-50 mb-2 max-h-64 w-72 overflow-auto rounded-md border shadow-md"
     >
-      {#each cmdMatches as c (c.name)}
+      {#each cmdMatches as c, i (c.name)}
         <button
           type="button"
-          class="hover:bg-accent flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left"
+          class="hover:bg-accent flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left {i === cmdIndex ? 'bg-accent' : ''}"
           onmousedown={(e) => {
             e.preventDefault();
             pickCommand(c.name);
