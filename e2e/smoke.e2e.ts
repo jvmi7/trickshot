@@ -50,15 +50,32 @@ test("tool calls render as a collapsible group with results", async ({ page }) =
   await expect(page.locator(".msg.assistant").last()).toContainText("all green");
 });
 
-test("the agent's question surfaces the modal and the reply resumes the turn", async ({ page }) => {
+test("the agent's question surfaces the modal; single + multiSelect answers resume the turn", async ({
+  page,
+}) => {
   await selectWorktree(page, "main");
   await sendMessage(page, "ask me a question first");
 
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Which database should the feature use?");
+  // Submit stays disabled until EVERY question has at least one choice.
   await dialog.getByRole("button", { name: "Postgres" }).click();
+  await expect(dialog.getByRole("button", { name: "Submit" })).toBeDisabled();
+  await dialog.getByRole("button", { name: "Auth" }).click();
+  await dialog.getByRole("button", { name: "Export" }).click();
   await dialog.getByRole("button", { name: "Submit" }).click();
-  await expect(page.locator(".msg.assistant").last()).toContainText("Postgres");
+  await expect(page.locator(".msg.assistant").last()).toContainText("Postgres; Auth, Export");
+});
+
+test("skipping the agent's question answers empty and the turn still completes", async ({
+  page,
+}) => {
+  await selectWorktree(page, "main");
+  await sendMessage(page, "one question please");
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Skip" }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator(".msg.assistant").last()).toContainText("No answer given");
 });
 
 test("a permission request surfaces Allow/Deny and Allow resumes the turn", async ({ page }) => {
@@ -69,6 +86,80 @@ test("a permission request surfaces Allow/Deny and Allow resumes the turn", asyn
   await expect(dialog).toContainText("Allow");
   await dialog.getByRole("button", { name: "Allow", exact: true }).click();
   await expect(page.locator(".msg.assistant").last()).toContainText("Permission granted");
+});
+
+test("denying a permission request skips the tool and completes the turn", async ({ page }) => {
+  await selectWorktree(page, "main");
+  await sendMessage(page, "this needs permission");
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Deny" }).click();
+  await expect(page.locator(".msg.assistant").last()).toContainText("Permission denied");
+});
+
+test("Stop interrupts a streaming turn and the session returns to ready", async ({ page }) => {
+  await selectWorktree(page, "main");
+  await sendMessage(page, "burst"); // ~3s of streamed tool pairs
+  // Interrupt mid-stream: Stop replaces Send while a turn is in flight.
+  await page.getByRole("button", { name: "Stop" }).click();
+  await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
+  // The stream actually halts: the message count settles and stays put.
+  await page.waitForTimeout(400);
+  const settled = await page.locator(".tool-row").count();
+  await page.waitForTimeout(400);
+  expect(await page.locator(".tool-row").count()).toBe(settled);
+});
+
+test("an in-band agent error renders a bubble and the turn still completes", async ({ page }) => {
+  await selectWorktree(page, "main");
+  await sendMessage(page, "fail once please");
+  await expect(page.locator(".msg.error")).toContainText("went wrong mid-turn");
+  await expect(page.locator(".msg.assistant").last()).toContainText("recovered");
+  // The turn ended (not stuck busy): the composer can send again.
+  await page.locator("textarea").fill("still alive?");
+  await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+});
+
+test("git flow: stage all + commit clears the panel", async ({ page }) => {
+  await selectWorktree(page, "main");
+  await page.getByRole("button", { name: "+8" }).click();
+  await expect(page.getByRole("button", { name: "src/lib/api.ts" })).toBeVisible();
+  await page.getByRole("button", { name: "Stage all" }).click();
+  await page.getByRole("textbox", { name: "Commit message…" }).fill("mock: ship it");
+  await page.getByRole("button", { name: "Commit", exact: true }).click();
+  // The always-dirty fixture is cleared by commit; the file rows disappear.
+  await expect(page.getByRole("button", { name: "src/lib/api.ts" })).toHaveCount(0);
+});
+
+test("worktree lifecycle: create (auto-selects), then remove-dirty with confirm", async ({
+  page,
+}) => {
+  await selectWorktree(page, "main");
+  await page.getByRole("button", { name: "New worktree" }).click();
+  await page.getByPlaceholder("branch name…  (Enter)").fill("feature/e2e-created");
+  await page.getByPlaceholder("branch name…  (Enter)").press("Enter");
+  // The new worktree appears and becomes the selection.
+  const row = page.locator(".wt-row", { hasText: "feature/e2e-created" });
+  await expect(row).toBeVisible();
+  await expect(page.locator(".workspace-label .path")).toContainText("feature-e2e-created");
+
+  // Removing it hits the dirty-worktree confirm (the mock fixture is always dirty).
+  await row.hover();
+  await row.getByRole("button", { name: "×" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("uncommitted");
+  await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  // The removed worktree's selection is cleared, not left dangling.
+  await expect(page.locator(".workspace-label")).toContainText("select or create");
+});
+
+test("typing / opens the slash-command palette and picks a command", async ({ page }) => {
+  await selectWorktree(page, "main");
+  await page.locator("textarea").fill("/rev");
+  const palette = page.getByRole("button", { name: "/review" });
+  await expect(palette).toContainText("Review the current diff");
+  await palette.click();
+  await expect(page.locator("textarea")).toHaveValue("/review ");
 });
 
 test("the Changes tab shows the worktree's diff", async ({ page }) => {

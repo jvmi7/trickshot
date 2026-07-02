@@ -10,8 +10,9 @@
 // so a direct `$store` reader still re-runs on a same-identity set. The win is
 // the allocation + the primitive-derived renders, nothing more.
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { get } from "svelte/store";
+import * as api from "./api";
 import {
   activeActivity,
   bumpUnread,
@@ -26,7 +27,9 @@ import {
   setSuggestions,
   setWorktreeSession,
   startActivity,
+  submitUserTurn,
   suggestionsByWorktree,
+  transcripts,
   unreadByWorktree,
   worktreeActivity,
 } from "./stores";
@@ -166,5 +169,22 @@ describe("createPersisted (the persistence template)", () => {
     } finally {
       localStorage.setItem = orig;
     }
+  });
+});
+
+// ---- submitUserTurn — the one user-turn entry point ----
+describe("submitUserTurn on IPC failure", () => {
+  test("a rejected send appends an error bubble and unsticks the session", async () => {
+    const w = "stores-test-submit-fail";
+    const spy = spyOn(api, "sendUserTurn").mockRejectedValue(new Error("boom"));
+    await submitUserTurn(w, "hello");
+    await new Promise((r) => setTimeout(r, 25)); // > the 16ms append flush
+    const msgs = get(transcripts)[w] ?? [];
+    expect(msgs.at(0)).toMatchObject({ type: "user_local", text: "hello" });
+    expect(msgs.at(-1)).toMatchObject({ type: "error" });
+    // Without the catch, the composer would spin busy forever.
+    expect(get(sessionStatus)[w]).toBe("ready");
+    expect(get(worktreeActivity)[w]).toBeUndefined();
+    spy.mockRestore();
   });
 });

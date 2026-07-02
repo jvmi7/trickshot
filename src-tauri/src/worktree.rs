@@ -578,4 +578,110 @@ mod tests {
         assert_eq!((ahead, behind), (0, 0));
         assert!(files.is_empty());
     }
+
+    // ---- Worktree lifecycle against a REAL git repo (tempdir) ----
+    // The parsers above are pure; these pin the git-shelling commands themselves:
+    // the sibling `.<repo>-worktrees/<branch>` dir scheme, the base_ref loud-fail,
+    // and the create/list/remove round-trip — all called out as load-bearing in
+    // CLAUDE.md but previously protected only by convention.
+    mod lifecycle {
+        use super::super::{create_worktree, list_worktrees, remove_worktree};
+        use std::path::Path;
+        use std::process::Command;
+
+        /// A real repo named `repo` in a fresh tempdir, with one commit on `main`.
+        fn init_repo() -> (tempfile::TempDir, String) {
+            let tmp = tempfile::tempdir().expect("tempdir");
+            let repo = tmp.path().join("repo");
+            std::fs::create_dir(&repo).expect("mkdir repo");
+            let repo_s = repo.to_string_lossy().to_string();
+            run_git(&repo_s, &["init", "-b", "main"]);
+            commit(&repo_s, "init");
+            (tmp, repo_s)
+        }
+
+        fn run_git(repo: &str, args: &[&str]) -> String {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(repo)
+                .args(args)
+                .output()
+                .expect("run git");
+            assert!(
+                out.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        }
+
+        /// Empty commit with an inline identity (the tempdir has no git config).
+        fn commit(repo: &str, msg: &str) {
+            run_git(
+                repo,
+                &[
+                    "-c",
+                    "user.email=test@test",
+                    "-c",
+                    "user.name=test",
+                    "commit",
+                    "--allow-empty",
+                    "-m",
+                    msg,
+                ],
+            );
+        }
+
+        #[test]
+        fn create_list_remove_roundtrip_and_dir_scheme() {
+            let (_tmp, repo) = init_repo();
+            let wt = create_worktree(repo.clone(), "feature/x".into(), None).expect("create");
+
+            // The documented scheme: ../.<repo>-worktrees/<branch>, slashes nested.
+            let expected = Path::new(&repo)
+                .parent()
+                .unwrap()
+                .join(".repo-worktrees")
+                .join("feature/x");
+            assert_eq!(wt.path, expected.to_string_lossy());
+            assert_eq!(wt.branch.as_deref(), Some("feature/x"));
+            assert!(!wt.is_main);
+            assert!(Path::new(&wt.path).is_dir());
+
+            let listed = list_worktrees(repo.clone()).expect("list");
+            assert_eq!(listed.len(), 2);
+            assert!(listed[0].is_main, "first entry is the main worktree");
+            assert!(listed
+                .iter()
+                .any(|w| w.branch.as_deref() == Some("feature/x")));
+
+            remove_worktree(repo.clone(), wt.path.clone(), false).expect("remove");
+            assert_eq!(list_worktrees(repo).expect("list").len(), 1);
+            assert!(!Path::new(&wt.path).exists());
+        }
+
+        #[test]
+        fn base_ref_on_an_existing_branch_fails_loudly() {
+            let (_tmp, repo) = init_repo();
+            run_git(&repo, &["branch", "existing"]);
+            // `.err()` (not expect_err) so the test doesn't force Debug onto Worktree.
+            let err = create_worktree(repo, "existing".into(), Some("main".into()))
+                .err()
+                .expect("must refuse base_ref for an existing branch");
+            assert!(
+                err.contains("base_ref cannot be applied"),
+                "wrong error: {err}"
+            );
+        }
+
+        #[test]
+        fn base_ref_creates_the_new_branch_at_that_ref() {
+            let (_tmp, repo) = init_repo();
+            let first = run_git(&repo, &["rev-parse", "HEAD"]);
+            commit(&repo, "second"); // main moves on
+            let wt = create_worktree(repo, "from-first".into(), Some(first.clone()))
+                .expect("create at base_ref");
+            assert_eq!(wt.head.as_deref(), Some(first.as_str()));
+        }
+    }
 }

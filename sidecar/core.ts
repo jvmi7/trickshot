@@ -14,11 +14,12 @@
 import { createInterface } from "node:readline";
 import type { Inbound, Outbound, SessionConfig } from "../shared/protocol";
 import { createProvider, DEFAULT_PROVIDER } from "./providers/registry";
+import type { AgentProvider } from "./providers/types";
 
 /** Parse the SESSION_CONFIG env blob (the app's `SessionConfig`, set by Rust) into
  *  a typed object, or an empty config when absent/invalid. The single place the
- *  session start-up config crosses into the sidecar. */
-function parseSessionConfig(raw: string | undefined): SessionConfig {
+ *  session start-up config crosses into the sidecar. Exported for core.test.ts. */
+export function parseSessionConfig(raw: string | undefined): SessionConfig {
   if (!raw) return {};
   try {
     const v = JSON.parse(raw);
@@ -50,65 +51,75 @@ export function run(cliPath: string) {
   });
 
   // Read commands from stdin and dispatch to the provider.
-  createInterface({ input: process.stdin }).on("line", (line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    let cmd: Inbound;
-    try {
-      cmd = JSON.parse(trimmed) as Inbound;
-    } catch {
-      return;
-    }
-    switch (cmd.kind) {
-      case "user_turn":
-        provider.pushTurn(cmd.text);
-        break;
-      case "set_model":
-        provider.setModel(cmd.model);
-        break;
-      case "set_permission_mode":
-        provider.setPermissionMode(cmd.mode);
-        break;
-      case "get_models":
-        provider.publishModels();
-        break;
-      case "get_connectors":
-        provider.publishConnectors();
-        break;
-      case "toggle_connector":
-        provider.toggleConnector(cmd.name, cmd.enabled);
-        break;
-      case "reconnect_connector":
-        provider.reconnectConnector(cmd.name);
-        break;
-      case "get_commands":
-        provider.publishCommands();
-        break;
-      case "set_mcp_servers":
-        provider.setMcpServers(cmd.servers);
-        break;
-      case "interrupt":
-        provider.interrupt();
-        break;
-      case "permission_reply":
-        provider.replyPermission(cmd.id, cmd.behavior, cmd.message);
-        break;
-      case "question_reply":
-        provider.replyQuestion(cmd.id, cmd.answers);
-        break;
-      case "suggest":
-        provider.suggest(cmd.conversation);
-        break;
-      default: {
-        // Exhaustiveness guard: a new Inbound `kind` added to the protocol
-        // without a case here is now a COMPILE error (the sidecar is typechecked
-        // in CI via tsconfig.sidecar.json). Without this, a one-sided protocol
-        // edit toward the sidecar would be silently dropped (see SYNC RULE).
-        const _exhaustive: never = cmd;
-        void _exhaustive;
-      }
-    }
-  });
+  createInterface({ input: process.stdin }).on("line", (line) => handleLine(provider, line));
 
   provider.start();
+}
+
+/** One stdin line → at most one dispatch. Blank lines and non-JSON noise are
+ *  ignored — the wire tolerates garbage rather than crashing the session.
+ *  Exported (with dispatch) for core.test.ts; run() is the only other caller. */
+export function handleLine(provider: AgentProvider, line: string) {
+  const trimmed = line.trim();
+  if (!trimmed) return;
+  let cmd: Inbound;
+  try {
+    cmd = JSON.parse(trimmed) as Inbound;
+  } catch {
+    return;
+  }
+  dispatch(provider, cmd);
+}
+
+/** Route one parsed Inbound command to the provider — the single dispatch table. */
+export function dispatch(provider: AgentProvider, cmd: Inbound) {
+  switch (cmd.kind) {
+    case "user_turn":
+      provider.pushTurn(cmd.text);
+      break;
+    case "set_model":
+      provider.setModel(cmd.model);
+      break;
+    case "set_permission_mode":
+      provider.setPermissionMode(cmd.mode);
+      break;
+    case "get_models":
+      provider.publishModels();
+      break;
+    case "get_connectors":
+      provider.publishConnectors();
+      break;
+    case "toggle_connector":
+      provider.toggleConnector(cmd.name, cmd.enabled);
+      break;
+    case "reconnect_connector":
+      provider.reconnectConnector(cmd.name);
+      break;
+    case "get_commands":
+      provider.publishCommands();
+      break;
+    case "set_mcp_servers":
+      provider.setMcpServers(cmd.servers);
+      break;
+    case "interrupt":
+      provider.interrupt();
+      break;
+    case "permission_reply":
+      provider.replyPermission(cmd.id, cmd.behavior, cmd.message);
+      break;
+    case "question_reply":
+      provider.replyQuestion(cmd.id, cmd.answers);
+      break;
+    case "suggest":
+      provider.suggest(cmd.conversation);
+      break;
+    default: {
+      // Exhaustiveness guard: a new Inbound `kind` added to the protocol
+      // without a case here is now a COMPILE error (the sidecar is typechecked
+      // in CI via tsconfig.sidecar.json). Without this, a one-sided protocol
+      // edit toward the sidecar would be silently dropped (see SYNC RULE).
+      const _exhaustive: never = cmd;
+      void _exhaustive;
+    }
+  }
 }

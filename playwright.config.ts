@@ -21,10 +21,15 @@ export default defineConfig({
   outputDir: "e2e/.results",
   fullyParallel: true,
   retries: process.env.CI ? 1 : 0,
+  // A stray `.only` silently hollows out the suite — hard-fail it in CI.
+  forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? "line" : "list",
   use: {
     baseURL: `http://localhost:${PORT}`,
     screenshot: "only-on-failure",
+    // On a CI retry, record a full trace (DOM snapshots, console, network) so a
+    // flaky failure is debuggable from the uploaded artifact instead of by rerun.
+    trace: "on-first-retry",
     ...(existsSync(SANDBOX_CHROMIUM)
       ? { launchOptions: { executablePath: SANDBOX_CHROMIUM } }
       : {}),

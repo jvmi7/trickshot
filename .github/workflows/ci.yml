@@ -35,8 +35,10 @@ jobs:
       # the hand-mirrored protocol (see SYNC RULE).
       - name: Typecheck sidecar (tsc)
         run: bun run check:sidecar
-      - name: Test (bun)
-        run: bun test
+      # test:coverage (not plain `bun test`) so the bunfig coverageThreshold
+      # floor is enforced — it catches "deleted the tests, kept the code".
+      - name: Test (bun, coverage floor)
+        run: bun run test:coverage
       # Compiles sidecar/core.ts (+ the shared protocol module) and embeds the
       # native CLI — catches a broken sidecar before it ships as a stale binary.
       - name: Build sidecar
@@ -58,6 +60,15 @@ jobs:
       # see. See CLAUDE.md › "Testing changes in the running app".
       - name: E2E suite
         run: bun run e2e
+      # Failure artifacts: screenshots + retry traces (playwright.config.ts sets
+      # trace: on-first-retry), so a red run is debuggable without a local repro.
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure-artifacts
+          path: e2e/.results
+          retention-days: 7
 
   rust:
     name: rust (fmt · clippy)

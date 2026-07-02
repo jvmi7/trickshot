@@ -3,3 +3,20 @@
 # so the persistence template is exercised for real in unit tests.
 [test]
 preload = ["./src/lib/testSetup.ts"]
+
+# Coverage measures the UNIT-TESTABLE pure modules only. Excluded by policy, not
+# neglect (see CLAUDE.md › TDD): api.ts is IPC plumbing and providers/claude.ts
+# is the live agent loop — both are covered behaviorally (e2e + conformance
+# gates), and including them would make the floor meaningless. testSetup.ts is
+# test infrastructure.
+coveragePathIgnorePatterns = [
+  "src/lib/api.ts",
+  "src/lib/testSetup.ts",
+  "sidecar/providers/claude.ts",
+]
+
+# The coverage FLOOR itself lives in scripts/coverage-floor.sh (run via
+# `bun run test:coverage`, which CI runs instead of plain `bun test`). It is
+# deliberately NOT bunfig's `coverageThreshold`: bun applies that per file
+# across every metric, so any by-design-partially-covered module would fail
+# every useful floor.

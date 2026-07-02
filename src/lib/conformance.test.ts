@@ -10,6 +10,8 @@
 //   4. default theme palette (themes.ts)        ↔ app.css :root static fallback
 //   5. selectable fonts (stores.ts FONTS)       ↔ app.css [data-font] blocks
 //   6. "api.ts is the sole IPC hook" rule       ↔ no raw invoke()/listen() in .svelte
+//   7. api.ts command surface                   ↔ mockBackend.ts handleCommand cases
+//   8. mock agent trigger keywords              ↔ the CLAUDE.md trigger table
 //
 // These read source/docs as text and assert the seams line up, so a one-sided
 // edit fails `bun test` instead of breaking silently in production. Run by
@@ -31,6 +33,8 @@ const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
 const PROTOCOL = read("shared/protocol.ts");
 const ARCH = read("ARCHITECTURE.md");
+const CLAUDE_MD = read("CLAUDE.md");
+const MOCK_TS = read("src/lib/mockBackend.ts");
 const AGENT_RS = read("src-tauri/src/agent.rs");
 const LIB_RS = read("src-tauri/src/lib.rs");
 const API_TS = read("src/lib/api.ts");
@@ -167,5 +171,34 @@ describe("no raw Tauri IPC in .svelte files", () => {
   )("%s imports neither @tauri-apps/api/core nor /event", (rel) => {
     const src = read(rel);
     expect(/from\s+["']@tauri-apps\/api\/(core|event)["']/.test(src)).toBe(false);
+  });
+});
+
+// ---- 7. api.ts commands ↔ mockBackend handleCommand cases ----
+describe("the mock backend implements every invoked command", () => {
+  // A command wired in api.ts but missing a mock case only fails when an e2e
+  // test happens to hit it (mock-mode invoke rejects at runtime). Make it a
+  // named CI failure in the same commit instead.
+  const invoked = matchAll(API_TS, /invoke<[^>]*>\(\s*"([a-z_]+)"/g).sort();
+  const mockCases = matchAll(blockAfter(MOCK_TS, "function handleCommand"), /case "([a-z_]+)":/g);
+
+  test.each(invoked)("`%s` has a handleCommand case in mockBackend.ts", (cmd) => {
+    expect(mockCases).toContain(cmd);
+  });
+});
+
+// ---- 8. mock trigger keywords ↔ the CLAUDE.md trigger table ----
+describe("mock agent triggers are documented in CLAUDE.md", () => {
+  // The keyword-scripted turns (runTurn) are the E2E vocabulary an agent writes
+  // tests with; each keyword must appear backtick-quoted in the CLAUDE.md
+  // harness section or the documented TDD workflow rots.
+  const triggers = matchAll(blockAfter(MOCK_TS, "function runTurn"), /t\.includes\("([a-z]+)"\)/g);
+
+  test("runTurn declares a non-trivial trigger set", () => {
+    expect(triggers.length).toBeGreaterThan(5);
+  });
+
+  test.each(triggers)("`%s` appears in CLAUDE.md", (kw) => {
+    expect(CLAUDE_MD.includes(`\`${kw}\``)).toBe(true);
   });
 });

@@ -285,6 +285,16 @@ function runTurn(worktree: string, s: MockSession, text: string) {
               { label: "SQLite", description: "Embedded, zero-config" },
             ],
           },
+          {
+            question: "Which extras should it ship with?",
+            header: "Extras",
+            multiSelect: true,
+            options: [
+              { label: "Auth", description: "Login + sessions" },
+              { label: "Search", description: "Full-text search" },
+              { label: "Export", description: "CSV export" },
+            ],
+          },
         ],
       },
     ]);
@@ -360,12 +370,20 @@ function handleInbound(worktree: string, s: MockSession, msg: Inbound) {
         turnEnd(msg.behavior === "allow" ? 1 : 0),
       ]);
       break;
-    case "question_reply":
+    case "question_reply": {
+      // Empty selections = the user skipped (QuestionModal's Skip/Esc path).
+      const chosen = msg.answers
+        .map((a) => a.join(", "))
+        .filter(Boolean)
+        .join("; ");
       play(worktree, s, [
-        assistant(`Great — going with **${msg.answers.map((a) => a.join(", ")).join("; ")}**.`),
+        assistant(
+          chosen ? `Great — going with **${chosen}**.` : "No answer given — I'll decide myself.",
+        ),
         turnEnd(0),
       ]);
       break;
+    }
     case "suggest":
       play(worktree, s, [
         {
