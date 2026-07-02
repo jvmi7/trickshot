@@ -85,20 +85,28 @@
     setGlobalConnectorPref(s.name, enabled);
     for (const wt of aliveWorktrees()) api.toggleConnector(wt, s.name, enabled);
   }
+  const reconnectTimers = new Set<ReturnType<typeof setTimeout>>();
   function reconnect(name: string) {
     const wts = aliveWorktrees();
     if (wts.length === 0) return;
     reconnecting = { ...reconnecting, [name]: true };
     for (const wt of wts) api.reconnectConnector(wt, name);
     // Fallback: clear the spinner even if no connectors event comes back.
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      reconnectTimers.delete(timer);
       if (reconnecting[name]) {
         const next = { ...reconnecting };
         delete next[name];
         reconnecting = next;
       }
     }, 8000);
+    reconnectTimers.add(timer);
   }
+  // Settings unmounts on close — don't leave the 8s fallbacks firing after it.
+  $effect(() => () => {
+    for (const timer of reconnectTimers) clearTimeout(timer);
+    reconnectTimers.clear();
+  });
 </script>
 
 <div class="mb-2 flex items-baseline justify-between">

@@ -211,7 +211,15 @@
             role="button"
             tabindex="0"
             onclick={() => select(wt)}
-            onkeydown={(e) => (e.key === "Enter" || e.key === " ") && select(wt)}
+            onkeydown={(e) => {
+              // Only act on keys aimed at the row itself — Enter/Space on the nested
+              // remove Button bubbles here and would select the row being removed.
+              if (e.target !== e.currentTarget) return;
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                select(wt);
+              }
+            }}
           >
             <span
               class="dot"
