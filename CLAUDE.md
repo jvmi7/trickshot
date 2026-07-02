@@ -59,6 +59,8 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Transcript engine: per-worktree message log — batched `appendMessage`, persistence, windowing, tool-call grouping | `src/lib/transcript.ts` (re-exported via `stores.ts`) |
 | Agent-event router: the central reducer over the sidecar stream (`handleAgentEvent`/`handleSessionStatus`) | `src/lib/agentEvents.ts` (wired in `App.svelte`) |
 | Cross-process conformance gates (the no-compiler-link seams: kinds↔docs, commands↔api↔docs, `AgentEvent`↔`AgentEnvelope`, theme/font CSS fallbacks, no raw IPC in `.svelte`) | `src/lib/conformance.test.ts` |
+| Mock Tauri backend for browser-mode E2E (`vite --mode mock`) | `src/lib/mockBackend.ts` (loaded from `main.ts`) |
+| E2E harness: Playwright config + specs (`*.e2e.ts`) | `playwright.config.ts` + `e2e/` |
 | UI components (one per concern) | `src/lib/components/*.svelte` |
 | Tool-label helpers for the loading footer | `src/lib/agentMessage.ts` |
 | Neutral `AgentMessage` rendering (branches on `type`) | `src/lib/components/Message.svelte` |
@@ -151,6 +153,17 @@ Test **pure, deterministic logic**; don't test I/O, UI, or the live agent loop. 
 - DO put the cross-process "do these hand-mirrored seams still line up?" checks in `src/lib/conformance.test.ts` (the ONE home for them) — it reads source/docs as text and asserts the protocol/command/envelope/theme/font seams that have no compiler link. It's the exception to "test pure logic only": it guards the SYNC RULE so drift fails CI instead of production. Extend it (don't fork a parallel checker) when you add a seam that the compiler can't see.
 - DO put Rust parser/helper tests in an inline `#[cfg(test)] mod tests` in the same file (see `worktree.rs`'s git status/diff parsers), run by `cargo test`.
 - DON'T write tests for Svelte components, `api.ts` IPC plumbing, Rust command wiring, or anything that needs a running sidecar/`claude` binary — those are covered by the typecheck/clippy gates and the CI prod-build job, not unit tests.
+- The ONE exception to "no UI tests": the **browser-mode E2E harness** below, which drives the real UI against a mock backend.
+
+## Testing changes in the running app (the E2E harness)
+
+**After implementing a UI-facing feature, verify it by DRIVING the app, not just by typecheck.** The app runs in **mock browser mode**: `vite --mode mock` serves the real webview in a plain browser with a fake Tauri backend (`src/lib/mockBackend.ts`) installed beneath `api.ts` via `@tauri-apps/api/mocks` — the real `api.ts` parsing, stores, reducers, and components all run; only the Rust core + sidecar are faked (a scripted agent answers turns). No display, GTK, or Claude login needed, so it works headless in CI and agent sandboxes. What it does NOT cover: Rust commands, the real sidecar/provider, and Tauri-shell concerns (window chrome, capabilities) — those stay on `cargo test` + the CI build job.
+
+- **Regression suite:** `bun run e2e` (Playwright, `e2e/*.e2e.ts`, config in `playwright.config.ts`). It boots the mock app on port **1421** itself. When you add a feature, extend `e2e/smoke.e2e.ts` or add a sibling `*.e2e.ts` — the `.e2e.ts` suffix (NOT `.test.ts`/`.spec.ts`) is load-bearing: `bun test` must not pick these up. First run on a new machine: `bunx playwright install chromium` (Claude's sandbox/CI already have or install one; the config auto-detects the sandbox binary at `/opt/pw-browsers/chromium`).
+- **Exploratory driving (the "click through it yourself" loop):** start `bun run dev:mock` in the background, then drive `http://localhost:1420` with a throwaway Playwright script (import `playwright-core` from `node_modules`, launch chromium, click/fill/screenshot, read the screenshot). Prefer role/text locators and the app's stable class hooks (`.wt-row`, `.msg.assistant`, `.suggestions`, `aria-label="Send"`); take a screenshot per step to SEE the state.
+- **The mock agent is keyword-scripted** (`mockBackend.ts › runTurn`, first match wins): a user turn containing `crash` → stderr + abnormal exit; `fail` → in-band error then recovery; `permission` → Allow/Deny modal flow; `question` → question modal flow; `burst` → 25 tool pairs (batching/grouping/windowing); `tool` → two tool calls + results; `notify` → notification event; `markdown` → rich markdown reply; anything else → echo. Session start emits the standard ready broadcast (ready/session/models/commands/connectors/mcp_status); suggestions, model switch, connector toggles, interrupt, and the git panel (always-dirty fixture, commit clears it) all work. Fresh localStorage is seeded with one repo (`/mock/trickshot`: `main` + `feature/streaming`).
+- **Escape hatch:** `window.__trickshotMock.send(worktree, outbound)` / `.emitEnvelope(...)` inject arbitrary protocol events from a driver (edge cases the scripts don't cover); `.notifications` records `notify` calls for assertions.
+- **Keep the mock in sync:** it consumes the `Inbound`/`Outbound` unions with exhaustiveness guards, so a new protocol `kind` is a compile error there (fix it in the same commit); a new Tauri command must get a `handleCommand` case or mock-mode `invoke` rejects at runtime — the e2e suite is what catches that.
 
 ## PERFORMANCE (first-class)
 
@@ -176,11 +189,13 @@ bun run build          # release
 bun run check          # svelte-check typecheck (webview, src/** only)
 bun run check:sidecar  # tsc typecheck of the Bun sidecar + shared protocol — the half `check` does NOT cover (bun --compile doesn't typecheck)
 bun run test           # bun test (TS unit tests); Rust units run via `cargo test` in src-tauri
+bun run dev:mock       # the app in a plain browser against the MOCK backend (port 1420) — see the E2E harness section
+bun run e2e            # Playwright suite over the mock app (boots its own server on port 1421)
 bun run lint           # Biome lint + format check (TS/JS/JSON; `.svelte` is covered by svelte-check, not Biome)
 bun run format         # Biome autofix + format
 ```
 
-CI (`.github/workflows/ci.yml`) runs three jobs on every push/PR. **frontend:** `lint` + `check` + `check:sidecar` + `bun test` + `build:sidecar`. **rust:** `cargo fmt --check` + `cargo clippy --all-targets -- -D warnings` (warnings fail; `--all-targets` lints tests too) + `cargo test` (this job `touch`es a stub `binaries/agent-<triple>` so the crate's `externalBin` resource check passes without the real sidecar). **build:** compiles the REAL sidecar + frontend + app crate together (no stubbed binary) so an externalBin/capability/prod-build break can't slip through. This is the safety net for the hand-mirrored protocol and the Rust core — keep `cargo fmt`-clean and Biome-clean before pushing. Biome's `noExplicitAny`/`noAssignInExpressions`/`noNonNullAssertion`/`useTemplate` are intentionally **off** (`biome.json`) because the codebase uses those idioms deliberately — don't re-enable without auditing the call sites. TS `noUncheckedIndexedAccess` is **on** (both tsconfigs): per-worktree `Record<string,…>` reads are `T | undefined`, so keep the `?? fallback`.
+CI (`.github/workflows/ci.yml`) runs four jobs on every push/PR. **frontend:** `lint` + `check` + `check:sidecar` + `bun test` + `build:sidecar`. **rust:** `cargo fmt --check` + `cargo clippy --all-targets -- -D warnings` (warnings fail; `--all-targets` lints tests too) + `cargo test` (this job `touch`es a stub `binaries/agent-<triple>` so the crate's `externalBin` resource check passes without the real sidecar). **build:** compiles the REAL sidecar + frontend + app crate together (no stubbed binary) so an externalBin/capability/prod-build break can't slip through. **e2e:** the Playwright suite over the mock-mode app (`bun run e2e`), so a UI regression the unit layer can't see fails CI too. This is the safety net for the hand-mirrored protocol and the Rust core — keep `cargo fmt`-clean and Biome-clean before pushing. Biome's `noExplicitAny`/`noAssignInExpressions`/`noNonNullAssertion`/`useTemplate` are intentionally **off** (`biome.json`) because the codebase uses those idioms deliberately — don't re-enable without auditing the call sites. TS `noUncheckedIndexedAccess` is **on** (both tsconfigs): per-worktree `Record<string,…>` reads are `T | undefined`, so keep the `?? fallback`.
 
 ## Gotchas
 

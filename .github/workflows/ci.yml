@@ -42,6 +42,23 @@ jobs:
       - name: Build sidecar
         run: bun run build:sidecar
 
+  e2e:
+    name: e2e (mock-mode UI, Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+      # Drives the real webview (headless Chromium) against the mock backend
+      # (`vite --mode mock`) — the UI-level regression net the unit layer can't
+      # see. See CLAUDE.md › "Testing changes in the running app".
+      - name: E2E suite
+        run: bun run e2e
+
   rust:
     name: rust (fmt · clippy)
     runs-on: ubuntu-latest

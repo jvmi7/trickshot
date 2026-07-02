@@ -7,11 +7,13 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "dev:vite": "vite",
+    "dev:mock": "vite --mode mock",
     "build:vite": "vite build",
     "build:sidecar": "bash scripts/build-sidecar.sh",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "check:sidecar": "tsc --noEmit -p tsconfig.sidecar.json",
     "test": "bun test",
+    "e2e": "playwright test",
     "lint": "biome check",
     "format": "biome check --write",
     "tauri": "tauri"
@@ -30,6 +32,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
+    "@playwright/test": "^1.61.1",
     "@sveltejs/vite-plugin-svelte": "^4",
     "@tailwindcss/vite": "^4.3.1",
     "@tauri-apps/cli": "^2",
