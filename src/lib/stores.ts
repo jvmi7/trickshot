@@ -1,5 +1,7 @@
 import { derived, get, type Readable, type Writable, writable } from "svelte/store";
 import * as api from "./api";
+import { buildCommentPrompt, type CommentMessage, type CommentThread } from "./comments";
+import { MINIMAL_DIRECTIVE } from "./minimal";
 import { DEFAULT_THEME, THEMES as THEME_DEFS } from "./themes";
 import {
   appendMessage,
@@ -19,10 +21,12 @@ import type {
   PermissionMode,
   Question,
   Repo,
+  ScriptsConfig,
   SlashCommandInfo,
   UsageInfo,
   Worktree,
 } from "./types";
+import { basename } from "./utils";
 
 export interface PermissionReq {
   id: string;
@@ -37,10 +41,11 @@ export interface QuestionReq {
 }
 
 /** A worktree's agent session lifecycle:
+ *  - `starting` — sidecar spawned, awaiting its `ready` event (the boot gap)
  *  - `ready`   — sidecar is alive and idle, awaiting input
  *  - `busy`    — a turn is in flight (set on send, cleared on the `result` message)
  *  - `stopped` — no live sidecar (never started, terminated, or errored) */
-export type SessionStatus = "ready" | "busy" | "stopped";
+export type SessionStatus = "starting" | "ready" | "busy" | "stopped";
 
 const hasLS = typeof localStorage !== "undefined";
 
@@ -196,15 +201,42 @@ export function setSidebarWidth(w: number) {
   sidebarWidth.set(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(w))));
 }
 
-/** Which view the main pane shows for the selected worktree: the chat transcript
- *  or the git "changes" (diff) panel. Ephemeral UI state. */
-export const mainView = writable<"chat" | "changes">("chat");
+/** Which view the main pane shows for the selected worktree: the chat transcript,
+ *  the git "changes" (diff) panel, the script "run" output, or the integrated
+ *  terminal. Ephemeral UI state. */
+export const mainView = writable<"chat" | "changes" | "run" | "term">("chat");
+
+/** Which inline-comment thread popup is open (its id), or null. Ephemeral, global
+ *  (the selection is always within the on-screen chat); cleared on worktree switch. */
+export const activeCommentId = writable<string | null>(null);
+/** Open a comment thread's popup. */
+export function openComment(id: string) {
+  activeCommentId.set(id);
+}
+/** Close the open comment popup (no cancel — the caller aborts any in-flight turn). */
+export function closeComment() {
+  activeCommentId.set(null);
+}
 
 /** Bumped to ask an open GitPanel to re-fetch status/diff (e.g. after a turn that
  *  likely touched files). A monotonic counter the panel watches. */
 export const gitRefreshNonce = writable<number>(0);
 export function bumpGitRefresh() {
   gitRefreshNonce.update((n) => n + 1);
+}
+
+/** Whether the ⌘K command palette is open. Ephemeral, global (App owns the
+ *  shortcut, CommandPalette renders). */
+export const commandPaletteOpen = writable<boolean>(false);
+export function toggleCommandPalette() {
+  commandPaletteOpen.update((v) => !v);
+}
+
+/** Bumped to ask the sidebar to open its inline new-worktree field (⌘⇧N / the
+ *  palette). Same nonce pattern as gitRefreshNonce; Worktrees watches it. */
+export const newWorktreeRequest = writable<number>(0);
+export function requestNewWorktree() {
+  newWorktreeRequest.update((n) => n + 1);
 }
 
 /** Per-worktree change summary (changed-file count + diffstat). Populated by
@@ -297,6 +329,8 @@ export const selectedWorktree = createPersisted<string | null>("trickshot.select
  *  selection — components call this, not `selectedWorktree.set()` inline. */
 export function selectWorktree(path: string | null) {
   selectedWorktree.set(path);
+  // Close any open comment popup — it belongs to the chat we're leaving.
+  activeCommentId.set(null);
 }
 
 // ---- Per-worktree session status ----
@@ -305,6 +339,136 @@ export const sessionStatus = _status.store;
 export const setStatus = _status.set;
 /** Drop a worktree's status entry entirely (e.g. on removal). */
 export const clearStatus = _status.remove;
+
+/** Remove a repo from trickshot's sidebar. Does NOT delete the git repo on disk —
+ *  it just drops it from the app: stops any running sessions for its worktrees,
+ *  removes its worktree list, and clears the selection if it pointed into the repo. */
+export function removeRepo(repoPath: string) {
+  const wts = get(worktreesByRepo)[repoPath] ?? [];
+  const sel = get(selectedWorktree);
+  for (const wt of wts) {
+    api.stopSession(wt.path);
+    api.stopScript(wt.path);
+    clearStatus(wt.path);
+    clearQueued(wt.path);
+    removeScriptRun(wt.path);
+  }
+  if (sel && wts.some((w) => w.path === sel)) selectWorktree(null);
+  worktreesByRepo.update((m) => {
+    const next = { ...m };
+    delete next[repoPath];
+    return next;
+  });
+  repos.update((rs) => rs.filter((r) => r.path !== repoPath));
+}
+
+/** The repo that owns the selected worktree — its path IS the main worktree
+ *  (repos are added by picking the main checkout). The shared derivation for
+ *  every "act on the selected worktree's repo" consumer (merge, scripts, PRs). */
+export const activeRepo = derived(
+  [repos, worktreesByRepo, selectedWorktree],
+  ([$repos, $wts, $sel]) =>
+    $sel ? ($repos.find((r) => ($wts[r.path] ?? []).some((w) => w.path === $sel)) ?? null) : null,
+);
+
+// ---- Project scripts (.trickshot/settings.json, per repo) ----
+// The parsed scripts config per repo path (setup / named run scripts / archive).
+// Git-adjacent disk state like worktree lists: refreshed from the file on demand,
+// never persisted here.
+export const scriptsByRepo = writable<Record<string, ScriptsConfig>>({});
+/** Re-read a repo's scripts config from disk (missing file → empty config). */
+export async function refreshScripts(repoPath: string) {
+  try {
+    const cfg = await api.getScripts(repoPath);
+    scriptsByRepo.update((m) => ({ ...m, [repoPath]: cfg }));
+  } catch {
+    // unreadable/invalid settings file — keep the last good value
+  }
+}
+
+// ---- Per-worktree script run (the Run button's live process) ----
+// One script per worktree (Rust enforces it); this mirrors its lifecycle for the
+// Run tab: name, running/exited, exit code, and a BOUNDED output tail. Appends
+// arrive pre-batched from scriptEvents.ts (16ms coalescing, mirroring the
+// transcript engine) so a chatty build log is one store write per flush, not per line.
+export interface ScriptRun {
+  name: string;
+  status: "running" | "exited";
+  code: number | null;
+  output: string[];
+}
+const SCRIPT_OUTPUT_MAX = 2000;
+const _scriptRun = createWorktreeMap<ScriptRun>();
+export const scriptRunByWorktree = _scriptRun.store;
+/** Begin a fresh run (clears the previous run's output). */
+export function startScriptRun(worktree: string, name: string) {
+  _scriptRun.set(worktree, { name, status: "running", code: null, output: [] });
+}
+/** Append a flushed batch of output lines, trimming to the bounded tail. */
+export function appendScriptLines(worktree: string, lines: string[]) {
+  if (!lines.length) return;
+  _scriptRun.update(worktree, (cur) => {
+    const run = cur ?? { name: "", status: "running" as const, code: null, output: [] };
+    const output = run.output.concat(lines);
+    if (output.length > SCRIPT_OUTPUT_MAX) output.splice(0, output.length - SCRIPT_OUTPUT_MAX);
+    return { ...run, output };
+  });
+}
+/** Mark the run exited with its status code (null = killed / unknown). */
+export function endScriptRun(worktree: string, code: number | null) {
+  _scriptRun.update(worktree, (cur) => ({
+    ...(cur ?? { name: "", output: [] }),
+    status: "exited" as const,
+    code,
+  }));
+}
+/** Drop a worktree's run state entirely (worktree removal). */
+export const removeScriptRun = _scriptRun.remove;
+
+// ---- Archived workspaces (persisted) ----
+// Conductor-style archive: the worktree DIR is removed (branch kept) but its
+// persisted transcript / session id / comments are deliberately LEFT in place,
+// keyed by the worktree path. Because the path scheme is deterministic
+// (`../.<repo>-worktrees/<branch>`), restoring the branch recreates the same
+// key and the chat + agent context come back through the existing persistence
+// mechanisms. This list is just the sidebar's "History" index of those parked
+// workspaces. Permanent delete is the point where the orphaned state is purged.
+export interface ArchivedWorkspace {
+  repoPath: string;
+  repoName: string;
+  branch: string;
+  /** The worktree path at archive time (the transcript/session/comments key). */
+  path: string;
+  archivedAt: number;
+}
+export const archivedWorkspaces = createPersisted<ArchivedWorkspace[]>("trickshot.archived", [], {
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    return Array.isArray(v)
+      ? v.filter(
+          (a) =>
+            isPlainObject(a) &&
+            typeof a.repoPath === "string" &&
+            typeof a.branch === "string" &&
+            typeof a.path === "string",
+        )
+      : [];
+  },
+});
+/** Park a workspace in the archive (replaces an older entry for the same
+ *  repo+branch — re-archiving must not duplicate). */
+export function addArchived(entry: ArchivedWorkspace) {
+  archivedWorkspaces.update((list) => [
+    ...list.filter((a) => !(a.repoPath === entry.repoPath && a.branch === entry.branch)),
+    entry,
+  ]);
+}
+/** Drop an archive entry (after a restore, or a permanent delete). */
+export function removeArchived(repoPath: string, branch: string) {
+  archivedWorkspaces.update((list) =>
+    list.filter((a) => !(a.repoPath === repoPath && a.branch === branch)),
+  );
+}
 
 // ---- Per-worktree unread activity (turns completed while not selected) ----
 // Drives a sidebar badge so background agents that finished are visible at a
@@ -461,6 +625,23 @@ export async function refreshUsage(force = false) {
   }
 }
 
+// ---- Claude Code login presence (ambient app state, not persisted) ----
+// Drives the first-run "sign in" notice (Welcome + the composer banner). Only a
+// DEFINITIVE "no credentials anywhere" flips to `missing`; ambiguous check
+// failures (keychain/HOME errors) leave the state alone so we never false-alarm.
+export const authState = writable<"unknown" | "ok" | "missing">("unknown");
+
+/** Re-probe the Claude Code login (local credential read, no network). Called on
+ *  launch, on window focus while `missing` (the sign-in-in-a-terminal round trip),
+ *  and by the notice's retry button. */
+export async function refreshAuth() {
+  try {
+    authState.set((await api.checkAuth()) ? "ok" : "missing");
+  } catch {
+    // ambiguous (keychain spawn failure, HOME unset) — stay silent
+  }
+}
+
 // ---- Per-worktree permission mode (persisted) ----
 // Controls how the agent's tool use is gated. `bypassPermissions` (the historical
 // default) runs every tool silently; the others route tool use through the
@@ -527,6 +708,13 @@ export function setFont(id: string) {
   font.set(id);
 }
 
+// ---- Minimal mode (global, persisted) ----
+// A reversible VIEW FILTER: while on, every user turn is sent with an appended
+// directive (see minimal.ts) asking the agent to end its reply with a one-sentence
+// summary, and Chat renders ONLY those summaries + the user's messages. The full
+// response stays in the transcript — toggling off reveals everything again.
+export const minimalMode = createPersisted<boolean>("trickshot.minimalMode", false);
+
 // ---- Custom system-prompt append (global, persisted) ----
 // Appended to the `claude_code` preset system prompt at session start (applies to
 // NEW sessions; existing ones need a restart). Empty = no append.
@@ -567,12 +755,72 @@ export async function submitUserTurn(worktree: string, text: string) {
   startActivity(worktree);
   clearSuggestions(worktree);
   try {
-    await api.sendUserTurn(worktree, t);
+    // The transcript echo (above) stays clean; only the wire copy carries the
+    // minimal-mode directive so the agent appends its one-sentence summary.
+    await api.sendUserTurn(worktree, get(minimalMode) ? t + MINIMAL_DIRECTIVE : t);
   } catch (e) {
     appendMessage(worktree, { type: "error", error: `failed to send: ${e}` });
     setStatus(worktree, "ready");
     clearActivity(worktree);
   }
+}
+
+// ---- Per-worktree queued follow-up messages (ephemeral; NOT persisted) ----
+// Messages typed while the agent is busy. They drain ONE per turn: each natural
+// `turn_end` (see agentEvents.ts) pops the front and submits it as the next turn.
+// `sendQueuedNow` interrupts the in-flight turn and sends the front immediately.
+// Built purely on `submitUserTurn` + `interrupt` — no new wire protocol.
+const _queued = createWorktreeMap<string[]>();
+export const queuedByWorktree = _queued.store;
+/** The selected worktree's queued follow-ups (empty when none). */
+export const activeQueued = _queued.active<string[]>([]);
+/** Append a follow-up to a worktree's queue (no-op on blank text). */
+export function enqueueMessage(worktree: string, text: string) {
+  const t = text.trim();
+  if (!t) return;
+  _queued.update(worktree, (cur) => [...(cur ?? []), t]);
+}
+/** Drop one queued message by index (the per-item remove). */
+export function removeQueuedAt(worktree: string, index: number) {
+  _queued.update(worktree, (cur) => (cur ?? []).filter((_, i) => i !== index));
+}
+/** Clear a worktree's whole queue. Same no-op identity guard as clearSuggestions. */
+export function clearQueued(worktree: string) {
+  _queued.store.update((m) => (m[worktree]?.length ? { ...m, [worktree]: [] } : m));
+}
+/** Pop the FRONT queued message and submit it as a normal turn. Returns whether one
+ *  was sent — the `turn_end` drain uses this to skip the "finished" side-effects when
+ *  a follow-up is starting. */
+export function maybeDrainQueued(worktree: string): boolean {
+  const [next, ...rest] = get(queuedByWorktree)[worktree] ?? [];
+  if (next === undefined) return false;
+  _queued.set(worktree, rest);
+  void submitUserTurn(worktree, next); // sets busy + optimistic bubble + IPC
+  return true;
+}
+/** Interrupt the in-flight turn and send the next queued message now. An interrupt
+ *  itself emits a `result` → `turn_end` (the SDK aborts the turn, see claudeMapping),
+ *  and the `turn_end` drain then sends the front — so while busy we ONLY interrupt and
+ *  let that path run (no double-send, no mid-turn status flip). When already idle there
+ *  is no turn to interrupt (and thus no `turn_end`), so send directly. */
+export function sendQueuedNow(worktree: string) {
+  if (!(get(queuedByWorktree)[worktree] ?? []).length) return;
+  if (get(sessionStatus)[worktree] === "busy") api.interruptAgent(worktree);
+  else maybeDrainQueued(worktree);
+}
+
+// One-shot, per-worktree "the next turn_end is from a Stop — don't drain" flag.
+// An interrupt emits a `turn_end`; the queue drain runs on `turn_end`, so Stop would
+// otherwise fire a queued follow-up. The Stop path sets this; the resulting `turn_end`
+// consumes it and skips the drain (leaving the queue intact). `sendQueuedNow`
+// deliberately does NOT set it — its interrupt's `turn_end` SHOULD drain.
+const _suppressDrain = new Set<string>();
+export function suppressNextDrain(worktree: string) {
+  _suppressDrain.add(worktree);
+}
+/** Returns whether a Stop-suppression was pending (and clears it). */
+export function consumeSuppressDrain(worktree: string): boolean {
+  return _suppressDrain.delete(worktree);
 }
 
 /** Start (or no-op, if already running) a worktree's agent session with the
@@ -588,6 +836,52 @@ export function ensureSession(worktree: string): Promise<void> {
     mcpServers: getMcpServers(),
     agents: getAgents(),
   });
+}
+
+/** Activate a worktree: select it, return the center pane to the chat, clear
+ *  its unread badge, and (re)start its session. The ONE activation path — the
+ *  sidebar row and the command palette both route through here. Throws on a
+ *  session-start failure so callers surface it in their local error state. */
+/** Pick a folder and open it as a repo: validate it's a git repo FIRST (so a
+ *  bad pick never persists a junk entry), then add it, cache its worktrees, and
+ *  activate the main worktree so the user lands in a live chat. The ONE add-repo
+ *  path — the Welcome CTA and the sidebar's FolderPlus both route through here.
+ *  Returns false when the picker is cancelled; throws on failure so callers
+ *  surface it in their local error state. */
+export async function openRepository(): Promise<boolean> {
+  const p = await api.pickDirectory();
+  if (!p) return false;
+  const wts = await api.listWorktrees(p); // validate before persisting
+  // A bare entry has no working files, so it can't host an agent session. Land
+  // on the first non-bare worktree; a repo with ONLY bare entries is rejected
+  // before anything persists.
+  const usable = wts.filter((w) => !w.is_bare);
+  if (usable.length === 0) {
+    throw new Error("that's a bare repository — pick a working checkout");
+  }
+  addRepo({ path: p, name: basename(p) });
+  setWorktrees(p, wts);
+  const main = usable.find((w) => w.is_main) ?? usable[0];
+  if (main) await activateWorktree(main.path);
+  return true;
+}
+
+export async function activateWorktree(path: string) {
+  selectWorktree(path);
+  setCenterView("chat");
+  clearUnread(path);
+  // Show the boot gap ONLY when a sidecar will actually spawn: an already-live
+  // session (ready/busy) re-emits no `ready` event, so blindly setting
+  // `starting` on a plain worktree switch would stick forever. The sidecar's
+  // `ready` event — not spawn success — is what flips the status to ready.
+  const st = get(sessionStatus)[path];
+  if (!st || st === "stopped") setStatus(path, "starting");
+  try {
+    await ensureSession(path);
+  } catch (e) {
+    setStatus(path, "stopped");
+    throw e;
+  }
 }
 
 /** Fire `request(worktree)` at most once per (worktree, key) pair within the
@@ -636,6 +930,151 @@ export const pendingQuestion = _pendingQuestion.store;
 /** Set (or clear, with null) a worktree's pending `ask_user` question. */
 export const setPendingQuestion = _pendingQuestion.set;
 
+// ---- Per-worktree threads (Slack-style, one per agent message; persisted) ----
+// A thread is an OUT-OF-BAND side-conversation (see comments.ts) anchored to one
+// agent message's `__key`: turns are answered by an isolated sidecar query seeded
+// with the full conversation up to that message, and NEVER enter the main
+// session/transcript. Persisted so threads survive a restart. `pending`/`error`
+// are runtime-only — the load guard resets them so a mid-stream crash can't leave
+// a thread stuck pending. (`.v2`: the row shape changed from the old highlight-
+// anchored model, so old threads are dropped on load.)
+const _comments = createWorktreeMap<CommentThread[]>({
+  persistKey: "trickshot.commentsByWorktree.v2",
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    if (!isPlainObject(v)) return {};
+    const out: Record<string, CommentThread[]> = {};
+    for (const [wt, list] of Object.entries(v)) {
+      if (!Array.isArray(list)) continue;
+      out[wt] = list
+        .filter(
+          (t): t is CommentThread =>
+            isPlainObject(t) && typeof t.id === "string" && typeof t.messageKey === "number",
+        )
+        // Drop transient state: an answer can't still be streaming across a reload.
+        .map((t) => ({ ...t, pending: false, error: undefined }));
+    }
+    return out;
+  },
+});
+export const commentsByWorktree = _comments.store;
+/** The selected worktree's comment threads (empty when none). */
+export const activeComments = _comments.active<CommentThread[]>([]);
+
+/** Update one thread in a worktree's list (no-op if absent). */
+function updateThread(worktree: string, id: string, fn: (t: CommentThread) => CommentThread) {
+  _comments.update(worktree, (cur) => (cur ?? []).map((t) => (t.id === id ? fn(t) : t)));
+}
+/** Add a new comment thread to a worktree. */
+export function addComment(worktree: string, thread: CommentThread) {
+  _comments.update(worktree, (cur) => [...(cur ?? []), thread]);
+}
+/** Remove a comment thread (e.g. an empty draft closed without sending). */
+export function removeComment(worktree: string, id: string) {
+  _comments.update(worktree, (cur) => (cur ?? []).filter((t) => t.id !== id));
+}
+/** Append a finished message (user question / agent answer) to a thread. */
+export function appendCommentMessage(worktree: string, id: string, msg: CommentMessage) {
+  updateThread(worktree, id, (t) => ({ ...t, messages: [...t.messages, msg] }));
+}
+/** Append a streamed answer delta: extend the current turn's assistant message, or
+ *  start one if the last message is the user's question (no answer yet this turn). */
+export function appendCommentDelta(worktree: string, id: string, text: string) {
+  updateThread(worktree, id, (t) => {
+    const last = t.messages[t.messages.length - 1];
+    if (last && last.role === "assistant") {
+      const messages = t.messages.slice(0, -1).concat({ ...last, text: last.text + text });
+      return { ...t, messages };
+    }
+    return { ...t, messages: [...t.messages, { role: "assistant", text }] };
+  });
+}
+/** Mark a thread's answer as streaming / settled. Stamps `pendingSince` when the
+ *  turn starts so the thinking indicator's elapsed timer counts from the right t0. */
+export function setCommentPending(worktree: string, id: string, pending: boolean) {
+  updateThread(worktree, id, (t) => ({
+    ...t,
+    pending,
+    pendingSince: pending ? Date.now() : t.pendingSince,
+  }));
+}
+/** Record a failed comment turn (also clears pending). */
+export function setCommentError(worktree: string, id: string, error: string) {
+  updateThread(worktree, id, (t) => ({ ...t, pending: false, error }));
+}
+/** Drop ALL comments for a worktree (on transcript reset / worktree removal so
+ *  orphaned anchors don't linger). Same no-op identity guard as the map factory. */
+export const removeComments = _comments.remove;
+
+/** Open the thread for an agent message (by its transcript `__key`), creating an
+ *  empty one if none exists yet. The single entry point the chat uses, so Message
+ *  stays a store-free primitive (it just calls a handler). */
+export function openThreadFor(worktree: string, messageKey: number) {
+  const existing = (get(commentsByWorktree)[worktree] ?? []).find(
+    (t) => t.messageKey === messageKey,
+  );
+  if (existing) {
+    openComment(existing.id);
+    return;
+  }
+  const id =
+    typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `t-${messageKey}`;
+  addComment(worktree, { id, messageKey, messages: [], pending: false, createdAt: Date.now() });
+  openComment(id);
+}
+
+/** The full text of an anchored transcript message (for prompt context), or "". */
+function anchoredMessageText(worktree: string, messageKey: number): string {
+  for (const m of get(transcripts)[worktree] ?? []) {
+    if (m.__key !== messageKey) continue;
+    if (m.type === "assistant" || m.type === "user_local") return m.text ?? "";
+    return "";
+  }
+  return "";
+}
+
+/** The main-chat conversation UP TO AND INCLUDING the anchored message, as prompt
+ *  context for a thread (so the agent has the full thread of the discussion, not a
+ *  blank slate). High caps honor "full context" while bounding pathological chats;
+ *  `buildCommentPrompt` clamps the total again. Reuses `summarizeConversation`. */
+function conversationUpTo(worktree: string, messageKey: number): string {
+  const all = (get(transcripts)[worktree] ?? []).concat(bufferedMessages(worktree));
+  const idx = all.findIndex((m) => m.__key === messageKey);
+  const slice = idx >= 0 ? all.slice(0, idx + 1) : all;
+  return summarizeConversation(slice, 1000, 4000);
+}
+
+/** Submit one turn of a thread (the ONE submit path). Appends the user's question,
+ *  marks the thread pending, assembles the out-of-band prompt (full conversation up
+ *  to the anchored message + the anchored message itself + prior thread Q&A + the
+ *  new question) and fires the isolated IPC. NEVER touches the main transcript or
+ *  session status — threads are out-of-band. The streamed answer arrives via
+ *  `comment_reply` (see agentEvents.ts). */
+export async function submitCommentTurn(worktree: string, id: string, question: string) {
+  const q = question.trim();
+  if (!q) return;
+  const thread = (get(commentsByWorktree)[worktree] ?? []).find((t) => t.id === id);
+  if (!thread) return;
+  // Prior turns BEFORE we append the new question (the thread's memory).
+  const priorMessages = thread.messages.slice();
+  appendCommentMessage(worktree, id, { role: "user", text: q });
+  setCommentPending(worktree, id, true);
+  try {
+    // Full context: the conversation up to the anchored message + that message in
+    // full. Inside the try so any assembly failure surfaces as a thread error
+    // (clears pending) instead of an unhandled rejection that hangs on "Thinking…".
+    const prompt = buildCommentPrompt({
+      conversation: conversationUpTo(worktree, thread.messageKey),
+      anchoredMessage: anchoredMessageText(worktree, thread.messageKey),
+      priorMessages,
+      newQuestion: q,
+    });
+    await api.sendCommentTurn(worktree, id, prompt);
+  } catch (e) {
+    setCommentError(worktree, id, `failed to send: ${e}`);
+  }
+}
+
 // ---- Derived views for the currently selected worktree ----
 export const activeMessages = derived([transcripts, selectedWorktree], ([$t, $sel]) =>
   $sel ? ($t[$sel] ?? []) : [],
@@ -674,6 +1113,12 @@ export const activeActivity = _activity.active(null);
 export const activeSummary = _summary.active(null);
 /** The selected worktree's change summary (null until fetched / when none). */
 export const activeGitStat = _gitStat.active(null);
+/** The selected worktree's script run (null until one is launched). */
+export const activeScriptRun = _scriptRun.active(null);
+/** The owning repo's scripts config (null until fetched / no repo). */
+export const activeScripts = derived([scriptsByRepo, activeRepo], ([$cfg, $repo]) =>
+  $repo ? ($cfg[$repo.path] ?? null) : null,
+);
 /** The selected worktree's suggested next replies (empty when none). */
 export const activeSuggestions = _suggestions.active<string[]>([]);
 /** The session default when a worktree has no explicit choice — preserves the

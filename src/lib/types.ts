@@ -35,13 +35,15 @@ export type TranscriptMessage = (
   | { type: "error"; error: string }
 ) & { __key?: number };
 
-/** A git worktree as reported by the worktree commands. */
+/** A git worktree as reported by the worktree commands. `is_bare` marks a bare
+ *  entry (no working files — can't host an agent; openRepository skips it). */
 export interface Worktree {
   path: string;
   branch: string | null;
   head: string | null;
   is_main: boolean;
   locked: boolean;
+  is_bare: boolean;
 }
 
 /** A git repository the user has added to the sidebar (persisted). */
@@ -64,6 +66,14 @@ export interface GitStatus {
   branch: string | null;
   ahead: number;
   behind: number;
+  /** Whether the branch has an upstream; ahead/behind are only meaningful when
+   *  true. False = unpublished branch. */
+  has_upstream: boolean;
+  /** The repo default branch (from origin/HEAD), or null when unknown. */
+  default_branch: string | null;
+  /** Commits on HEAD beyond origin/<default_branch> (0 when unknown) — whether
+   *  a PR has anything to propose. */
+  ahead_of_default: number;
   /** Lines added/removed vs HEAD (staged + unstaged tracked changes). */
   insertions: number;
   deletions: number;
@@ -89,5 +99,59 @@ export interface UsageInfo {
 export interface AgentEnvelope {
   worktree: string;
   kind: "stdout" | "stderr" | "error" | "terminated";
+  data: string | null;
+}
+
+/** One named run script from `.trickshot/settings.json` (mirrors the Rust
+ *  `RunScript`). */
+export interface RunScriptInfo {
+  name: string;
+  command: string;
+}
+
+/** A repo's project-scripts config (mirrors the Rust `ScriptsConfig`): the
+ *  setup/archive hooks + the Run button's named scripts. */
+export interface ScriptsConfig {
+  setup: string | null;
+  run: RunScriptInfo[];
+  archive: string | null;
+  run_mode: "concurrent" | "nonconcurrent";
+}
+
+/** One CI check on a PR (mirrors the Rust `PrCheck`), normalized from GitHub's
+ *  CheckRun/StatusContext shapes. */
+export interface PrCheck {
+  name: string;
+  status: "pass" | "fail" | "pending" | "skipped";
+  link: string | null;
+}
+
+/** The current branch's PR + check rollup (mirrors the Rust `PrInfo`). */
+export interface PrInfo {
+  number: number;
+  title: string;
+  url: string;
+  state: "OPEN" | "MERGED" | "CLOSED" | string;
+  base: string;
+  is_draft: boolean;
+  checks: PrCheck[];
+}
+
+/** Envelope for a worktree-tagged script event on the `script-event` channel
+ *  (mirrors the Rust `ScriptEvent` struct in scripts.rs — the scripts sibling
+ *  of `AgentEnvelope`). `data` is the script name for `started`, an output line
+ *  for `stdout`/`stderr`, and the status code (or null) for `exit`. */
+export interface ScriptEnvelope {
+  worktree: string;
+  kind: "started" | "stdout" | "stderr" | "exit";
+  data: string | null;
+}
+
+/** Envelope for a worktree-tagged terminal event on the `term-event` channel
+ *  (mirrors the Rust `TermEvent` struct in terminal.rs). `data` is a raw PTY
+ *  output chunk for `data`, null for `exit`. */
+export interface TermEnvelope {
+  worktree: string;
+  kind: "data" | "exit";
   data: string | null;
 }

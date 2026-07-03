@@ -1,9 +1,14 @@
 mod agent;
+mod github;
+mod scripts;
+mod terminal;
 mod usage;
 mod worktree;
 
 use agent::Sessions;
+use scripts::ScriptProcs;
 use tauri::{Manager, RunEvent};
+use terminal::Terminals;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -12,6 +17,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .manage(Sessions::default())
+        .manage(ScriptProcs::default())
+        .manage(Terminals::default())
         .invoke_handler(tauri::generate_handler![
             agent::start_session,
             agent::send_to_session,
@@ -28,18 +35,39 @@ pub fn run() {
             worktree::worktree_commit,
             worktree::worktree_push,
             worktree::worktree_merge,
+            worktree::worktree_pull,
+            scripts::get_scripts,
+            scripts::run_script,
+            scripts::run_script_blocking,
+            scripts::stop_script,
+            github::pr_status,
+            github::pr_create,
+            terminal::term_open,
+            terminal::term_write,
+            terminal::term_resize,
+            terminal::term_close,
             usage::get_usage,
+            usage::check_auth,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // Kill all sidecars when the app quits so we don't orphan the
-            // (large) per-worktree agent processes.
+            // Kill all sidecars AND running scripts when the app quits so we
+            // don't orphan the (large) per-worktree agent processes or a dev
+            // server a run script started.
             if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
                 if let Some(state) = app_handle.try_state::<Sessions>() {
                     for (_, child) in state.lock().drain() {
                         let _ = child.kill();
                     }
+                }
+                if let Some(state) = app_handle.try_state::<ScriptProcs>() {
+                    for (_, child) in state.lock().drain() {
+                        scripts::kill_script(child);
+                    }
+                }
+                if let Some(state) = app_handle.try_state::<Terminals>() {
+                    state.kill_all();
                 }
             }
         });

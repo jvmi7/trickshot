@@ -175,8 +175,11 @@ export function summarizeConversation(
 ): string {
   const lines: string[] = [];
   for (const m of all) {
-    if (m.type === "user_local") lines.push(`User: ${m.text.slice(0, maxChars)}`);
-    else if (m.type === "assistant") lines.push(`Assistant: ${m.text.slice(0, maxChars)}`);
+    // `text` can be absent on an assistant message (e.g. a tool-call-only turn);
+    // guard with ?? "" so summarization never throws (it's read by the comment +
+    // suggestion prompt assembly — a missing field must render nothing, not throw).
+    if (m.type === "user_local") lines.push(`User: ${(m.text ?? "").slice(0, maxChars)}`);
+    else if (m.type === "assistant") lines.push(`Assistant: ${(m.text ?? "").slice(0, maxChars)}`);
   }
   return lines.slice(-maxMessages).join("\n");
 }

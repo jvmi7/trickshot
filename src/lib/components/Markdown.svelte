@@ -6,6 +6,7 @@
   // styling + the syntax-highlight palette live in app.css `.markdown`.
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { highlightCode } from "$lib/highlight";
+  import Mermaid from "./Mermaid.svelte";
 
   // `?? ""` keeps the "missing field renders nothing, never throw" invariant: an
   // assistant message can carry empty/undefined text (see toNeutral).
@@ -21,9 +22,14 @@
     {/snippet}
 
     {#snippet code({ lang, text: codeText })}
-      <!-- highlightCode escapes the source itself; the `<span class="hljs-…">`
-           output is colored by app.css, not an imported hljs theme. -->
-      <pre><code class="hljs">{@html highlightCode(codeText, lang)}</code></pre>
+      {#if (lang || "").toLowerCase() === "mermaid"}
+        <!-- ```mermaid fences render as a diagram, not source (Mermaid.svelte). -->
+        <Mermaid code={codeText} />
+      {:else}
+        <!-- highlightCode escapes the source itself; the `<span class="hljs-…">`
+             output is colored by app.css, not an imported hljs theme. -->
+        <pre><code class="hljs">{@html highlightCode(codeText, lang)}</code></pre>
+      {/if}
     {/snippet}
   </SvelteMarkdown>
 </div>

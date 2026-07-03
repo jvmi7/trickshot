@@ -5,9 +5,22 @@
   // note rather than mounting tens of thousands of rows. Code rows (add/del/ctx)
   // are syntax-highlighted by file type via the shared highlight.js setup, with
   // the +/- prefix kept literal and the row's add/del background preserved.
+  // Prop-driven primitive: the optional `onLineComment` callback (review
+  // comments on a diff line) keeps the store/agent wiring in the parent.
   import { escapeHtml, highlightCode, langFromPath } from "$lib/highlight";
+  import MessageSquarePlus from "@lucide/svelte/icons/message-square-plus";
 
-  let { diff, path }: { diff: string; path?: string | null } = $props();
+  let {
+    diff,
+    path,
+    onLineComment,
+  }: {
+    diff: string;
+    path?: string | null;
+    /** When set, code rows grow a hover affordance; clicking it hands back the
+     *  line text + its enclosing @@ hunk header for a review comment. */
+    onLineComment?: (ctx: { line: string; hunk: string | null }) => void;
+  } = $props();
 
   const MAX_LINES = 2000;
   const lines = $derived(diff ? diff.split("\n") : []);
@@ -16,6 +29,15 @@
   const content = $derived(lines.filter((l) => kind(l) !== "meta"));
   const shown = $derived(content.length > MAX_LINES ? content.slice(0, MAX_LINES) : content);
   const hidden = $derived(content.length - shown.length);
+  // The nearest preceding @@ header per shown row (comment context). One O(n)
+  // pass, recomputed only when the diff changes.
+  const hunkFor = $derived.by(() => {
+    let current: string | null = null;
+    return shown.map((l) => {
+      if (kind(l) === "hunk") current = l;
+      return current;
+    });
+  });
   // Highlighting is per-line (no cross-line context), the lightweight tradeoff:
   // a line inside a block comment may mis-color, but the DOM stays bounded and
   // there's no whole-file reconstruction. "" when the type is unknown → escaped
@@ -59,7 +81,19 @@
   <div class="diff">
     {#each shown as line, i (i)}
       {@const k = kind(line)}
-      <div class="ln {k}">{@html render(line, k)}</div>
+      {#if onLineComment && (k === "add" || k === "del" || k === "ctx")}
+        <div class="ln {k} commentable">
+          <button
+            class="ln-comment"
+            title="Comment on this line (sends to the agent)"
+            aria-label="Comment on this line"
+            onclick={() => onLineComment({ line, hunk: hunkFor[i] ?? null })}
+          >
+            <MessageSquarePlus class="size-3" />
+          </button>{@html render(line, k)}</div>
+      {:else}
+        <div class="ln {k}">{@html render(line, k)}</div>
+      {/if}
     {/each}
     {#if hidden > 0}
       <div class="ln meta">… {hidden} more line{hidden === 1 ? "" : "s"} hidden</div>
@@ -79,6 +113,35 @@
     display: block;
     white-space: pre;
     padding: 0 8px;
+  }
+  /* Commentable rows reserve a slim gutter; the glyph appears on row hover. */
+  .ln.commentable {
+    position: relative;
+    padding-left: 22px;
+  }
+  .ln-comment {
+    position: absolute;
+    left: 2px;
+    top: 50%;
+    translate: 0 -50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: none;
+    color: var(--app-dim);
+    opacity: 0;
+  }
+  .ln.commentable:hover .ln-comment {
+    opacity: 1;
+  }
+  .ln-comment:hover {
+    color: var(--primary);
+    background: color-mix(in oklch, var(--primary) 14%, transparent);
   }
   /* Add/del rows carry only the background tint; token text color comes from the
      shared `.hljs-*` palette in app.css (which is layered, so an unlayered scoped

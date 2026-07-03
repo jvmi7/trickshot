@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import { onAgentEvent, listWorktrees, worktreeStatus } from "./lib/api";
+  import { onAgentEvent, onScriptEvent, onTermEvent, listWorktrees, worktreeStatus } from "./lib/api";
+  import { handleTermEvent } from "./lib/terminal";
   import {
     repos,
     worktreesByRepo,
@@ -15,26 +16,66 @@
     centerView,
     setCenterView,
     refreshUsage,
+    authState,
+    refreshAuth,
     ensureSession,
     mainView,
     gitRefreshNonce,
     setGitStat,
     activeGitStat,
+    activeScriptRun,
+    toggleCommandPalette,
+    requestNewWorktree,
   } from "./lib/stores";
   import { handleAgentEvent, handleSessionStatus } from "./lib/agentEvents";
+  import { handleScriptEvent } from "./lib/scriptEvents";
+  import CommandPalette from "./lib/components/CommandPalette.svelte";
   import Header from "./lib/components/Header.svelte";
   import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
   import ViewToggle from "./lib/components/ViewToggle.svelte";
+  import RunScripts from "./lib/components/RunScripts.svelte";
+  import RunOutput from "./lib/components/RunOutput.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import Chat from "./lib/components/Chat.svelte";
+  import ThreadPanel from "./lib/components/ThreadPanel.svelte";
   import GitPanel from "./lib/components/GitPanel.svelte";
+  import TerminalPane from "./lib/components/TerminalPane.svelte";
   import Settings from "./lib/components/Settings.svelte";
+  import Welcome from "./lib/components/Welcome.svelte";
   import { Button } from "./lib/components/ui/button";
   import * as Tooltip from "./lib/components/ui/tooltip";
   import PanelLeft from "@lucide/svelte/icons/panel-left";
   import SettingsIcon from "@lucide/svelte/icons/settings";
 
   const toggleSidebar = () => sidebarOpen.update((v) => !v);
+
+  // Re-probe the login when the window regains focus, but only while the
+  // sign-in notice is showing — this is the "cmd-tab to a terminal, run
+  // `claude`, cmd-tab back" round trip clearing itself. Never on a normal
+  // focus (the macOS check shells out to `security`).
+  function onWindowFocus() {
+    if (get(authState) === "missing") void refreshAuth();
+  }
+
+  // Global shortcuts (Conductor parity): ⌘K palette, ⌘⇧N new worktree,
+  // ⌘⇧D changes/diff view, ⌘⇧P the PR block (same Changes panel). Plain ⌘K
+  // has no shift; all guard on meta/ctrl so typing stays unaffected.
+  function onKeydown(e: KeyboardEvent) {
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod) return;
+    const k = e.key.toLowerCase();
+    if (!e.shiftKey && k === "k") {
+      e.preventDefault();
+      toggleCommandPalette();
+    } else if (e.shiftKey && k === "n") {
+      e.preventDefault();
+      requestNewWorktree();
+    } else if (e.shiftKey && (k === "d" || k === "p")) {
+      e.preventDefault();
+      setCenterView("chat");
+      mainView.set($mainView === "changes" ? "chat" : "changes");
+    }
+  }
 
   // Drag-to-resize the sidebar: track the pointer from the right-edge handle and
   // feed the new width (clamped in setSidebarWidth) live. `resizing` flips a class
@@ -71,9 +112,12 @@
   });
 
   // If the worktree on screen has no changes, don't strand the user on the (now
-  // hidden) Changes tab — fall back to chat.
+  // hidden) Changes tab — fall back to chat. Same for the Run tab when the
+  // worktree has no script run.
   $effect(() => {
     if ($mainView === "changes" && ($activeGitStat?.changed ?? 0) === 0) mainView.set("chat");
+    if ($mainView === "run" && !$activeScriptRun) mainView.set("chat");
+    if ($mainView === "term" && !$selectedWorktree) mainView.set("chat");
   });
 
   onMount(() => {
@@ -82,6 +126,8 @@
 
     // Populate the subscription-usage chip on launch (throttled thereafter).
     refreshUsage();
+    // Probe the Claude Code login for the sign-in notice (local read, silent).
+    void refreshAuth();
 
     // The dispatch logic lives in lib/agentEvents.ts (plain, testable TS); App
     // just wires the stream to it.
@@ -89,6 +135,24 @@
       .then((u) => {
         if (cancelled) u();
         else unlisten = u;
+      })
+      .catch(() => {});
+
+    // Same wiring for the script-output stream (lib/scriptEvents.ts).
+    let unlistenScripts: (() => void) | undefined;
+    onScriptEvent(handleScriptEvent)
+      .then((u) => {
+        if (cancelled) u();
+        else unlistenScripts = u;
+      })
+      .catch(() => {});
+
+    // …and the PTY stream (lib/terminal.ts).
+    let unlistenTerm: (() => void) | undefined;
+    onTermEvent(handleTermEvent)
+      .then((u) => {
+        if (cancelled) u();
+        else unlistenTerm = u;
       })
       .catch(() => {});
 
@@ -114,12 +178,14 @@
           // Resume the persisted selection's session on launch (idempotent) so
           // the chat — and its model switcher — are usable without re-selecting.
           // ensureSession passes the persisted session id so the agent's context
-          // resumes too. The `ready`/`models` events flip status + fill the catalog.
+          // resumes too. Status shows the boot gap as `starting`; the sidecar's
+          // `ready`/`models` events flip it to ready + fill the catalog.
           try {
+            setStatus(sel, "starting");
             await ensureSession(sel);
-            setStatus(sel, "ready");
           } catch {
             // a real spawn failure surfaces via the agent-event error path
+            setStatus(sel, "stopped");
           }
         }
       }
@@ -128,11 +194,16 @@
     return () => {
       cancelled = true;
       unlisten?.();
+      unlistenScripts?.();
+      unlistenTerm?.();
     };
   });
 </script>
 
+<svelte:window onkeydown={onKeydown} onfocus={onWindowFocus} />
+
 <Tooltip.Provider delayDuration={100}>
+<CommandPalette />
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
   <!-- Sidebar toggle floats over the top-left (just past the traffic lights) so
        it stays put when the sidebar slides away and can always reopen it. -->
@@ -187,13 +258,18 @@
             <span class="path">Settings</span>
           {:else if $selectedWorktree}
             <span class="path">{$selectedWorktree}</span>
+          {:else if $repos.length === 0}
+            <span class="dim">add a repository to get started</span>
           {:else}
             <span class="dim">select or create a worktree on the left</span>
           {/if}
         </div>
       {/snippet}
       {#snippet actions()}
-        {#if $centerView !== "settings"}
+        <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
+             nothing to act on there. -->
+        {#if $centerView !== "settings" && $repos.length > 0}
+          <RunScripts />
           <ViewToggle />
         {/if}
       {/snippet}
@@ -201,12 +277,24 @@
     <div class="content">
       {#if $centerView === "settings"}
         <Settings />
+      {:else if $repos.length === 0}
+        <!-- First-run (or removed-last-repo) welcome: replaces the whole center
+             pane, composer included. Gated on repo count — state, not a flag —
+             so it reappears exactly when it's true again. -->
+        <Welcome />
       {:else if $mainView === "changes"}
         <GitPanel />
+      {:else if $mainView === "run"}
+        <RunOutput />
+      {:else if $mainView === "term"}
+        <TerminalPane />
       {:else}
         <Chat />
       {/if}
     </div>
+    <!-- Thread overlay: a right-side Sheet that floats over the content (driven by
+         $activeCommentId). Portals out, so it never reflows the layout above. -->
+    <ThreadPanel />
   </main>
 </div>
 </Tooltip.Provider>

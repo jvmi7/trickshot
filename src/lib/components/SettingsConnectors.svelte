@@ -36,9 +36,18 @@
   // This component only mounts while the Settings page is shown, so these run on
   // open: ensure a session is feeding the catalog, then (re-)request it (the
   // ready-time broadcast can race the listener — mirrors ModelSelector).
+  // Instance-scoped one-shot per worktree: a spawn failure flips the status back
+  // to `stopped`, which would otherwise re-trigger this effect in a retry loop.
+  const sessionTried = new Set<string>();
   $effect(() => {
     const sel = $selectedWorktree;
-    if (sel && !alive(sel)) ensureSession(sel).then(() => setStatus(sel, "ready")).catch(() => {});
+    // `starting` while the sidecar boots; its `ready` event flips the status
+    // (spawn success alone isn't readiness — same contract as activateWorktree).
+    if (sel && !alive(sel) && $sessionStatus[sel] !== "starting" && !sessionTried.has(sel)) {
+      sessionTried.add(sel);
+      setStatus(sel, "starting");
+      ensureSession(sel).catch(() => setStatus(sel, "stopped"));
+    }
   });
   // Instance-scoped so reopening Settings (a remount) re-requests if the catalog
   // is still empty — the resilience the prior per-mount Set provided.
