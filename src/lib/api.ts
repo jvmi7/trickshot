@@ -10,7 +10,11 @@ import type {
   Inbound,
   Outbound,
   PermissionMode,
+  PrInfo,
+  ScriptEnvelope,
+  ScriptsConfig,
   SessionConfig,
+  TermEnvelope,
   UsageInfo,
   Worktree,
 } from "./types";
@@ -26,6 +30,11 @@ export const notify = (title: string, body: string) => invoke<void>("notify", { 
 /** The Claude subscription usage windows (rolling 5-hour + weekly). Rejects when
  *  unavailable (not logged in, token expired, rate limited); callers throttle. */
 export const getUsage = () => invoke<UsageInfo>("get_usage");
+
+/** Whether a Claude Code login exists on this machine (local credential read,
+ *  no network). false = definitively not signed in; rejects when the check is
+ *  ambiguous (callers stay silent rather than false-alarm). */
+export const checkAuth = () => invoke<boolean>("check_auth");
 
 /** List all worktrees of a git repo (the first entry is the main worktree). */
 export const listWorktrees = (repoPath: string) =>
@@ -62,13 +71,95 @@ export const worktreeUnstage = (worktreePath: string, paths: string[] = []) =>
 export const worktreeCommit = (worktreePath: string, message: string) =>
   invoke<string>("worktree_commit", { worktreePath, message });
 
-/** Push the current branch (`setUpstream` pushes `-u origin <branch>`). */
-export const worktreePush = (worktreePath: string, setUpstream = false) =>
-  invoke<string>("worktree_push", { worktreePath, setUpstream });
+/** Push the current branch (`setUpstream` pushes `-u origin <branch>`;
+ *  `force` uses --force-with-lease — overwrite a stale remote, never a fresh one). */
+export const worktreePush = (worktreePath: string, setUpstream = false, force = false) =>
+  invoke<string>("worktree_push", { worktreePath, setUpstream, force });
 
 /** Merge `branch` into the branch checked out at `repoPath` (the main worktree). */
 export const worktreeMerge = (repoPath: string, branch: string) =>
   invoke<string>("worktree_merge", { repoPath, branch });
+
+/** Sync with upstream: `git pull --rebase --autostash`. A conflict aborts the
+ *  rebase back to the pre-pull state and rejects. */
+export const worktreePull = (worktreePath: string) =>
+  invoke<string>("worktree_pull", { worktreePath });
+
+// ---- Project scripts (.trickshot/settings.json) ---------------------------
+
+/** A repo's scripts config (setup / named run scripts / archive / run_mode). */
+export const getScripts = (repoPath: string) => invoke<ScriptsConfig>("get_scripts", { repoPath });
+
+/** Launch a script BY NAME for a worktree ("setup" / "archive" / a run-script
+ *  name). The command string is read from the repo's settings file in Rust —
+ *  never passed from here. Output streams via `script-event`s. */
+export const runScript = (repoPath: string, worktree: string, name: string) =>
+  invoke<void>("run_script", { repoPath, worktree, name });
+
+/** Run a script BY NAME to COMPLETION, returning its stdout — for hooks that
+ *  must finish before proceeding (the archive script runs before the worktree
+ *  dir is deleted). Rejects with the script's stderr on failure. */
+export const runScriptBlocking = (repoPath: string, worktree: string, name: string) =>
+  invoke<string>("run_script_blocking", { repoPath, worktree, name });
+
+/** Stop a worktree's running script (no-op if none). */
+export const stopScript = (worktree: string) => invoke<void>("stop_script", { worktree });
+
+/** Subscribe to script output across ALL worktrees (`started`/`stdout`/
+ *  `stderr`/`exit`, tagged with the worktree). Returns an unlisten function. */
+export function onScriptEvent(
+  onEvent: (worktree: string, kind: ScriptEnvelope["kind"], data: string | null) => void,
+): Promise<UnlistenFn> {
+  return listen<ScriptEnvelope>("script-event", (e) => {
+    const { worktree, kind, data } = e.payload;
+    onEvent(worktree, kind, data);
+  });
+}
+
+// ---- GitHub PRs (gh CLI — the user's existing `gh auth login`) ------------
+
+/** The current branch's PR + its CI check rollup, or null when no PR exists.
+ *  Rejects when `gh` is missing or not authenticated. */
+export const prStatus = (worktreePath: string) =>
+  invoke<PrInfo | null>("pr_status", { worktreePath });
+
+/** Create a PR for the worktree's current branch (must be pushed first).
+ *  Returns the PR URL. Empty `base` uses the repo default. */
+export const prCreate = (
+  worktreePath: string,
+  title: string,
+  body: string,
+  base?: string,
+  draft = false,
+) => invoke<string>("pr_create", { worktreePath, title, body, base: base ?? null, draft });
+
+// ---- Integrated terminal (one PTY per worktree) ---------------------------
+
+/** Open (idempotent) a PTY running the user's shell with cwd = the worktree. */
+export const termOpen = (worktree: string, rows: number, cols: number) =>
+  invoke<void>("term_open", { worktree, rows, cols });
+
+/** Write keystrokes to a worktree's PTY. */
+export const termWrite = (worktree: string, data: string) =>
+  invoke<void>("term_write", { worktree, data });
+
+/** Resize a worktree's PTY (driven by xterm's fit addon). */
+export const termResize = (worktree: string, rows: number, cols: number) =>
+  invoke<void>("term_resize", { worktree, rows, cols });
+
+/** Kill a worktree's PTY (no-op if none). */
+export const termClose = (worktree: string) => invoke<void>("term_close", { worktree });
+
+/** Subscribe to PTY output across ALL worktrees (`data` chunks + the final
+ *  `exit`). Returns an unlisten function. */
+export function onTermEvent(
+  onEvent: (worktree: string, kind: TermEnvelope["kind"], data: string | null) => void,
+): Promise<UnlistenFn> {
+  return listen<TermEnvelope>("term-event", (e) => {
+    const { worktree, kind, data } = e.payload;
+    onEvent(worktree, kind, data);
+  });
+}
 
 // ---- Per-worktree agent sessions ----------------------------------------
 // Each worktree runs its own sidecar concurrently, keyed by its path.

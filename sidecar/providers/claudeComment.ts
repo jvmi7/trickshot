@@ -16,11 +16,11 @@ import { assistantText } from "./claudeMapping";
 // the chat the user highlighted, using the supplied context only (no tools, see
 // below) — so the system prompt keeps it grounded and conversational.
 export const COMMENT_SYSTEM =
-  "You are answering a side question about a highlighted snippet from a coding " +
-  "assistant's chat. You are given the surrounding conversation as read-only " +
-  "background, the highlighted text, and the prior turns of this comment thread. " +
-  "Answer the user's latest question directly and concisely about that snippet. " +
-  "This is a private side thread — it does not affect the main conversation.";
+  "You are continuing your own conversation with the user in a side thread about " +
+  "one of your earlier messages. You are given the conversation so far as context, " +
+  "the specific message being replied to, and the prior turns of this thread. " +
+  "Answer the user's latest message directly and conversationally. This is a " +
+  "private side thread — it does not affect the main conversation.";
 
 /** Run the isolated comment query, streaming assistant text through `onDelta` as
  *  it arrives. Resolves when the turn completes; rejects only on a real failure
@@ -49,6 +49,8 @@ export async function streamCommentReply(opts: {
       allowedTools: [],
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
+      // Single-shot Q&A: one turn, no agentic loop (matches the suggest recipe).
+      maxTurns: 1,
       abortController: opts.abort,
     },
   });

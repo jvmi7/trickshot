@@ -12,6 +12,9 @@ pub struct Worktree {
     pub head: Option<String>,
     pub is_main: bool,
     pub locked: bool,
+    /// The porcelain `bare` attribute: a bare entry has no working files, so it
+    /// can't host an agent session (openRepository skips it at add time).
+    pub is_bare: bool,
 }
 
 /// Build `git -C <repo> <args...>` as a Command. The ONE place the `-C <repo>` +
@@ -28,7 +31,9 @@ fn git_command<S: AsRef<str>>(repo: &str, args: &[S]) -> Command {
 }
 
 /// Run `git -C <repo> <args...>`, returning stdout or a stderr-derived error.
-fn git<S: AsRef<str>>(repo: &str, args: &[S]) -> Result<String, String> {
+/// pub(crate): github.rs's PR preflights reuse this rather than forking a
+/// second git runner.
+pub(crate) fn git<S: AsRef<str>>(repo: &str, args: &[S]) -> Result<String, String> {
     let output = git_command(repo, args)
         .output()
         .map_err(|e| format!("failed to run git: {e}"))?;
@@ -76,6 +81,12 @@ pub async fn pick_directory(app: AppHandle) -> Option<String> {
 #[tauri::command]
 pub fn list_worktrees(repo_path: String) -> Result<Vec<Worktree>, String> {
     let out = git(&repo_path, &["worktree", "list", "--porcelain"])?;
+    Ok(parse_worktree_list(&out))
+}
+
+/// Parse `git worktree list --porcelain` output (blank-line-separated blocks of
+/// `worktree <path>` / `HEAD <sha>` / `branch <ref>` / `locked` / `bare` lines).
+fn parse_worktree_list(out: &str) -> Vec<Worktree> {
     let mut result = Vec::new();
     let mut first = true;
 
@@ -87,6 +98,7 @@ pub fn list_worktrees(repo_path: String) -> Result<Vec<Worktree>, String> {
         let mut branch: Option<String> = None;
         let mut head: Option<String> = None;
         let mut locked = false;
+        let mut is_bare = false;
 
         for line in block.lines() {
             if let Some(p) = line.strip_prefix("worktree ") {
@@ -97,6 +109,8 @@ pub fn list_worktrees(repo_path: String) -> Result<Vec<Worktree>, String> {
                 branch = Some(b.trim_start_matches("refs/heads/").to_string());
             } else if line == "locked" || line.starts_with("locked ") {
                 locked = true;
+            } else if line == "bare" {
+                is_bare = true;
             }
         }
 
@@ -107,12 +121,13 @@ pub fn list_worktrees(repo_path: String) -> Result<Vec<Worktree>, String> {
                 head,
                 is_main: first,
                 locked,
+                is_bare,
             });
             first = false;
         }
     }
 
-    Ok(result)
+    result
 }
 
 /// Derive (and containment-check) the worktree directory for `branch` under the
@@ -193,6 +208,7 @@ pub fn create_worktree(
         head,
         is_main: false,
         locked: false,
+        is_bare: false,
     })
 }
 
@@ -226,12 +242,24 @@ pub struct FileStatus {
 }
 
 /// A worktree's working-tree status: current branch, ahead/behind counts vs its
-/// upstream, and the list of changed files.
+/// upstream, and the list of changed files — plus the branch-state facts the
+/// UI's stateful git buttons key off (upstream existence, the repo's default
+/// branch, commits over it).
 #[derive(Serialize)]
 pub struct WorktreeStatus {
     pub branch: Option<String>,
     pub ahead: i32,
     pub behind: i32,
+    /// Whether the branch has an upstream (`## br...origin/br`); ahead/behind
+    /// are only meaningful when true. False = unpublished branch.
+    pub has_upstream: bool,
+    /// The repo default branch (from `origin/HEAD`), e.g. "main". None when
+    /// there's no origin or the ref is unset — the UI falls back to permissive
+    /// buttons rather than guessing.
+    pub default_branch: Option<String>,
+    /// Commits on HEAD beyond `origin/<default_branch>` (0 when unknown) —
+    /// whether there is anything a PR could propose.
+    pub ahead_of_default: i32,
     /// Lines added/removed vs HEAD (staged + unstaged tracked changes).
     pub insertions: i32,
     pub deletions: i32,
@@ -272,17 +300,20 @@ fn diff_shortstat(worktree_path: &str) -> (i32, i32) {
 }
 
 /// Parse `git status --porcelain=v1 --branch` output into (branch, ahead, behind,
-/// files). Pure (no git invocation) so it's unit-testable; `worktree_status` wraps
-/// it with the git call and folds in the diffstat.
-fn parse_status(out: &str) -> (Option<String>, i32, i32, Vec<FileStatus>) {
+/// has_upstream, files). Pure (no git invocation) so it's unit-testable;
+/// `worktree_status` wraps it with the git call and folds in the diffstat.
+fn parse_status(out: &str) -> (Option<String>, i32, i32, bool, Vec<FileStatus>) {
     let mut files = Vec::new();
     let mut branch = None;
     let mut ahead = 0;
     let mut behind = 0;
+    let mut has_upstream = false;
 
     for line in out.lines() {
         if let Some(rest) = line.strip_prefix("## ") {
             // `## main...origin/main [ahead 1, behind 2]` (or just `## main`).
+            // The `...` marks a configured upstream.
+            has_upstream = rest.contains("...");
             let name = rest
                 .split("...")
                 .next()
@@ -323,23 +354,68 @@ fn parse_status(out: &str) -> (Option<String>, i32, i32, Vec<FileStatus>) {
         });
     }
 
-    (branch, ahead, behind, files)
+    (branch, ahead, behind, has_upstream, files)
+}
+
+/// The repo's default branch from `origin/HEAD` ("origin/main" → "main").
+/// Local-only lookup (no network); None when origin/HEAD is unset.
+fn default_branch(worktree_path: &str) -> Option<String> {
+    let out = git(
+        worktree_path,
+        &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+    )
+    .ok()?;
+    out.trim().strip_prefix("origin/").map(str::to_string)
+}
+
+/// Commits on HEAD beyond `origin/<default>` (0 when the ref is unknown).
+fn ahead_of(worktree_path: &str, default: &str) -> i32 {
+    git(
+        worktree_path,
+        &["rev-list", "--count", &format!("origin/{default}..HEAD")],
+    )
+    .ok()
+    .and_then(|s| s.trim().parse().ok())
+    .unwrap_or(0)
 }
 
 /// Parsed `git status --porcelain=v1 --branch` for a worktree.
 #[tauri::command]
 pub fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> {
     let out = git(&worktree_path, &["status", "--porcelain=v1", "--branch"])?;
-    let (branch, ahead, behind, files) = parse_status(&out);
+    let (branch, ahead, behind, has_upstream, files) = parse_status(&out);
     let (insertions, deletions) = diff_shortstat(&worktree_path);
+    let default = default_branch(&worktree_path);
+    let ahead_of_default = default
+        .as_deref()
+        .map_or(0, |d| ahead_of(&worktree_path, d));
     Ok(WorktreeStatus {
         branch,
         ahead,
         behind,
+        has_upstream,
+        default_branch: default,
+        ahead_of_default,
         insertions,
         deletions,
         files,
     })
+}
+
+/// Sync a worktree's branch with its upstream: `git pull --rebase --autostash`
+/// (rebases local commits onto the remote tip; autostash carries uncommitted
+/// work across). Conflicts abort the rebase back to the pre-pull state and
+/// surface as an Err — nothing is left mid-rebase for the UI to manage.
+#[tauri::command]
+pub fn worktree_pull(worktree_path: String) -> Result<String, String> {
+    match git(&worktree_path, &["pull", "--rebase", "--autostash"]) {
+        Ok(out) => Ok(out),
+        Err(e) => {
+            // Best-effort: never strand the worktree mid-rebase.
+            let _ = git(&worktree_path, &["rebase", "--abort"]);
+            Err(e)
+        }
+    }
 }
 
 /// `git diff --no-index <null> <file>` — an all-addition diff for an untracked
@@ -422,15 +498,25 @@ pub fn worktree_commit(worktree_path: String, message: String) -> Result<String,
 /// Push the current branch. With `set_upstream`, push `-u origin <branch>` so a
 /// brand-new branch is tracked (and GitHub prints its create-PR link on stderr).
 #[tauri::command]
-pub fn worktree_push(worktree_path: String, set_upstream: bool) -> Result<String, String> {
+pub fn worktree_push(
+    worktree_path: String,
+    set_upstream: bool,
+    force: bool,
+) -> Result<String, String> {
+    let mut args: Vec<String> = vec!["push".into()];
+    // --force-with-lease, never bare --force: overwrites the remote only if it
+    // still is what we last fetched — a diverged-but-stale remote (rebase,
+    // amend, stale twin push) is replaced; anything pushed since is protected.
+    if force {
+        args.push("--force-with-lease".into());
+    }
     if set_upstream {
         let branch = git(&worktree_path, &["rev-parse", "--abbrev-ref", "HEAD"])?
             .trim()
             .to_string();
-        git(&worktree_path, &["push", "-u", "origin", &branch])
-    } else {
-        git(&worktree_path, &["push"])
+        args.extend(["-u".into(), "origin".into(), branch]);
     }
+    git(&worktree_path, &args)
 }
 
 /// Merge `branch` into the branch currently checked out at `repo_path` (the main
@@ -446,7 +532,32 @@ pub fn worktree_merge(repo_path: String, branch: String) -> Result<String, Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_shortstat, parse_status, validate_branch};
+    use super::{parse_shortstat, parse_status, parse_worktree_list, validate_branch};
+
+    // ---- parse_worktree_list (git worktree list --porcelain) ----
+
+    #[test]
+    fn worktree_list_parses_main_and_linked() {
+        let out = "worktree /repo\nHEAD abc123\nbranch refs/heads/main\n\n\
+                   worktree /repo-worktrees/feat\nHEAD def456\nbranch refs/heads/feat\nlocked\n";
+        let wts = parse_worktree_list(out);
+        assert_eq!(wts.len(), 2);
+        assert!(wts[0].is_main && !wts[0].is_bare && !wts[0].locked);
+        assert_eq!(wts[0].branch.as_deref(), Some("main"));
+        assert!(!wts[1].is_main && wts[1].locked);
+        assert_eq!(wts[1].path, "/repo-worktrees/feat");
+    }
+
+    #[test]
+    fn worktree_list_marks_a_bare_entry() {
+        // A bare repo's own entry carries the `bare` attribute and no branch —
+        // it has no working files, so the add flow must not activate it.
+        let out = "worktree /srv/repo.git\nbare\n\n\
+                   worktree /srv/checkout\nHEAD abc\nbranch refs/heads/main\n";
+        let wts = parse_worktree_list(out);
+        assert!(wts[0].is_bare && wts[0].is_main);
+        assert!(!wts[1].is_bare);
+    }
 
     #[test]
     fn accepts_ordinary_names() {
@@ -520,23 +631,25 @@ mod tests {
     #[test]
     fn status_parses_branch_with_ahead_behind() {
         let out = "## main...origin/main [ahead 1, behind 2]\n";
-        let (branch, ahead, behind, files) = parse_status(out);
+        let (branch, ahead, behind, has_upstream, files) = parse_status(out);
         assert_eq!(branch.as_deref(), Some("main"));
         assert_eq!((ahead, behind), (1, 2));
+        assert!(has_upstream); // `...origin/main` present
         assert!(files.is_empty());
     }
 
     #[test]
     fn status_parses_branch_without_upstream() {
         // A branch with no upstream has no `...origin/...` and no `[...]` clause.
-        let (branch, ahead, behind, _) = parse_status("## feature/foo\n");
+        let (branch, ahead, behind, has_upstream, _) = parse_status("## feature/foo\n");
         assert_eq!(branch.as_deref(), Some("feature/foo"));
         assert_eq!((ahead, behind), (0, 0));
+        assert!(!has_upstream); // no `...` → unpublished branch
     }
 
     #[test]
     fn status_parses_ahead_only() {
-        let (_, ahead, behind, _) = parse_status("## main...origin/main [ahead 3]\n");
+        let (_, ahead, behind, _, _) = parse_status("## main...origin/main [ahead 3]\n");
         assert_eq!((ahead, behind), (3, 0));
     }
 
@@ -544,7 +657,7 @@ mod tests {
     fn status_classifies_staged_and_unstaged() {
         // XY codes: `M ` staged, ` M` unstaged, `MM` both, `??` untracked.
         let out = "## main\nM  staged.rs\n M unstaged.rs\nMM both.rs\n?? new.rs\n";
-        let (_, _, _, files) = parse_status(out);
+        let (_, _, _, _, files) = parse_status(out);
         assert_eq!(files.len(), 4);
 
         let staged = &files[0];
@@ -565,7 +678,7 @@ mod tests {
     #[test]
     fn status_keeps_rename_destination() {
         // A rename reports `orig -> new`; we keep the destination path.
-        let (_, _, _, files) = parse_status("## main\nR  old.rs -> new.rs\n");
+        let (_, _, _, _, files) = parse_status("## main\nR  old.rs -> new.rs\n");
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, "new.rs");
         assert!(files[0].staged);
@@ -573,9 +686,10 @@ mod tests {
 
     #[test]
     fn status_empty_yields_no_branch_no_files() {
-        let (branch, ahead, behind, files) = parse_status("");
+        let (branch, ahead, behind, has_upstream, files) = parse_status("");
         assert!(branch.is_none());
         assert_eq!((ahead, behind), (0, 0));
+        assert!(!has_upstream);
         assert!(files.is_empty());
     }
 }

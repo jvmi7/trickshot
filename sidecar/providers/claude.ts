@@ -191,9 +191,12 @@ export function createClaudeProvider(ctx: ProviderContext): AgentProvider {
       // User-defined subagents (Record<name, def>); same opaque-blob + cast as MCP.
       // (Repo .claude/agents are also loaded via settingSources.)
       ...(ctx.agents ? { agents: ctx.agents as Record<string, AgentDefinition> } : {}),
-      // Forward subagent text/thinking as messages tagged with parent_tool_use_id
-      // so the UI can render a nested subagent transcript (not just a heartbeat).
-      forwardSubagentText: true,
+      // Subagent text is NOT forwarded: a subagent runs as a black box and only its
+      // final result surfaces. Forwarding every intermediate subagent utterance
+      // floods the transcript with nested "subagent" bubbles (see Message.svelte's
+      // `.subagent`); the heartbeat/result is enough. Flip to `true` to nest the
+      // full subagent transcript again.
+      forwardSubagentText: false,
       // Surface agent "needs attention" notifications so the app can raise an OS
       // notification for a backgrounded worktree.
       hooks: {

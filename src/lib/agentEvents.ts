@@ -11,11 +11,14 @@ import { notify, requestSuggestions, setModel, toggleConnector } from "./api";
 import {
   appendCommentDelta,
   appendMessage,
+  authState,
   bumpGitRefresh,
   bumpUnread,
   clearActivity,
   clearSuggestions,
+  consumeSuppressDrain,
   globalConnectorPrefs,
+  maybeDrainQueued,
   modelByWorktree,
   recentConversation,
   refreshUsage,
@@ -38,6 +41,29 @@ import {
 } from "./stores";
 import type { AgentMessage, Outbound } from "./types";
 import { basename } from "./utils";
+
+/** Does an agent/sidecar error text read like a Claude Code auth failure?
+ *  Pure and deliberately loose — matching costs a friendlier message; a false
+ *  negative costs the raw SDK error the user would have seen anyway. */
+export function isAuthError(text: string): boolean {
+  return /log ?in|logged|authenticat|oauth|api key|credential|401|unauthorized/i.test(text);
+}
+
+/** The friendly substitute for a raw auth-failure error (Welcome/Chat show the
+ *  matching ambient banner via `authState`). */
+const AUTH_ERROR_MESSAGE =
+  "not signed in to Claude Code — run `claude` in a terminal, then click the worktree to restart";
+
+// Recognize an auth failure: swap the cryptic raw text for actionable copy and
+// flip the ambient auth state so the sign-in banner appears above the composer.
+function appendErrorMessage(worktree: string, raw: string) {
+  if (isAuthError(raw)) {
+    authState.set("missing");
+    appendMessage(worktree, { type: "error", error: AUTH_ERROR_MESSAGE });
+  } else {
+    appendMessage(worktree, { type: "error", error: raw });
+  }
+}
 
 // Turn each neutral message into a human-readable "what's happening now" for the
 // chat's loading footer.
@@ -78,6 +104,13 @@ export function handleAgentEvent(worktree: string, evt: Outbound) {
       refreshUsage();
       // The turn likely touched files — refresh an open git panel.
       bumpGitRefresh();
+      // Queued follow-ups drain ONE per turn: if this worktree has a queued
+      // message, send it now as the next turn and skip the "finished"
+      // side-effects below (unread/notify/suggestions) — the agent isn't done,
+      // it's continuing. Each follow-up's own turn_end drains the next. A Stop
+      // interrupt also produces a turn_end; consumeSuppressDrain() makes that one
+      // halt cleanly (no drain), leaving the queue for manual sending.
+      if (!consumeSuppressDrain(worktree) && maybeDrainQueued(worktree)) return;
       // If this worktree isn't the one on screen, flag it + notify so the
       // user notices a background agent finishing.
       if (worktree !== get(selectedWorktree)) {
@@ -128,7 +161,7 @@ export function handleAgentEvent(worktree: string, evt: Outbound) {
     // `terminated` event below unsticks the session) and NON-FATAL ones
     // (e.g. a setModel failure while the turn keeps streaming, which must
     // stay `busy`). Resetting here would wrongly unstick a live turn.
-    appendMessage(worktree, { type: "error", error: evt.error });
+    appendErrorMessage(worktree, evt.error);
   } else if (evt.kind === "ready") {
     setStatus(worktree, "ready");
   } else if (evt.kind === "connectors") {
@@ -175,11 +208,9 @@ export function handleSessionStatus(
   setStatus(worktree, "stopped");
   clearActivity(worktree);
   if (kind === "error") {
-    appendMessage(worktree, {
-      type: "error",
-      error: data ? `session error: ${data}` : "session error",
-    });
+    if (data) appendErrorMessage(worktree, `session error: ${data}`);
+    else appendMessage(worktree, { type: "error", error: "session error" });
   } else if (data) {
-    appendMessage(worktree, { type: "error", error: data });
+    appendErrorMessage(worktree, data);
   }
 }

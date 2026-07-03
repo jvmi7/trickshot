@@ -32,6 +32,7 @@ const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 const PROTOCOL = read("shared/protocol.ts");
 const ARCH = read("ARCHITECTURE.md");
 const AGENT_RS = read("src-tauri/src/agent.rs");
+const SCRIPTS_RS = read("src-tauri/src/scripts.rs");
 const LIB_RS = read("src-tauri/src/lib.rs");
 const API_TS = read("src/lib/api.ts");
 const TYPES_TS = read("src/lib/types.ts");
@@ -114,6 +115,45 @@ describe("AgentEvent ↔ AgentEnvelope envelope", () => {
     const kinds = matchAll(kindUnion, /"(\w+)"/g);
     expect(kinds.length).toBe(4);
     for (const k of kinds) expect(AGENT_RS.includes(`"${k}"`)).toBe(true);
+  });
+});
+
+// ---- 3b. Rust ScriptEvent ↔ TS ScriptEnvelope (the scripts sibling of 3) ----
+describe("ScriptEvent ↔ ScriptEnvelope envelope", () => {
+  const rustFields = matchAll(blockAfter(SCRIPTS_RS, "struct ScriptEvent"), /^\s*(\w+):/gm).sort();
+  const tsEnvelope = blockAfter(TYPES_TS, "interface ScriptEnvelope");
+  const tsFields = matchAll(tsEnvelope, /^\s*(\w+):/gm).sort();
+
+  test("struct field names match the TS interface", () => {
+    expect(tsFields).toEqual(rustFields);
+    expect(rustFields).toEqual(["data", "kind", "worktree"]);
+  });
+
+  test("each TS envelope kind value is emitted by scripts.rs", () => {
+    const kindUnion = tsEnvelope.match(/kind:\s*([^;]+);/)?.[1] ?? "";
+    const kinds = matchAll(kindUnion, /"(\w+)"/g);
+    expect(kinds.length).toBe(4);
+    for (const k of kinds) expect(SCRIPTS_RS.includes(`"${k}"`)).toBe(true);
+  });
+});
+
+// ---- 3c. Rust TermEvent ↔ TS TermEnvelope (the terminal sibling of 3) ----
+describe("TermEvent ↔ TermEnvelope envelope", () => {
+  const TERMINAL_RS = read("src-tauri/src/terminal.rs");
+  const rustFields = matchAll(blockAfter(TERMINAL_RS, "struct TermEvent"), /^\s*(\w+):/gm).sort();
+  const tsEnvelope = blockAfter(TYPES_TS, "interface TermEnvelope");
+  const tsFields = matchAll(tsEnvelope, /^\s*(\w+):/gm).sort();
+
+  test("struct field names match the TS interface", () => {
+    expect(tsFields).toEqual(rustFields);
+    expect(rustFields).toEqual(["data", "kind", "worktree"]);
+  });
+
+  test("each TS envelope kind value is emitted by terminal.rs", () => {
+    const kindUnion = tsEnvelope.match(/kind:\s*([^;]+);/)?.[1] ?? "";
+    const kinds = matchAll(kindUnion, /"(\w+)"/g);
+    expect(kinds.length).toBe(2);
+    for (const k of kinds) expect(TERMINAL_RS.includes(`"${k}"`)).toBe(true);
   });
 });
 
