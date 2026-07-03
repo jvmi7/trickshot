@@ -21,6 +21,12 @@
       if (hide) clearTimeout(hide);
       hide = setTimeout(() => (visible = false), 900);
     }
+    return () => {
+      if (hide) {
+        clearTimeout(hide);
+        hide = null;
+      }
+    };
   });
 </script>
 

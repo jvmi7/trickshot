@@ -99,6 +99,12 @@ export function run(cliPath: string) {
       case "suggest":
         provider.suggest(cmd.conversation);
         break;
+      case "comment_turn":
+        provider.commentTurn(cmd.id, cmd.prompt);
+        break;
+      case "comment_cancel":
+        provider.cancelComment(cmd.id);
+        break;
       default: {
         // Exhaustiveness guard: a new Inbound `kind` added to the protocol
         // without a case here is now a COMPILE error (the sidecar is typechecked

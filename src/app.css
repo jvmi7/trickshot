@@ -30,6 +30,19 @@
   &[data-inactive] { @slot; }
 }
 
+/* Same mismatch for Switch: the generated `ui/switch` styles its on/off state via
+   `data-checked:`/`data-unchecked:` variants, but bits-ui 2.18.1 stamps
+   `data-state="checked"/"unchecked"` — so without these the track never turns
+   `bg-primary` and the thumb never slides. Map both spellings. */
+@custom-variant data-checked {
+  &[data-state="checked"] { @slot; }
+  &[data-checked] { @slot; }
+}
+@custom-variant data-unchecked {
+  &[data-state="unchecked"] { @slot; }
+  &[data-unchecked] { @slot; }
+}
+
 /* ============================================================
    Google Sans Code — the app's global typeface (self-hosted so
    the packaged desktop app needs no network). Variable weight
@@ -574,8 +587,6 @@ html, body {
    (slidingToggle prepends a z-index:0 bg), which fills the active item. */
 .view-toggle { display: inline-flex; align-items: center; gap: 2px; position: relative; }
 .view-toggle-item { position: relative; z-index: 1; }
-/* Chat/Changes segmented toggle in the header's actions slot. */
-.view-tabs { display: flex; gap: 4px; }
 /* Diffstat counts on the header's Changes tab (added green / removed red,
    matching DiffView's line colors). */
 .diff-add { color: var(--base-success); font-variant-numeric: tabular-nums; }
@@ -799,6 +810,49 @@ html, body {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ---- Minimal mode: iMessage-style chat (toggled via `.messages.minimal` in
+   Chat.svelte). Your messages hug content on the RIGHT; the agent's one-sentence
+   summaries hug content on the LEFT with their own bubble surface. Tighter gap so
+   it reads as a quick back-and-forth. The normal full-width transcript view (no
+   `.minimal`) is unaffected. ---- */
+.messages.minimal { gap: 10px; }
+/* You: one bubble pinned right. Agent: a column of up to 3 bubbles stacked left
+   (a short burst of texts), tight 3px between them so they read as one reply. */
+.messages.minimal .msg.user { display: flex; justify-content: flex-end; }
+.messages.minimal .msg.assistant {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.messages.minimal .msg .body {
+  width: fit-content;
+  max-width: 78%;
+  border-radius: 20px;
+  padding: 9px 14px;
+  line-height: 1.35;
+}
+/* Sent (you): solid accent fill, right side, with the tail corner bottom-right.
+   Overrides the shared gradient/border bubble surface for the minimal view only. */
+.messages.minimal .msg.user .body {
+  background: var(--primary);
+  border-color: transparent;
+  color: var(--primary-foreground);
+  border-bottom-right-radius: 6px;
+}
+/* Received (agent): neutral raised surface, left side. */
+.messages.minimal .msg.assistant .body {
+  background: var(--app-panel-2, var(--app-panel));
+  border: 1px solid color-mix(in srgb, var(--app-text) 8%, transparent);
+  color: var(--app-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* The tail corner sits only on the LAST bubble of the agent's burst. */
+.messages.minimal .msg.assistant .body:last-child {
+  border-bottom-left-radius: 6px;
+}
 /* Composer input: same bubble surface, laid out as [textarea | send button].
    The selector row below stays OUTSIDE this surface. */
 .composer-input {
@@ -894,7 +948,6 @@ html, body {
 .tool-group { margin-top: 4px; }
 .tool-group.error .tool-status { color: var(--app-danger); opacity: 1; }
 .tool-group-body { padding-left: 14px; }
-.msg.result { align-self: center; color: var(--app-dim); font-size: 12px; }
 .msg.system { align-self: center; color: var(--app-dim); font-size: 11px; }
 .msg.error { align-self: center; color: var(--app-danger); font-size: 12px; }
 

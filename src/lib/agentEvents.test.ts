@@ -1,8 +1,9 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { get } from "svelte/store";
-import { handleAgentEvent, handleSessionStatus } from "./agentEvents";
+import { handleAgentEvent, handleSessionStatus, isAuthError } from "./agentEvents";
 import * as api from "./api";
 import {
+  authState,
   availableModels,
   connectorsByWorktree,
   modelByWorktree,
@@ -164,5 +165,40 @@ describe("handleSessionStatus", () => {
       error: "session error: spawn failed",
     });
     expect(get(sessionStatus)[w]).toBe("stopped");
+  });
+
+  test("an auth-flavored death is swapped for the friendly sign-in bubble + authState", async () => {
+    const w = wt();
+    authState.set("unknown");
+    handleSessionStatus(
+      w,
+      "terminated",
+      "sidecar exited (code 1)\nOAuth token expired · Please run /login",
+    );
+    await tick();
+    expect(get(transcripts)[w]?.at(-1)).toMatchObject({
+      type: "error",
+      error: expect.stringContaining("not signed in to Claude Code"),
+    });
+    expect(get(authState)).toBe("missing");
+    authState.set("unknown");
+  });
+});
+
+describe("isAuthError", () => {
+  test("matches SDK-style auth failures", () => {
+    expect(isAuthError("Invalid API key · Please run /login")).toBe(true);
+    expect(isAuthError("OAuth token has expired")).toBe(true);
+    expect(isAuthError("Not logged in")).toBe(true);
+    expect(isAuthError("401 Unauthorized")).toBe(true);
+    expect(isAuthError("could not read credentials")).toBe(true);
+    expect(isAuthError("Authentication failed")).toBe(true);
+  });
+
+  test("leaves generic errors alone", () => {
+    expect(isAuthError("ENOENT: no such file or directory")).toBe(false);
+    expect(isAuthError("rate limit exceeded, retry later")).toBe(false);
+    expect(isAuthError("sidecar exited (code 137)")).toBe(false);
+    expect(isAuthError("TypeError: cannot read properties of undefined")).toBe(false);
   });
 });

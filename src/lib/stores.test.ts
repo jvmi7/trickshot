@@ -114,3 +114,66 @@ describe("svelte store semantics the guard does NOT change (the limitation)", ()
     unsub();
   });
 });
+
+// ---- Archived workspaces (archive/restore index) ----
+// Imported lazily here (not in the header import) to keep this append-only vs
+// concurrent edits to the main import list.
+import {
+  addArchived,
+  appendScriptLines,
+  archivedWorkspaces,
+  endScriptRun,
+  removeArchived,
+  scriptRunByWorktree,
+  startScriptRun,
+} from "./stores";
+
+describe("archivedWorkspaces mutators", () => {
+  const entry = (branch: string, at = 1) => ({
+    repoPath: "/tmp/repo-arch",
+    repoName: "repo-arch",
+    branch,
+    path: `/tmp/.repo-arch-worktrees/${branch}`,
+    archivedAt: at,
+  });
+
+  test("addArchived appends and re-archiving the same repo+branch replaces (no dupes)", () => {
+    addArchived(entry("feat-a", 1));
+    addArchived(entry("feat-b", 2));
+    addArchived(entry("feat-a", 3)); // re-archive
+    const list = get(archivedWorkspaces).filter((a) => a.repoPath === "/tmp/repo-arch");
+    expect(list.map((a) => a.branch).sort()).toEqual(["feat-a", "feat-b"]);
+    expect(list.find((a) => a.branch === "feat-a")?.archivedAt).toBe(3); // the newer entry won
+  });
+
+  test("removeArchived drops exactly the matching repo+branch", () => {
+    removeArchived("/tmp/repo-arch", "feat-a");
+    const list = get(archivedWorkspaces).filter((a) => a.repoPath === "/tmp/repo-arch");
+    expect(list.map((a) => a.branch)).toEqual(["feat-b"]);
+    removeArchived("/tmp/repo-arch", "feat-b");
+  });
+});
+
+describe("script-run store", () => {
+  test("appendScriptLines keeps the bounded tail (2000) and preserves order", () => {
+    const w = "stores-test-script-tail";
+    startScriptRun(w, "flood");
+    const lines = Array.from({ length: 2500 }, (_, i) => `line ${i}`);
+    appendScriptLines(w, lines);
+    const run = get(scriptRunByWorktree)[w];
+    expect(run?.output.length).toBe(2000);
+    expect(run?.output[0]).toBe("line 500"); // oldest 500 trimmed
+    expect(run?.output[1999]).toBe("line 2499");
+  });
+
+  test("endScriptRun marks exited with the code, keeping output", () => {
+    const w = "stores-test-script-exit";
+    startScriptRun(w, "dev");
+    appendScriptLines(w, ["hello"]);
+    endScriptRun(w, 1);
+    const run = get(scriptRunByWorktree)[w];
+    expect(run?.status).toBe("exited");
+    expect(run?.code).toBe(1);
+    expect(run?.output).toEqual(["hello"]);
+  });
+});

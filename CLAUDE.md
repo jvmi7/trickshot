@@ -71,6 +71,11 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | DOM/interaction helpers (Svelte `use:` actions + init): custom transform-scroll, sliding active-pill highlight | `src/lib/customScroll.ts`, `src/lib/slidingHighlight.ts` |
 | shadcn config (aliases, base color) | `components.json` |
 | Git review (status/diff/stage/commit/push/merge) | `src-tauri/src/worktree.rs` (commands) + `src/lib/components/GitPanel.svelte` + `DiffView.svelte` (Chat/Changes toggle in `App.svelte`) |
+| GitHub PRs (create + checks via `gh` CLI, "fix failing checks → agent") | `src-tauri/src/github.rs` (commands) + the PR block in `GitPanel.svelte` |
+| Project scripts (repo `.trickshot/settings.json`: setup/run/archive, `TRICKSHOT_PORT` block) | `src-tauri/src/scripts.rs` (commands) + `src/lib/scriptEvents.ts` (router, 16ms-batched) + `RunScripts.svelte` (header Run button) + `RunOutput.svelte` (the Run tab) |
+| Workspace archiving + History (archive keeps transcript/session for restore) | `stores.ts › archivedWorkspaces` + archive/restore/purge flows in `Worktrees.svelte` |
+| Integrated terminal (one PTY per worktree) | `src-tauri/src/terminal.rs` (portable-pty commands) + `src/lib/terminal.ts` (xterm cache + `term-event` router) + `TerminalPane.svelte` |
+| Command palette (⌘K) + shortcuts (⌘⇧N/⌘⇧D/⌘⇧P in `App.svelte`) | `CommandPalette.svelte` + `stores.ts › commandPaletteOpen`/`newWorktreeRequest`/`activateWorktree` |
 | Rust commands: agent lifecycle / git worktrees | `src-tauri/src/agent.rs`, `worktree.rs` |
 | Rust command registry (`generate_handler!`) | `src-tauri/src/lib.rs` |
 | Permission scope (shell:allow-spawn, sidecar, notification) | `src-tauri/capabilities/default.json` |

@@ -6,12 +6,16 @@
     clearActivity,
     availableCommands,
     submitUserTurn,
+    enqueueMessage,
+    suppressNextDrain,
     requestOnce,
+    minimalMode,
   } from "../stores";
   import { onDestroy } from "svelte";
   import * as api from "../api";
   import { Button } from "$lib/components/ui/button";
   import { Textarea } from "$lib/components/ui/textarea";
+  import { Switch } from "$lib/components/ui/switch";
   import ModelSelector from "./ModelSelector.svelte";
   import PermissionModeSelector from "./PermissionModeSelector.svelte";
   import UsageIndicator from "./UsageIndicator.svelte";
@@ -83,6 +87,9 @@
 
   function onFocus() {
     focused = true;
+    // Programmatic autofocus keeps the placeholder readable (native-like); it
+    // hides on the first keystroke since the overlay only renders while empty.
+    if (programmaticFocus) return;
     // A click already kicked off the highlight-then-delete sequence — let it run.
     if (phSel) return;
     backspacePlaceholder();
@@ -106,6 +113,38 @@
   const alive = $derived(status === "ready" || status === "busy");
   const working = $derived(status === "busy");
   const canSend = $derived(alive && !working && text.trim().length > 0);
+  // While the agent is busy, the same field queues a follow-up instead of sending.
+  const canQueue = $derived(working && text.trim().length > 0);
+  // Autofocus the input once per worktree when its session becomes alive (the
+  // onboarding "session ready → just type" moment; also fires on worktree
+  // switches). Plain lets — deliberately non-reactive bookkeeping. Guards: never
+  // steal focus from another text input (e.g. the sidebar's branch-name field)
+  // or while a dialog is open. Runs post-DOM-update, so `disabled` has cleared.
+  let autofocusedFor: string | null = null;
+  let programmaticFocus = false;
+  $effect(() => {
+    if (!wt || !alive || autofocusedFor === wt || !textareaEl) return;
+    const ae = document.activeElement;
+    const typing =
+      ae instanceof HTMLElement &&
+      (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable);
+    if (typing || document.querySelector('[role="dialog"][data-state="open"]')) return;
+    autofocusedFor = wt;
+    programmaticFocus = true;
+    textareaEl.focus();
+    programmaticFocus = false;
+  });
+
+  // What the overlay reads while the field is disabled — state-aware so it never
+  // instructs the user to do something they've already done (selecting a worktree
+  // during the sidecar boot gap) or gives no way out of a dead session.
+  const idleLabel = $derived(
+    !wt
+      ? "Select a worktree to start"
+      : status === "starting"
+        ? "Waking the agent…"
+        : "Session stopped — click the worktree to restart",
+  );
 
   // The animated placeholder is rendered as our own overlay (not the native
   // `placeholder` attr) so a blinking caret can ride the END of the backspacing
@@ -132,6 +171,13 @@
   );
   const showPalette = $derived(focused && cmdMatches.length > 0);
 
+  // Keyboard-highlighted palette row; reset to the top whenever the query changes.
+  let cmdIndex = $state(0);
+  $effect(() => {
+    void cmdQuery;
+    cmdIndex = 0;
+  });
+
   function pickCommand(name: string) {
     text = `/${name} `;
     textareaEl?.focus();
@@ -146,17 +192,46 @@
     void submitUserTurn(wt, t);
   }
 
+  // Queue a follow-up while the agent is busy — it sends when the current turn ends
+  // (see maybeDrainQueued). The pill row (QueuedMessages) lets you reorder/send-now.
+  function queue() {
+    const t = text.trim();
+    if (!t || !wt || !working) return;
+    enqueueMessage(wt, t);
+    text = "";
+  }
+
   function stop() {
     if (!wt) return;
     api.interruptAgent(wt);
+    // The interrupt emits a turn_end; tell the drain to skip it so Stop halts
+    // cleanly and leaves any queued follow-ups intact (not auto-sent).
+    suppressNextDrain(wt);
     setStatus(wt, "ready");
     clearActivity(wt);
   }
 
   function onKeydown(e: KeyboardEvent) {
+    // While the slash palette is open it owns Arrow/Enter/Tab — otherwise Enter
+    // would send the partial "/cmd" text as a real turn.
+    if (showPalette) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        cmdIndex = (cmdIndex + step + cmdMatches.length) % cmdMatches.length;
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        const cmd = cmdMatches[cmdIndex] ?? cmdMatches[0];
+        if (cmd) pickCommand(cmd.name);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (canSend) send();
+      if (working) queue();
+      else if (canSend) send();
     }
   }
 </script>
@@ -168,10 +243,10 @@
     <div
       class="bg-popover text-popover-foreground absolute bottom-full left-0 z-50 mb-2 max-h-64 w-72 overflow-auto rounded-md border shadow-md"
     >
-      {#each cmdMatches as c (c.name)}
+      {#each cmdMatches as c, i (c.name)}
         <button
           type="button"
-          class="hover:bg-accent flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left"
+          class="hover:bg-accent flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left {i === cmdIndex ? 'bg-accent' : ''}"
           onmousedown={(e) => {
             e.preventDefault();
             pickCommand(c.name);
@@ -208,12 +283,16 @@
           bind:this={phEl}
           class="text-muted-foreground group-hover/input:text-foreground pointer-events-none absolute inset-0 flex items-center text-base whitespace-pre transition-colors select-none"
           aria-hidden="true"
-        >{alive ? ph : "Select a worktree to start"}{#if alive && phSel}<span class="ph-sel">{phSel}</span>{:else if showPhCaret}<span class="ph-caret"></span>{/if}</div>
+        >{alive ? ph : idleLabel}{#if alive && phSel}<span class="ph-sel">{phSel}</span>{:else if showPhCaret}<span class="ph-caret"></span>{/if}</div>
       {/if}
     </div>
     {#if working}
       <Button variant="ghost" size="icon" class="size-9 shrink-0 rounded-full bg-destructive/20 text-destructive hover:bg-destructive/30 hover:text-destructive" title="Stop" aria-label="Stop" onclick={stop}>
         <Square class="size-3.5 fill-current" />
+      </Button>
+      <!-- Queue a follow-up while busy: sends when the current turn finishes. -->
+      <Button variant="ghost" size="icon" class="size-9 shrink-0 rounded-full disabled:opacity-100 disabled:text-muted-foreground" title="Queue — sends when the agent finishes" aria-label="Queue message" onclick={queue} disabled={!canQueue}>
+        <ArrowUp class="size-5" />
       </Button>
     {:else}
       <!-- Grey the disabled state via COLOR (full opacity), not opacity — fading a
@@ -228,5 +307,17 @@
     <PermissionModeSelector />
     <ModelSelector />
     <UsageIndicator />
+    <!-- Minimal mode: global view filter — show only one-sentence agent summaries. -->
+    <label
+      class="ml-auto flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground select-none"
+      title="Minimal mode: filter the chat to one-sentence agent summaries"
+    >
+      <Switch
+        checked={$minimalMode}
+        onCheckedChange={(v) => minimalMode.set(v)}
+        aria-label="Minimal mode"
+      />
+      Minimal
+    </label>
   </div>
 </div>

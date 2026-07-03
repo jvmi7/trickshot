@@ -56,8 +56,11 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 | app → sidecar | `interrupt` | — |
 | app → sidecar | `set_mcp_servers` | `{ servers }` — replace live MCP servers (opaque config blob); sidecar re-emits `mcp_status` after |
 | app → sidecar | `suggest` | `{ conversation }` — ask the provider to generate suggested next user replies for the recent-conversation text; answered async by `suggestions`. A separate cheap one-shot call (Claude: Haiku, no tools), NOT the main agent loop |
+| app → sidecar | `comment_turn` | `{ id, prompt }` — run an OUT-OF-BAND agent turn for an inline comment thread (`id`); `prompt` is the app-assembled thread context (surrounding chat + selected text + prior thread Q&A + new question). Answer streams back via `comment_reply`. A separate isolated query (no `resume`, no tools), NOT the main agent loop — never touches the main session/transcript |
+| app → sidecar | `comment_cancel` | `{ id }` — abort an in-flight `comment_turn` for `id` (on popup close / supersede); no-op if nothing is running |
 | sidecar → app | `ready` | — |
 | sidecar → app | `suggestions` | `{ suggestions: string[] }` — suggested next user replies (answer to `suggest`); empty = none. Shown as pick-to-send chips above the composer (`Suggestions.svelte`) with a "type your own" option |
+| sidecar → app | `comment_reply` | `{ id, delta?, done?, error? }` — streamed answer to a `comment_turn` (thread `id`): `delta` is incremental assistant text, `done` marks completion, `error` a failure. Routed to the comment thread's store (`CommentPopup.svelte`), NEVER the main transcript |
 | sidecar → app | `commands` | `{ commands: {name,description}[] }` — available slash commands (on ready and after `get_commands`) |
 | sidecar → app | `mcp_status` | `{ servers: {name,status}[] }` — MCP server connection statuses (on ready and after `set_mcp_servers`) |
 | sidecar → app | `notification` | `{ message, notificationType? }` — agent wants attention (from the Notification hook); the app raises an OS notification for a backgrounded worktree |
@@ -97,17 +100,46 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 | `worktree_diff` | `worktreePath, file?, base?` | `string` | Unified diff vs `base` (default HEAD); untracked files fall back to a `--no-index` all-add diff |
 | `worktree_stage` / `worktree_unstage` | `worktreePath, paths` | `void` | Empty `paths` = all (`git add -A` / `git restore --staged .`) |
 | `worktree_commit` | `worktreePath, message` | `string` | Commits staged changes (git stdout) |
-| `worktree_push` | `worktreePath, setUpstream` | `string` | `setUpstream` pushes `-u origin <branch>` |
+| `worktree_push` | `worktreePath, setUpstream, force` | `string` | `setUpstream` pushes `-u origin <branch>`; `force` uses `--force-with-lease` (overwrite a stale remote, never a fresh one) |
 | `worktree_merge` | `repoPath, branch` | `string` | Merges `branch` into the branch checked out at `repoPath` |
+| `worktree_pull` | `worktreePath` | `string` | `git pull --rebase --autostash`; a conflict auto-aborts back to the pre-pull state and rejects |
 | `start_session` | `worktree, config?` (JSON string) | `void` | Spawns a sidecar (cwd = worktree); idempotent. `config` is the app's `SessionConfig` blob (`provider`/`resumeSessionId`/`permissionMode`/`systemPromptAppend`/`mcpServers`/`agents`), forwarded verbatim as the `SESSION_CONFIG` env var; the sidecar parses it once in `core.ts`. Rust never enumerates the fields, so a new session knob doesn't touch this command. `PROJECT_DIR` (= worktree) is set separately |
 | `send_to_session` | `worktree, payload` (JSON string) | `void` | Writes a line to that worktree's sidecar stdin |
 | `stop_session` | `worktree` | `void` | Kills that worktree's sidecar |
 | `notify` | `title, body` | `void` | Shows a desktop notification (tauri-plugin-notification) |
 | `get_usage` | — | `UsageInfo` | Subscription usage windows (rolling ~5-hour + weekly). See *Subscription usage* below |
+| `check_auth` | — | `boolean` | Whether a Claude Code login exists (local credential read only, no network; same keychain/file source as `get_usage`). `false` = definitively no credentials; ambiguous environment failures reject so the UI never false-alarms. Drives the first-run "sign in" notice |
+| `get_scripts` | `repoPath` | `ScriptsConfig` | Parsed `scripts` section of the repo's `.trickshot/settings.json` (missing file → empty config). See *Project scripts* below |
+| `run_script` | `repoPath, worktree, name` | `void` | Launches a script BY NAME (`"setup"` / `"archive"` / a run-script name) inside the worktree. The command string is always read from the settings file in Rust — the webview can never execute an arbitrary string. Output streams as `script-event`s |
+| `run_script_blocking` | `repoPath, worktree, name` | `string` | Runs a script BY NAME to completion, returning stdout (Err = stderr). The awaited sibling of `run_script`, used for the archive hook (must finish before the worktree dir is deleted) |
+| `stop_script` | `worktree` | `void` | Kills that worktree's running script (and its process group) |
+| `pr_status` | `worktreePath` | `PrInfo \| null` | The current branch's PR + CI check rollup via `gh pr view` (null = no PR yet). Uses the user's existing `gh auth login` — no token plumbing (`src-tauri/src/github.rs`) |
+| `pr_create` | `worktreePath, title, body, base?, draft` | `string` | `gh pr create` for the current (pushed) branch; returns the PR URL |
+| `term_open` | `worktree, rows, cols` | `void` | Opens (idempotent) a PTY running the user's login shell, cwd = the worktree (`src-tauri/src/terminal.rs`). Output streams as `term-event`s (`{ worktree, kind: "data" \| "exit", data }`, mirrored by the TS `TermEnvelope`); the webview side is xterm.js (`lib/terminal.ts` keeps one instance per worktree so scrollback survives tab switches) |
+| `term_write` / `term_resize` | `worktree, data` / `worktree, rows, cols` | `void` | Keystrokes → PTY / fit-addon size → PTY |
+| `term_close` | `worktree` | `void` | Kills that worktree's PTY (all PTYs are killed on app quit) |
 
 **Subscription usage (`get_usage`, `src-tauri/src/usage.rs`).** A best-effort read of the account's usage windows for the header chip (`UsageIndicator.svelte`). It reuses the **existing Claude Code login** — NO API key: it reads the OAuth access token from the macOS keychain (`security find-generic-password -s "Claude Code-credentials"`) or `~/.claude/.credentials.json`, then GETs the undocumented `api.anthropic.com/api/oauth/usage` endpoint with that bearer token. The endpoint is aggressively rate-limited, so the webview throttles `refreshUsage()` (event-driven on session start / turn end, ≤ once per 90s) and the last value is persisted (`trickshot.usageLimits`) so the chip shows immediately on launch. Every failure path maps to `Err(String)`; a transient 401/429 leaves the last good value in place. Maps to the `UsageInfo` / `UsageWindow` types (`src/lib/types.ts`).
 
 Events: a single `agent-event` carrying `{ worktree, kind, data }`, where `kind` is `stdout` (a protocol line) | `stderr` | `error` | `terminated`. The frontend routes by `worktree`.
+
+**Project scripts (`src-tauri/src/scripts.rs`).** Conductor-style per-repo scripts, declared in a repo-committed `.trickshot/settings.json` so a team shares one workflow:
+
+```json
+{
+  "scripts": {
+    "setup": "bun install && cp ../.env .env",
+    "run": { "dev": "bun run dev --port $TRICKSHOT_PORT", "test": "bun test" },
+    "archive": "docker compose down",
+    "run_mode": "concurrent"
+  }
+}
+```
+
+- **setup** runs when a worktree is created (a fresh worktree only has git-tracked files — install deps, copy `.env`). **run** scripts (one string, or an object of named scripts) launch from the header Run button. **archive** runs before a workspace is archived (clean up resources living outside the worktree dir). `run_mode: "nonconcurrent"` makes starting a run script stop every other running script first (default `"concurrent"`).
+- Scripts execute as `sh -lc <command>` with cwd = the worktree, in their **own process group** (stopping kills the whole tree, e.g. a dev server), with env: `TRICKSHOT_PORT` (the base of a per-worktree block of 10 ports, deterministically derived from the worktree path — use `$TRICKSHOT_PORT`…`+9` so parallel worktrees never collide), `TRICKSHOT_WORKSPACE_PATH`, `TRICKSHOT_ROOT_PATH` (the main repo), `TRICKSHOT_WORKSPACE_NAME`.
+- One script per worktree: launching a new one replaces the old. All script processes are killed on app quit (the lib.rs exit handler, same as sidecars).
+- Output events: a single `script-event` carrying `{ worktree, kind, data }` — the scripts sibling of `agent-event` — where `kind` is `started` (data = script name) | `stdout` | `stderr` (one output line) | `exit` (data = status code, or null when killed). Mirrored by the TS `ScriptEnvelope` (types.ts); routed by `lib/scriptEvents.ts` into the per-worktree `scriptRunByWorktree` store (16ms-batched output tail) and rendered by the ViewToggle "run" tab (`RunOutput.svelte`).
 
 ## Why a Bun sidecar (and the one real gotcha)
 

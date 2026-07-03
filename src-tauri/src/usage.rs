@@ -53,19 +53,38 @@ struct OauthTokens {
     access_token: String,
 }
 
+/// Why the credentials could not be read. `Missing` is the definitive
+/// "no Claude Code login anywhere" signal (`check_auth` maps it to `false`);
+/// `Other` is ambiguous (HOME unset, keychain spawn failure, unreadable file)
+/// and must never be reported as logged-out.
+enum CredError {
+    Missing(String),
+    Other(String),
+}
+
+impl CredError {
+    fn message(self) -> String {
+        match self {
+            CredError::Missing(m) | CredError::Other(m) => m,
+        }
+    }
+}
+
 /// Read the OAuth access token from where the Claude Code login stores it.
 /// macOS keeps the *live* (auto-refreshed) token in the login keychain — the
 /// on-disk `~/.claude/.credentials.json` there is often stale — so prefer the
 /// keychain and fall back to the file. Other platforms use the file directly.
-fn read_access_token() -> Result<String, String> {
+fn read_access_token() -> Result<String, CredError> {
     let raw = read_credentials_json()?;
+    // A store that exists but doesn't parse means the login is gone/incomplete,
+    // not an environment problem — treat it as definitively logged-out.
     let creds: Credentials = serde_json::from_str(&raw)
-        .map_err(|e| format!("could not parse Claude credentials: {e}"))?;
+        .map_err(|e| CredError::Missing(format!("could not parse Claude credentials: {e}")))?;
     Ok(creds.claude_ai_oauth.access_token)
 }
 
 #[cfg(target_os = "macos")]
-fn read_credentials_json() -> Result<String, String> {
+fn read_credentials_json() -> Result<String, CredError> {
     // Live token: `security find-generic-password -s "Claude Code-credentials" -w`.
     let out = Command::new("security")
         .args([
@@ -75,7 +94,7 @@ fn read_credentials_json() -> Result<String, String> {
             "-w",
         ])
         .output()
-        .map_err(|e| format!("failed to read keychain: {e}"))?;
+        .map_err(|e| CredError::Other(format!("failed to read keychain: {e}")))?;
     if out.status.success() {
         let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
         if !s.is_empty() {
@@ -87,15 +106,39 @@ fn read_credentials_json() -> Result<String, String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn read_credentials_json() -> Result<String, String> {
+fn read_credentials_json() -> Result<String, CredError> {
     read_credentials_file()
 }
 
-fn read_credentials_file() -> Result<String, String> {
-    let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+fn read_credentials_file() -> Result<String, CredError> {
+    let home =
+        std::env::var("HOME").map_err(|_| CredError::Other("HOME is not set".to_string()))?;
     let path = format!("{home}/.claude/.credentials.json");
-    std::fs::read_to_string(&path)
-        .map_err(|e| format!("could not read {path}: {e} (is Claude Code logged in?)"))
+    std::fs::read_to_string(&path).map_err(|e| {
+        let msg = format!("could not read {path}: {e} (is Claude Code logged in?)");
+        // Absent file = no login on this machine (definitive); any other io
+        // error (permissions, etc.) is ambiguous.
+        if e.kind() == std::io::ErrorKind::NotFound {
+            CredError::Missing(msg)
+        } else {
+            CredError::Other(msg)
+        }
+    })
+}
+
+/// Whether a Claude Code login exists on this machine. `Ok(true)` = credentials
+/// found (NOT a validity guarantee — an expired token still reports `true`;
+/// the real check is the first authenticated call). `Ok(false)` = definitively
+/// no credentials (keychain item absent AND no credentials file). `Err` =
+/// ambiguous environment failure — the UI stays silent rather than showing a
+/// false "not signed in" alarm. Local reads only; never hits the network.
+#[tauri::command]
+pub async fn check_auth() -> Result<bool, String> {
+    match read_access_token() {
+        Ok(_) => Ok(true),
+        Err(CredError::Missing(_)) => Ok(false),
+        Err(e) => Err(e.message()),
+    }
 }
 
 /// Best-effort `claude-code/<version>` User-Agent. We try the installed CLI's
@@ -125,7 +168,7 @@ fn user_agent() -> String {
 /// off the main thread on Tauri's runtime.
 #[tauri::command]
 pub async fn get_usage() -> Result<UsageInfo, String> {
-    let token = read_access_token()?;
+    let token = read_access_token().map_err(CredError::message)?;
     let client = reqwest::Client::new();
     let resp = client
         .get(USAGE_URL)
