@@ -88,10 +88,15 @@ export async function ensureOpen(worktree: string) {
   inst.open = true;
 }
 
-/** Route one `term-event` into the cached xterm (creating it if the first
- *  output arrives before the pane ever mounted — e.g. a background exit). */
+/** Route one `term-event` into the cached xterm. No-op when no instance exists:
+ *  a PTY is only opened via `getTerminal` (`ensureOpen`/the pane/the reconnect
+ *  path), so an instance always precedes any event — EXCEPT after
+ *  `disposeTerminal` (worktree removed/archived) with the PTY's final events
+ *  still in flight. Recreating one here would leak an xterm that is never
+ *  re-attached (a removed worktree can't be selected) nor disposed again. */
 export function handleTermEvent(worktree: string, kind: TermEnvelope["kind"], data: string | null) {
-  const inst = getTerminal(worktree);
+  const inst = instances.get(worktree);
+  if (!inst) return;
   switch (kind) {
     case "data":
       if (data) inst.term.write(data);

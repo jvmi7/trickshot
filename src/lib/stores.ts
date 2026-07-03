@@ -248,7 +248,6 @@ export interface GitStat {
   deletions: number;
 }
 const _gitStat = createWorktreeMap<GitStat>();
-export const gitStatByWorktree = _gitStat.store;
 export const setGitStat = _gitStat.set;
 
 /** The chat's custom "scroll" position — a global cursor into the transcript.
