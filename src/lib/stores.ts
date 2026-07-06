@@ -616,10 +616,13 @@ export async function refreshUsage(force = false) {
   try {
     usageLimits.set(await api.getUsage());
     usageError.set(null);
-    usageLastFetch = Date.now();
   } catch (e) {
     usageError.set(e instanceof Error ? e.message : String(e));
   } finally {
+    // Count a completed ATTEMPT (success or failure) toward the throttle — a
+    // rate-limited endpoint must not be hammered harder while it's failing
+    // (turn_end fires this every turn). `force` still bypasses the interval.
+    usageLastFetch = Date.now();
     usageInFlight = false;
   }
 }
