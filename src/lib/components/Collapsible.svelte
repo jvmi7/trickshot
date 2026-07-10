@@ -24,7 +24,7 @@
 
 <style>
   .cl-pre {
-    font-size: 11px;
+    font-size: var(--text-xs);
     overflow-x: auto;
     margin: 0 0 6px;
     color: var(--app-dim);

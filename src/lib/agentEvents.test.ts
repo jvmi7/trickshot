@@ -1,12 +1,14 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { get } from "svelte/store";
-import { handleAgentEvent, handleSessionStatus, isAuthError } from "./agentEvents";
+import { handleAgentEvent, handleSessionStatus } from "./agentEvents";
 import * as api from "./api";
+import { providerDisplay } from "./providers";
 import {
   authState,
   availableModels,
   connectorsByWorktree,
   modelByWorktree,
+  modelsByWorktree,
   pendingPermission,
   pendingQuestion,
   selectedWorktree,
@@ -71,16 +73,38 @@ describe("handleAgentEvent dispatch", () => {
 });
 
 describe("handleAgentEvent — models", () => {
-  test("publishes the catalog and adopts current when no persisted choice differs", () => {
+  test("publishes the catalog PER WORKTREE and adopts current when no persisted choice differs", () => {
     const w = wt();
     const models = [
       { value: "m1", displayName: "M1" },
       { value: "m2", displayName: "M2" },
     ];
     handleAgentEvent(w, { kind: "models", models, current: "m2" });
+    // The catalog lands under the EMITTING worktree (concurrent sessions must not
+    // clobber each other)…
+    expect(get(modelsByWorktree)[w]).toEqual(models);
+    // …and `availableModels` is the selected worktree's view of it.
+    selectedWorktree.set(w);
     expect(get(availableModels)).toEqual(models);
     // No persisted choice for this fresh worktree → adopt the sidecar's current.
     expect(get(modelByWorktree)[w]).toBe("m2");
+  });
+
+  test("one session's catalog does not clobber another's", () => {
+    const a = wt();
+    const b = wt();
+    handleAgentEvent(a, {
+      kind: "models",
+      models: [{ value: "a1", displayName: "A1" }],
+      current: "a1",
+    });
+    handleAgentEvent(b, {
+      kind: "models",
+      models: [{ value: "b1", displayName: "B1" }],
+      current: "b1",
+    });
+    expect(get(modelsByWorktree)[a]).toEqual([{ value: "a1", displayName: "A1" }]);
+    expect(get(modelsByWorktree)[b]).toEqual([{ value: "b1", displayName: "B1" }]);
   });
 });
 
@@ -185,7 +209,9 @@ describe("handleSessionStatus", () => {
   });
 });
 
-describe("isAuthError", () => {
+describe("provider auth-error matching (providers.ts)", () => {
+  const isAuthError = (text: string) => providerDisplay("claude").authErrorPattern.test(text);
+
   test("matches SDK-style auth failures", () => {
     expect(isAuthError("Invalid API key · Please run /login")).toBe(true);
     expect(isAuthError("OAuth token has expired")).toBe(true);
@@ -200,5 +226,10 @@ describe("isAuthError", () => {
     expect(isAuthError("rate limit exceeded, retry later")).toBe(false);
     expect(isAuthError("sidecar exited (code 137)")).toBe(false);
     expect(isAuthError("TypeError: cannot read properties of undefined")).toBe(false);
+  });
+
+  test("an unknown provider id falls back to the default display", () => {
+    expect(providerDisplay("no-such-provider").id).toBe("claude");
+    expect(providerDisplay(undefined).id).toBe("claude");
   });
 });

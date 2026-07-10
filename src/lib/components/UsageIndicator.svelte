@@ -1,26 +1,37 @@
 <script lang="ts">
-  // Compact subscription-usage chip for the composer: how much of the rolling
-  // ~5-hour window is consumed, with the weekly window + reset times on hover.
-  // Data comes from `usageLimits` (the /usage endpoint via get_usage); it's a
-  // best-effort, undocumented signal, so a fetch error keeps the last value and
-  // surfaces in the tooltip. Renders nothing until the first successful fetch.
-  import { usageLimits, usageError } from "../stores";
+  // Compact subscription-usage chip for the composer: how much of the most
+  // immediate usage window is consumed, with every reported window + reset time
+  // on hover. Provider-neutral: `usageLimits` carries labeled windows (ordered
+  // most-immediate first by the probe) and this renders whatever arrives; the
+  // tooltip footnote comes from the provider display registry. Best-effort
+  // signal — a fetch error keeps the last value and surfaces in the tooltip.
+  // Renders nothing until the first successful fetch.
+  import { activeProvider, usageLimits, usageError } from "../stores";
+  import { providerDisplay } from "../providers";
   import type { UsageWindow } from "$lib/types";
   import * as Tooltip from "$lib/components/ui/tooltip";
+  import { badgeVariants } from "$lib/components/ui/badge";
+  import { cn } from "$lib/utils";
 
-  const usage = $derived($usageLimits);
-  const fiveHour = $derived(usage?.five_hour ?? null);
-  const sevenDay = $derived(usage?.seven_day ?? null);
+  const windows = $derived($usageLimits?.windows ?? []);
+  const primary = $derived(windows[0] ?? null);
+  const usageNote = $derived(providerDisplay($activeProvider).usageNote);
 
   /** Round a 0–100 utilization to a whole percent; null if absent. */
   function pct(w: UsageWindow | null): number | null {
     return w && w.utilization != null ? Math.round(w.utilization) : null;
   }
-  const fivePct = $derived(pct(fiveHour));
+  const primaryPct = $derived(pct(primary));
 
-  /** Color the chip by how close the 5h window is to the cap. */
+  // Badge recipe for the chip. `ghost` (not `outline`): the chip is borderless
+  // passive text, and ghost keeps border-transparent — outline's visible border
+  // would fight the design. The scoped `.usage-chip` block re-neutralizes ghost's
+  // hover tint (the chip isn't a button) and owns the data-severity colors.
+  const usageChipClass = cn(badgeVariants({ variant: "ghost" }), "usage-chip");
+
+  /** Color the chip by how close the primary window is to the cap. */
   const severity = $derived(
-    fivePct == null ? "normal" : fivePct >= 90 ? "danger" : fivePct >= 70 ? "warn" : "normal",
+    primaryPct == null ? "normal" : primaryPct >= 90 ? "danger" : primaryPct >= 70 ? "warn" : "normal",
   );
 
   /** Human "resets in 2h 5m" from an ISO timestamp (coarse; refreshed per turn). */
@@ -36,26 +47,27 @@
   }
 </script>
 
-{#if fivePct != null}
+{#if primaryPct != null}
   <Tooltip.Root>
     <Tooltip.Trigger>
       {#snippet child({ props })}
-        <span {...props} class="usage-chip" data-severity={severity} aria-label="Subscription usage">
-          {fivePct}% used
+        <span {...props} class={usageChipClass} data-severity={severity} aria-label="Subscription usage">
+          {primaryPct}% used
         </span>
       {/snippet}
     </Tooltip.Trigger>
     <Tooltip.Content>
       <div class="usage-detail">
         <div><strong>Subscription usage</strong></div>
-        <div>5-hour window: {fivePct}% · {resetsIn(fiveHour?.resets_at)}</div>
-        {#if pct(sevenDay) != null}
-          <div>Weekly: {pct(sevenDay)}% · {resetsIn(sevenDay?.resets_at)}</div>
-        {/if}
+        {#each windows as w (w.label)}
+          {#if pct(w) != null}
+            <div>{w.label}: {pct(w)}% · {resetsIn(w.resets_at)}</div>
+          {/if}
+        {/each}
         {#if $usageError}
           <div class="usage-note">Last refresh failed ({$usageError}); showing cached.</div>
         {:else}
-          <div class="usage-note">Estimate from your Claude plan limits.</div>
+          <div class="usage-note">{usageNote}</div>
         {/if}
       </div>
     </Tooltip.Content>
@@ -63,11 +75,11 @@
 {/if}
 
 <style>
+  /* Pill chrome comes from badgeVariants (see usageChipClass); this block keeps
+     the chip passive (no hover tint, default cursor) and colors it by severity. */
   .usage-chip {
-    flex-shrink: 0;
-    font-size: 11px;
     color: var(--app-dim);
-    white-space: nowrap;
+    background: transparent;
     cursor: default;
     user-select: none;
   }
@@ -75,13 +87,13 @@
     color: var(--base-warning);
   }
   .usage-chip[data-severity="danger"] {
-    color: var(--destructive);
+    color: var(--app-danger);
   }
   .usage-detail {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     line-height: 1.4;
   }
   .usage-note {

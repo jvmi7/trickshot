@@ -5,11 +5,12 @@
   // set_permission_mode. `bypassPermissions` (the default) runs tools silently;
   // the others route tool use through the Allow/Deny modal.
   import * as Select from "$lib/components/ui/select";
+  import { ghostSelectTrigger } from "$lib/utils";
   import * as api from "../api";
   import {
     activePermissionMode,
+    activeSessionAlive,
     selectedWorktree,
-    sessionStatus,
     setWorktreePermissionMode,
     PERMISSION_MODES,
   } from "../stores";
@@ -22,9 +23,7 @@
     plan: "Plan",
   };
 
-  const status = $derived($selectedWorktree ? $sessionStatus[$selectedWorktree] : undefined);
-  const alive = $derived(status === "ready" || status === "busy");
-  const disabled = $derived(!$selectedWorktree || !alive);
+  const disabled = $derived(!$selectedWorktree || !$activeSessionAlive);
   const label = $derived(MODE_LABELS[$activePermissionMode]);
 
   function choose(value: string | undefined) {
@@ -37,11 +36,7 @@
 </script>
 
 <Select.Root type="single" value={$activePermissionMode} onValueChange={choose} {disabled}>
-  <Select.Trigger
-    size="sm"
-    class="text-muted-foreground h-9 gap-1 border-0 bg-transparent shadow-none focus-visible:ring-0 data-[size=sm]:h-9 dark:bg-transparent dark:hover:bg-input/40"
-    aria-label="Permission mode for this chat"
-  >
+  <Select.Trigger size="sm" class={ghostSelectTrigger} aria-label="Permission mode for this chat">
     {label}
   </Select.Trigger>
   <Select.Content>

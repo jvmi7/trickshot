@@ -11,6 +11,7 @@
     selectWorktree,
     setStatus,
     sidebarOpen,
+    toggleSidebar,
     sidebarWidth,
     setSidebarWidth,
     centerView,
@@ -20,6 +21,8 @@
     refreshAuth,
     ensureSession,
     mainView,
+    setMainView,
+    toggleMainView,
     gitRefreshNonce,
     setGitStat,
     activeGitStat,
@@ -47,8 +50,6 @@
   import PanelLeft from "@lucide/svelte/icons/panel-left";
   import SettingsIcon from "@lucide/svelte/icons/settings";
 
-  const toggleSidebar = () => sidebarOpen.update((v) => !v);
-
   // Re-probe the login when the window regains focus, but only while the
   // sign-in notice is showing — this is the "cmd-tab to a terminal, run
   // `claude`, cmd-tab back" round trip clearing itself. Never on a normal
@@ -73,7 +74,7 @@
     } else if (e.shiftKey && (k === "d" || k === "p")) {
       e.preventDefault();
       setCenterView("chat");
-      mainView.set($mainView === "changes" ? "chat" : "changes");
+      toggleMainView("changes");
     }
   }
 
@@ -115,9 +116,9 @@
   // hidden) Changes tab — fall back to chat. Same for the Run tab when the
   // worktree has no script run.
   $effect(() => {
-    if ($mainView === "changes" && ($activeGitStat?.changed ?? 0) === 0) mainView.set("chat");
-    if ($mainView === "run" && !$activeScriptRun) mainView.set("chat");
-    if ($mainView === "term" && !$selectedWorktree) mainView.set("chat");
+    if ($mainView === "changes" && ($activeGitStat?.changed ?? 0) === 0) setMainView("chat");
+    if ($mainView === "run" && !$activeScriptRun) setMainView("chat");
+    if ($mainView === "term" && !$selectedWorktree) setMainView("chat");
   });
 
   onMount(() => {
@@ -126,7 +127,7 @@
 
     // Populate the subscription-usage chip on launch (throttled thereafter).
     refreshUsage();
-    // Probe the Claude Code login for the sign-in notice (local read, silent).
+    // Probe the provider login for the sign-in notice (local read, silent).
     void refreshAuth();
 
     // The dispatch logic lives in lib/agentEvents.ts (plain, testable TS); App

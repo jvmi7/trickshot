@@ -4,51 +4,34 @@
 // `agent-event`/`script-event`). One PTY per worktree, spawned lazily when the
 // Terminal tab opens (`term_open` is idempotent) and killed on close/app quit.
 
-use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
-use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-/// One live PTY session. `gen` disambiguates a respawned session at the same
-/// key so a stale reader thread can't clean up its successor (the same
-/// identity-check pattern as agent.rs's pid check).
-struct TermSession {
+use crate::worktree_map::{lock_ignore_poison, next_generation, WorktreeEvent, WorktreeMap};
+
+/// One live PTY session. `generation` disambiguates a respawned session at the
+/// same key so a stale reader thread can't clean up its successor (the same
+/// identity check as agent.rs/scripts.rs). The writer sits behind its own
+/// Arc'd lock so keystrokes are written WITHOUT holding the Terminals map lock
+/// — one flow-controlled PTY must not stall every worktree's terminal.
+pub(crate) struct TermSession {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn Child + Send + Sync>,
     generation: u64,
 }
 
-/// One PTY per worktree, keyed by worktree path (poison-safe lock, mirroring
-/// `Sessions`/`ScriptProcs`).
-#[derive(Default)]
-pub struct Terminals(Mutex<HashMap<String, TermSession>>);
+/// One PTY per worktree (poison-safe lock via WorktreeMap).
+pub type Terminals = WorktreeMap<TermSession>;
 
-impl Terminals {
-    // Not pub: TermSession is module-private; outside callers use kill_all().
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, TermSession>> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner())
+/// Kill every PTY (the lib.rs exit handler).
+pub(crate) fn kill_all(state: &Terminals) {
+    for (_, mut s) in state.lock().drain() {
+        let _ = s.child.kill();
     }
-
-    /// Kill every PTY (the lib.rs exit handler).
-    pub(crate) fn kill_all(&self) {
-        for (_, mut s) in self.lock().drain() {
-            let _ = s.child.kill();
-        }
-    }
-}
-
-/// Event relayed from a worktree's PTY on the `term-event` channel (mirrored
-/// by the TS `TermEnvelope`; the conformance test pins the seam).
-#[derive(Clone, Serialize)]
-struct TermEvent {
-    worktree: String,
-    /// "data" | "exit"
-    kind: String,
-    data: Option<String>,
 }
 
 fn size(rows: u16, cols: u16) -> PtySize {
@@ -90,122 +73,132 @@ fn drain_utf8(carry: &mut Vec<u8>) -> Option<String> {
 
 /// Open (or no-op if already open) a PTY for `worktree`, running the user's
 /// login shell with cwd = the worktree. Output streams as `term-event`s.
+/// Async + spawn_blocking: spawning the shell is a subprocess launch and must
+/// run off the main thread.
 #[tauri::command]
-pub fn term_open(
+pub async fn term_open(
     app: AppHandle,
     worktree: String,
     rows: u16,
     cols: u16,
-    state: State<'_, Terminals>,
 ) -> Result<(), String> {
-    // Hold the lock across the spawn+insert (same double-spawn guard as
-    // start_session).
-    let mut map = state.lock();
-    if map.contains_key(&worktree) {
-        return Ok(());
-    }
-
-    let pair = native_pty_system()
-        .openpty(size(rows.max(2), cols.max(2)))
-        .map_err(|e| e.to_string())?;
-
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
-        if cfg!(windows) {
-            "powershell.exe"
-        } else {
-            "/bin/zsh"
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<Terminals>();
+        // Hold the lock across the spawn+insert (same double-spawn guard as
+        // start_session).
+        let mut map = state.lock();
+        if map.contains_key(&worktree) {
+            return Ok(());
         }
-        .to_string()
-    });
-    let mut cmd = CommandBuilder::new(&shell);
-    if !cfg!(windows) {
-        cmd.arg("-l"); // login shell, so the user's profile/PATH load
-    }
-    cmd.cwd(&worktree);
-    cmd.env("TERM", "xterm-256color");
 
-    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-    drop(pair.slave); // the child owns the slave side now
-    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+        let pair = native_pty_system()
+            .openpty(size(rows.max(2), cols.max(2)))
+            .map_err(|e| e.to_string())?;
 
-    // A per-spawn generation stamp: strictly increasing across ALL sessions so
-    // a respawn at the same key never reuses a stamp.
-    static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-    map.insert(
-        worktree.clone(),
-        TermSession {
-            master: pair.master,
-            writer,
-            child,
-            generation,
-        },
-    );
-    drop(map);
-
-    // Reader thread: relay chunks with a UTF-8 carry. A multi-byte character
-    // split across two reads must NOT be decoded lossily per chunk — TUIs
-    // paint long runs of 3-byte box-drawing chars (─), so chunk boundaries
-    // routinely land mid-character and per-chunk decoding renders �� garbage.
-    // Keep the incomplete trailing sequence and prepend it to the next read.
-    // On EOF the shell exited — clean up (only if we still own the entry) and
-    // emit the final `exit`.
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 8192];
-        let mut carry: Vec<u8> = Vec::new();
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    carry.extend_from_slice(&buf[..n]);
-                    let Some(text) = drain_utf8(&mut carry) else {
-                        continue; // only an incomplete tail so far — wait for more bytes
-                    };
-                    let _ = app.emit(
-                        "term-event",
-                        TermEvent {
-                            worktree: worktree.clone(),
-                            kind: "data".into(),
-                            data: Some(text),
-                        },
-                    );
-                }
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+            if cfg!(windows) {
+                "powershell.exe"
+            } else {
+                "/bin/zsh"
             }
+            .to_string()
+        });
+        let mut cmd = CommandBuilder::new(&shell);
+        if !cfg!(windows) {
+            cmd.arg("-l"); // login shell, so the user's profile/PATH load
         }
-        if let Some(state) = app.try_state::<Terminals>() {
-            let mut map = state.lock();
-            if map.get(&worktree).map(|s| s.generation) == Some(generation) {
-                map.remove(&worktree);
-            }
-        }
-        let _ = app.emit(
-            "term-event",
-            TermEvent {
-                worktree,
-                kind: "exit".into(),
-                data: None,
+        cmd.cwd(&worktree);
+        cmd.env("TERM", "xterm-256color");
+
+        let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+        drop(pair.slave); // the child owns the slave side now
+        let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+        let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+
+        // Stamp this spawn so the reader thread can prove it still owns the map
+        // entry before removing it on EOF (see the identity-checked cleanup below).
+        let generation = next_generation();
+
+        map.insert(
+            worktree.clone(),
+            TermSession {
+                master: pair.master,
+                writer: Arc::new(Mutex::new(writer)),
+                child,
+                generation,
             },
         );
-    });
+        drop(map);
 
-    Ok(())
+        // Reader thread: relay chunks with a UTF-8 carry. A multi-byte character
+        // split across two reads must NOT be decoded lossily per chunk — TUIs
+        // paint long runs of 3-byte box-drawing chars (─), so chunk boundaries
+        // routinely land mid-character and per-chunk decoding renders �� garbage.
+        // Keep the incomplete trailing sequence and prepend it to the next read.
+        // On EOF the shell exited — clean up (only if we still own the entry) and
+        // emit the final `exit`.
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 8192];
+            let mut carry: Vec<u8> = Vec::new();
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        carry.extend_from_slice(&buf[..n]);
+                        let Some(text) = drain_utf8(&mut carry) else {
+                            continue; // only an incomplete tail so far — wait for more bytes
+                        };
+                        let _ = app.emit(
+                            "term-event",
+                            WorktreeEvent {
+                                worktree: worktree.clone(),
+                                kind: "data".into(),
+                                data: Some(text),
+                            },
+                        );
+                    }
+                }
+            }
+            if let Some(state) = app.try_state::<Terminals>() {
+                let mut map = state.lock();
+                if map.get(&worktree).map(|s| s.generation) == Some(generation) {
+                    map.remove(&worktree);
+                }
+            }
+            let _ = app.emit(
+                "term-event",
+                WorktreeEvent {
+                    worktree,
+                    kind: "exit".into(),
+                    data: None,
+                },
+            );
+        });
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
-/// Write user keystrokes to a worktree's PTY.
+/// Write user keystrokes to a worktree's PTY. Deliberately sync (a runtime hop
+/// per keystroke would add latency); the write happens OUTSIDE the map lock so
+/// a flow-controlled PTY only stalls its own worktree's keystrokes.
 #[tauri::command]
 pub fn term_write(
     worktree: String,
     data: String,
     state: State<'_, Terminals>,
 ) -> Result<(), String> {
-    let mut map = state.lock();
-    let session = map.get_mut(&worktree).ok_or("terminal not open")?;
-    session
-        .writer
-        .write_all(data.as_bytes())
-        .map_err(|e| e.to_string())
+    let writer = {
+        let map = state.lock();
+        map.get(&worktree)
+            .ok_or("terminal not open")?
+            .writer
+            .clone()
+    };
+    let result = lock_ignore_poison(&writer).write_all(data.as_bytes());
+    result.map_err(|e| e.to_string())
 }
 
 /// Resize a worktree's PTY (the webview's fit addon drives this).
@@ -228,7 +221,8 @@ pub fn term_resize(
 /// the final `exit` event.
 #[tauri::command]
 pub fn term_close(worktree: String, state: State<'_, Terminals>) -> Result<(), String> {
-    if let Some(mut session) = state.lock().remove(&worktree) {
+    let session = state.lock().remove(&worktree);
+    if let Some(mut session) = session {
         let _ = session.child.kill();
     }
     Ok(())

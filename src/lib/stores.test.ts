@@ -154,6 +154,71 @@ describe("archivedWorkspaces mutators", () => {
   });
 });
 
+// ---- Moved subsystems, still imported from "./stores" ----
+// session.ts (queued follow-ups) and threads.ts are split out of stores.ts but
+// re-exported from it — these tests import through "./stores" ON PURPOSE, pinning
+// both the re-export compatibility and the circular-import wiring (a TDZ in the
+// stores ↔ session/threads cycle would fail right here at import time).
+import {
+  addComment,
+  appendCommentDelta,
+  clearQueued,
+  commentsByWorktree,
+  enqueueMessage,
+  openThreadFor,
+  queuedByWorktree,
+  removeQueued,
+} from "./stores";
+
+describe("queued follow-ups (session.ts via the stores re-export)", () => {
+  test("enqueueMessage trims, assigns stable ids; blank text is a no-op", () => {
+    const w = "stores-test-queue";
+    enqueueMessage(w, "  first  ");
+    enqueueMessage(w, "   "); // blank → no-op
+    enqueueMessage(w, "second");
+    const q = get(queuedByWorktree)[w] ?? [];
+    expect(q.map((m) => m.text)).toEqual(["first", "second"]);
+    expect(new Set(q.map((m) => m.id)).size).toBe(2); // ids are unique
+  });
+
+  test("removeQueued drops exactly the matching id", () => {
+    const w = "stores-test-queue";
+    const first = (get(queuedByWorktree)[w] ?? [])[0];
+    if (!first) throw new Error("seed missing");
+    removeQueued(w, first.id);
+    expect((get(queuedByWorktree)[w] ?? []).map((m) => m.text)).toEqual(["second"]);
+  });
+
+  test("clearQueued empties the queue; a no-op clear preserves map identity", () => {
+    const w = "stores-test-queue";
+    clearQueued(w);
+    expect(get(queuedByWorktree)[w]).toEqual([]);
+    const before = get(queuedByWorktree);
+    clearQueued(w); // already empty → same identity (the no-op guard)
+    expect(get(queuedByWorktree)).toBe(before);
+  });
+});
+
+describe("threads (threads.ts via the stores re-export)", () => {
+  test("openThreadFor creates one thread per message key and reuses it", () => {
+    const w = "stores-test-threads";
+    openThreadFor(w, 42);
+    openThreadFor(w, 42); // same anchor → reuse, no duplicate
+    const list = get(commentsByWorktree)[w] ?? [];
+    expect(list).toHaveLength(1);
+    expect(list[0]?.messageKey).toBe(42);
+  });
+
+  test("appendCommentDelta extends a streaming answer or starts one", () => {
+    const w = "stores-test-threads-delta";
+    addComment(w, { id: "t1", messageKey: 1, messages: [], pending: false, createdAt: 0 });
+    appendCommentDelta(w, "t1", "Hel");
+    appendCommentDelta(w, "t1", "lo"); // same turn → merged into one message
+    const t = (get(commentsByWorktree)[w] ?? [])[0];
+    expect(t?.messages).toEqual([{ role: "assistant", text: "Hello" }]);
+  });
+});
+
 describe("script-run store", () => {
   test("appendScriptLines keeps the bounded tail (2000) and preserves order", () => {
     const w = "stores-test-script-tail";

@@ -19,7 +19,7 @@
     removeComments,
     removeScriptRun,
     setCenterView,
-    mainView,
+    setMainView,
     unreadByWorktree,
     clearUnread,
     pendingPermission,
@@ -127,7 +127,7 @@
         const scripts = await api.getScripts(repoPath);
         if (scripts.setup) {
           await api.runScript(repoPath, wt.path, "setup");
-          mainView.set("run");
+          setMainView("run");
         }
       } catch {
         // no/invalid settings file — a new worktree simply starts cold
@@ -267,7 +267,7 @@
 </script>
 
 <div class="wt">
-  <div class="wt-section">
+  <div class="wt-section section-label">
     <span>Projects</span>
     <Tooltip.Root>
       <Tooltip.Trigger>
@@ -294,7 +294,7 @@
                 onclick={() => toggleRepo(repo.path)}
               >
                 <span class="repo-chevron" class:collapsed={collapsed[repo.path]}><ChevronDown class="size-3.5" /></span>
-                <span class="repo-name">{repo.name}</span>
+                <span class="repo-name section-label">{repo.name}</span>
               </button>
               <Tooltip.Root>
                 <Tooltip.Trigger>
@@ -429,7 +429,7 @@
   {/if}
 
   {#if $archivedWorkspaces.length > 0}
-    <div class="wt-section archived-head">
+    <div class="wt-section section-label archived-head">
       <span>Archived</span>
     </div>
     <div class="wt-rows">
@@ -476,7 +476,8 @@
     </div>
   {/if}
 
-  {#if error}<div class="error-box">{error}</div>{/if}
+  <!-- mt-[16px]: the old .error-box margin, kept at its one call site (spacing is per-site). -->
+  {#if error}<div class="error-text mt-[16px]">{error}</div>{/if}
 </div>
 
 <Dialog.Root open={!!confirmAction} onOpenChange={(open) => !open && (confirmAction = null)}>

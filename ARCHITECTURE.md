@@ -11,8 +11,10 @@ End-to-end map of the MVP. Three processes, one event stream.
 ┌───────▼───────────────────────────────────────┴──────────────────┐
 │  Rust core (src-tauri/src)                                        │
 │   agent.rs    start_session / send_to_session / stop_session      │
-│               (Sessions: HashMap of worktree -> sidecar)          │
-│   worktree.rs pick_directory / list / create / remove_worktree    │
+│               (Sessions: WorktreeMap of worktree -> sidecar)      │
+│   worktree.rs pick_directory / list / create / remove + git review │
+│   scripts.rs / terminal.rs / github.rs / usage.rs  (see tables)   │
+│   worktree_map.rs  shared WorktreeMap<T> + WorktreeEvent envelope │
 │   lib.rs      registers plugins (shell, dialog, notification)+cmds │
 └───────┬──────────────────────────────▲───────────────────────────┘
  stdin  │ (JSON lines)         stdout   │ (JSON lines, line-buffered)
@@ -39,7 +41,7 @@ The sidecar is split: **`core.ts` is a provider-neutral transport** (frames JSON
 
 ## The sidecar protocol (`shared/protocol.ts`, imported by `src/lib/types.ts` + `sidecar/core.ts`)
 
-Newline-delimited JSON, both directions, and **provider-neutral** (nothing here is Claude-specific). The wire unions (`Inbound`/`Outbound`/`AgentMessage`/`ModelInfo`) live in one shared module so the webview and sidecar can't drift; only the Rust `AgentEvent` envelope (`agent.rs`) and this table are mirrored by hand. See CLAUDE.md → SYNC RULE.
+Newline-delimited JSON, both directions, and **provider-neutral** (nothing here is Claude-specific). The wire unions (`Inbound`/`Outbound`/`AgentMessage`/`ModelInfo`) live in one shared module so the webview and sidecar can't drift; only the Rust `WorktreeEvent` envelope (`worktree_map.rs`, shared by the agent/script/term channels) and this table are mirrored by hand. See CLAUDE.md → SYNC RULE.
 
 | Direction | `kind` | Payload |
 |---|---|---|
@@ -60,7 +62,7 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 | app → sidecar | `comment_cancel` | `{ id }` — abort an in-flight `comment_turn` for `id` (on popup close / supersede); no-op if nothing is running |
 | sidecar → app | `ready` | — |
 | sidecar → app | `suggestions` | `{ suggestions: string[] }` — suggested next user replies (answer to `suggest`); empty = none. Shown as pick-to-send chips above the composer (`Suggestions.svelte`) with a "type your own" option |
-| sidecar → app | `comment_reply` | `{ id, delta?, done?, error? }` — streamed answer to a `comment_turn` (thread `id`): `delta` is incremental assistant text, `done` marks completion, `error` a failure. Routed to the comment thread's store (`CommentPopup.svelte`), NEVER the main transcript |
+| sidecar → app | `comment_reply` | `{ id, delta?, done?, error? }` — streamed answer to a `comment_turn` (thread `id`): `delta` is incremental assistant text, `done` marks completion, `error` a failure. Routed to the comment thread's store (`ThreadPanel.svelte` renders it), NEVER the main transcript |
 | sidecar → app | `commands` | `{ commands: {name,description}[] }` — available slash commands (on ready and after `get_commands`) |
 | sidecar → app | `mcp_status` | `{ servers: {name,status}[] }` — MCP server connection statuses (on ready and after `set_mcp_servers`) |
 | sidecar → app | `notification` | `{ message, notificationType? }` — agent wants attention (from the Notification hook); the app raises an OS notification for a backgrounded worktree |
@@ -72,7 +74,7 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 | sidecar → app | `connectors` | `{ servers: {name,status,scope?,error?,tools:{name,description?,readOnly?,destructive?}[]}[] }` — MCP connectors + their tools/status (on ready and after a toggle/reconnect) |
 | sidecar → app | `error` | `{ error }` |
 
-**`AgentMessage`** (the neutral transcript schema) `.type` is `system` | `assistant` (a prose chunk) | `tool_call` `{id,name,input}` | `tool_result` `{id,content,isError?}` | `turn_end` `{usage?}` (the turn's token/cost figures — `TurnUsage`, all fields optional; `costUsd` is a client-side estimate). `assistant`/`tool_call`/`tool_result` also carry an optional `parentId` — set when the message came from a subagent (the spawning `Agent` tool-call id, forwarded via `forwardSubagentText`), so `Message.svelte` nests/indents it. Each provider adapter maps its native output into these; `Message.svelte` renders only these (plus the UI-only `user_local`/`error` bubbles). The UI is never exposed to a provider's raw message shape. `turn_end` isn't rendered as a bubble — App.svelte consumes it to flip status to ready, refresh the subscription-usage windows, and (for the on-screen chat) request suggested next replies.
+**`AgentMessage`** (the neutral transcript schema) `.type` is `system` | `assistant` (a prose chunk) | `tool_call` `{id,name,input}` | `tool_result` `{id,content,isError?}` | `turn_end` `{usage?}` (the turn's token/cost figures — `TurnUsage`, all fields optional; `costUsd` is a client-side estimate). `assistant`/`tool_call`/`tool_result` also carry an optional `parentId` — set when the message came from a subagent (the spawning `Agent` tool-call id, forwarded via `forwardSubagentText`), so `Message.svelte` nests/indents it. Each provider adapter maps its native output into these; `Message.svelte` renders only these (plus the UI-only `user_local`/`error` bubbles). The UI is never exposed to a provider's raw message shape. `turn_end` isn't rendered as a bubble — the event router (`src/lib/agentEvents.ts`) consumes it to flip status to ready, refresh the subscription-usage windows, and (for the on-screen chat) request suggested next replies.
 
 **Model switching:** each session starts on the provider's default model and emits `models` on ready. `ModelSelector.svelte` offers the catalog and renders each model's provider-supplied `meta` pips; picking one sends `set_model`. The current model is **per-worktree**, persisted to `localStorage` (`trickshot.modelByWorktree`) and re-applied on a session's `models` event when it differs from the default.
 
@@ -82,7 +84,8 @@ Newline-delimited JSON, both directions, and **provider-neutral** (nothing here 
 
 The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 
-- **`sidecar/providers/types.ts`** — the `AgentProvider` interface (`start`, `pushTurn`, `setModel`, `interrupt`, `publishModels`, `publishConnectors`, `toggleConnector`, `reconnectConnector`, `replyPermission`) + `ProviderContext` (`cliPath`, `projectDir`, `resumeSessionId`, `permissionMode`, `emit`).
+- **`sidecar/providers/types.ts`** — the `AgentProvider` interface (turn/model/permission/connector/command/question/suggest/comment methods — see the file) + `ProviderContext` (`cliPath`, `projectDir`, `resumeSessionId`, `permissionMode`, `systemPromptAppend`, `mcpServers`, `agents`, `emit`).
+- **`src/lib/providers.ts`** — the webview's provider DISPLAY registry (per-provider copy: auth-failure matcher + sign-in banner text + usage footnote), keyed by the worktree's provider id (`providerByWorktree`, default `claude`). Behavior lives in the sidecar registry; presentation lives here — the only webview module allowed to know a provider by name.
 - **`sidecar/providers/claude.ts`** — the only Claude-aware module: wraps the Claude Agent SDK and maps `SDKMessage` → `AgentMessage`. The Claude tier→pips heuristic lives here (not the UI).
 - **`sidecar/providers/registry.ts`** — id → factory; `core.ts` selects via `config.provider` parsed from the `SESSION_CONFIG` blob (default `claude`).
 
@@ -107,8 +110,8 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 | `send_to_session` | `worktree, payload` (JSON string) | `void` | Writes a line to that worktree's sidecar stdin |
 | `stop_session` | `worktree` | `void` | Kills that worktree's sidecar |
 | `notify` | `title, body` | `void` | Shows a desktop notification (tauri-plugin-notification) |
-| `get_usage` | — | `UsageInfo` | Subscription usage windows (rolling ~5-hour + weekly). See *Subscription usage* below |
-| `check_auth` | — | `boolean` | Whether a Claude Code login exists (local credential read only, no network; same keychain/file source as `get_usage`). `false` = definitively no credentials; ambiguous environment failures reject so the UI never false-alarms. Drives the first-run "sign in" notice |
+| `get_usage` | `provider?` | `UsageInfo` | Subscription usage as provider-neutral labeled windows `{ windows: [{ label, utilization, resets_at }] }` (Claude maps its 5-hour + weekly windows). `provider` (default `"claude"`) is the dispatch point for future providers — unknown ids reject. See *Subscription usage* below |
+| `check_auth` | `provider?` | `boolean` | Whether a login exists for the provider's account (local credential read only, no network; same keychain/file source as `get_usage`, same `provider` gate). `false` = definitively no credentials; ambiguous environment failures reject so the UI never false-alarms. Drives the first-run "sign in" notice |
 | `get_scripts` | `repoPath` | `ScriptsConfig` | Parsed `scripts` section of the repo's `.trickshot/settings.json` (missing file → empty config). See *Project scripts* below |
 | `run_script` | `repoPath, worktree, name` | `void` | Launches a script BY NAME (`"setup"` / `"archive"` / a run-script name) inside the worktree. The command string is always read from the settings file in Rust — the webview can never execute an arbitrary string. Output streams as `script-event`s |
 | `run_script_blocking` | `repoPath, worktree, name` | `string` | Runs a script BY NAME to completion, returning stdout (Err = stderr). The awaited sibling of `run_script`, used for the archive hook (must finish before the worktree dir is deleted) |
@@ -119,9 +122,11 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 | `term_write` / `term_resize` | `worktree, data` / `worktree, rows, cols` | `void` | Keystrokes → PTY / fit-addon size → PTY |
 | `term_close` | `worktree` | `void` | Kills that worktree's PTY (all PTYs are killed on app quit) |
 
-**Subscription usage (`get_usage`, `src-tauri/src/usage.rs`).** A best-effort read of the account's usage windows for the header chip (`UsageIndicator.svelte`). It reuses the **existing Claude Code login** — NO API key: it reads the OAuth access token from the macOS keychain (`security find-generic-password -s "Claude Code-credentials"`) or `~/.claude/.credentials.json`, then GETs the undocumented `api.anthropic.com/api/oauth/usage` endpoint with that bearer token. The endpoint is aggressively rate-limited, so the webview throttles `refreshUsage()` (event-driven on session start / turn end, ≤ once per 90s) and the last value is persisted (`trickshot.usageLimits`) so the chip shows immediately on launch. Every failure path maps to `Err(String)`; a transient 401/429 leaves the last good value in place. Maps to the `UsageInfo` / `UsageWindow` types (`src/lib/types.ts`).
+**Subscription usage (`get_usage`, `src-tauri/src/usage.rs`).** A best-effort read of the account's usage windows for the header chip (`UsageIndicator.svelte`). The wire shape is provider-neutral (`UsageInfo { windows: [{ label, utilization, resets_at }] }`, `src/lib/types.ts`); the Claude probe (the only one today, gated by the commands' `provider` arg) reuses the **existing Claude Code login** — NO API key: it reads the OAuth access token from the macOS keychain (`security find-generic-password -s "Claude Code-credentials"`) or `~/.claude/.credentials.json`, then GETs the undocumented `api.anthropic.com/api/oauth/usage` endpoint with that bearer token and maps the response into "5-hour window" + "Weekly" windows. The reqwest client and `claude-code/<version>` UA are cached in `OnceLock` statics; the blocking credential read runs on `spawn_blocking`. The endpoint is aggressively rate-limited, so the webview throttles `refreshUsage()` (event-driven on session start / turn end, ≤ once per 90s) and the last value is persisted (`trickshot.usageLimits`) so the chip shows immediately on launch. Every failure path maps to `Err(String)`; a transient 401/429 leaves the last good value in place.
 
-Events: a single `agent-event` carrying `{ worktree, kind, data }`, where `kind` is `stdout` (a protocol line) | `stderr` | `error` | `terminated`. The frontend routes by `worktree`.
+Events: a single `agent-event` carrying `{ worktree, kind, data }` (the shared `WorktreeEvent` struct in `worktree_map.rs`, also serialized on `script-event`/`term-event`), where `kind` is `stdout` (a protocol line) | `stderr` | `error` | `terminated`. The frontend routes by `worktree`.
+
+**Command threading.** Network- or subprocess-bound commands are `async fn` + `tauri::async_runtime::spawn_blocking` (every git command in `worktree.rs`, the `gh` calls in `github.rs`, the usage/auth probes, `run_script`/`stop_script`, `term_open`) so a slow remote can never freeze the main thread. Fast writes (`term_write`/`term_resize`) stay sync on purpose — a runtime hop per keystroke adds latency.
 
 **Project scripts (`src-tauri/src/scripts.rs`).** Conductor-style per-repo scripts, declared in a repo-committed `.trickshot/settings.json` so a team shares one workflow:
 

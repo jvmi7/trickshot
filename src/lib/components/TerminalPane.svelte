@@ -102,7 +102,7 @@
 
 <div class="term-pane">
   {#if error}
-    <div class="term-error">{error}</div>
+    <div class="term-error error-text">{error}</div>
   {/if}
   <div class="term-host" bind:this={container}></div>
 </div>
@@ -133,10 +133,9 @@
        it size to its grid keeps xterm's own layers out of the leftover. */
     background: var(--base-bg);
   }
+  /* Text styling is the shared .error-text (app.css); this just pads it off the
+     pane edges. */
   .term-error {
-    color: var(--destructive);
-    font-size: 11px;
     padding: 6px 12px;
-    white-space: pre-wrap;
   }
 </style>

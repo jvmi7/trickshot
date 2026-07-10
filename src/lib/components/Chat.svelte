@@ -7,14 +7,12 @@
     minimalMode,
     activeComments,
     openThreadFor,
-    authState,
-    refreshAuth,
   } from "../stores";
-  import { Button } from "$lib/components/ui/button";
-  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
-  import RotateCw from "@lucide/svelte/icons/rotate-cw";
   import { splitSummary } from "../minimal";
   import { customScroll } from "../customScroll";
+  import { badgeVariants } from "$lib/components/ui/badge";
+  import { cn } from "$lib/utils";
+  import AuthNotice from "./AuthNotice.svelte";
   import Message from "./Message.svelte";
   import ToolGroup from "./ToolGroup.svelte";
   import Composer from "./Composer.svelte";
@@ -73,6 +71,10 @@
     hoverRight = clampN(vp.right - r.right, PAD, vp.width - 80);
   }
   const hoverHasReplies = $derived(hoverKey != null && (replyCounts.get(hoverKey) ?? 0) > 0);
+  // The floating button is the Badge recipe (outline pill); the scoped
+  // `.floating-reply` layers on the float-specific chrome (position/z/shadow +
+  // a solid surface since it overlays message text).
+  const floatingReplyClass = cn(badgeVariants({ variant: "outline" }), "floating-reply");
 
   // Attach the hover tracking via addEventListener (a `use:` action, like
   // customScroll) rather than Svelte `onpointermove` attributes — keeps the
@@ -115,16 +117,16 @@
 
 <div class="chat">
   <div class="messages-viewport" use:customScroll use:replyHover bind:this={viewportEl}>
-    <div class="messages" class:minimal={$minimalMode} data-scroll-inner>
+    <div class="messages chat-col" class:minimal={$minimalMode} data-scroll-inner>
       {#if $hiddenMessageCount > 0}
-        <div class="empty">{$hiddenMessageCount} earlier message{$hiddenMessageCount === 1 ? "" : "s"} hidden</div>
+        <div class="empty empty-state">{$hiddenMessageCount} earlier message{$hiddenMessageCount === 1 ? "" : "s"} hidden</div>
       {/if}
       {#if $minimalMode}
         {#each minimalItems as m (m.__key)}
           <Message {m} minimal />
         {/each}
         {#if minimalItems.length === 0}
-          <div class="empty">{$selectedWorktree ? "No quick replies yet." : "No workspace selected."}</div>
+          <div class="empty empty-state">{$selectedWorktree ? "No quick replies yet." : "No workspace selected."}</div>
         {/if}
       {:else}
         {#each $renderedGroups as g (g.key)}
@@ -139,7 +141,7 @@
           {/if}
         {/each}
         {#if $renderedGroups.length === 0}
-          <div class="empty">{$selectedWorktree ? "No messages yet." : "No workspace selected."}</div>
+          <div class="empty empty-state">{$selectedWorktree ? "No messages yet." : "No workspace selected."}</div>
         {/if}
       {/if}
       <!-- The live "thinking…" / end-of-turn "Finished in…" line is part of the
@@ -152,7 +154,7 @@
     {#if hoverKey != null && !$minimalMode}
       <button
         type="button"
-        class="floating-reply"
+        class={floatingReplyClass}
         style:top="{hoverTop}px"
         style:right="{hoverRight}px"
         title={hoverHasReplies ? "Open thread" : "Reply in thread"}
@@ -171,26 +173,11 @@
   </div>
 
   <Suggestions />
-  {#if $authState === "missing"}
-    <!-- Ambient sign-in notice (same copy + retry shape as Welcome's): shown when
-         the login is definitively absent so the auth wall never lands as a surprise. -->
-    <div class="auth-banner">
-      <div class="bg-destructive/10 text-destructive flex items-center gap-2 rounded-md px-3 py-2 text-xs">
-        <TriangleAlert class="size-3.5 shrink-0" />
-        <span>
-          trickshot uses your Claude Code login — run <code>claude</code> in a terminal to sign in
-        </span>
-        <Button
-          variant="ghost"
-          size="xs"
-          class="text-destructive hover:text-destructive ml-auto shrink-0 gap-1"
-          onclick={() => void refreshAuth()}
-        >
-          <RotateCw class="size-3" /> retry
-        </Button>
-      </div>
-    </div>
-  {/if}
+  <!-- Ambient sign-in notice (shared with Welcome via AuthNotice): shown when
+       the login is definitively absent so the auth wall never lands as a surprise. -->
+  <div class="auth-banner chat-col">
+    <AuthNotice />
+  </div>
   <QueuedMessages />
   <Composer />
   <PermissionModal />
@@ -198,44 +185,68 @@
 </div>
 
 <style>
-  /* Floating "Reply" affordance (see Chat.svelte script): absolutely positioned
-     within .messages-viewport, tracked to the hovered agent message and clamped
-     into the viewport. Solid background since it overlays message text. Above the
-     edge fades (z-index 3) so it stays clickable at the viewport edges. */
+  /* Floating "Reply" affordance (see floatingReplyClass in the script): the pill
+     chrome is badgeVariants; this block adds only the float-specific parts —
+     absolutely positioned within .messages-viewport, tracked to the hovered agent
+     message and clamped into the viewport. Solid background since it overlays
+     message text. Above the edge fades (--app-z-overlay) so it stays clickable
+     at the viewport edges. */
   .floating-reply {
     position: absolute;
-    z-index: 4;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 9px;
-    border-radius: 999px;
-    border: 1px solid var(--app-border, var(--border));
-    background: var(--app-panel, var(--muted));
-    color: var(--app-dim, var(--muted-foreground));
-    font-size: 11px;
-    font-weight: 500;
-    cursor: pointer;
-    box-shadow: 0 1px 4px rgb(0 0 0 / 0.18);
-    transition: color 0.12s ease, background 0.12s ease;
+    z-index: var(--app-z-float);
+    background: var(--app-panel);
+    color: var(--app-dim);
+    box-shadow: var(--app-shadow-float);
+    transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease;
   }
   .floating-reply:hover {
-    color: var(--app-text, var(--foreground));
-    background: var(--app-panel-2, var(--accent));
+    color: var(--app-text);
+    background: var(--app-panel-2);
   }
 
-  /* Sign-in banner: rides the same centered reading column as the composer. */
-  .auth-banner {
+  /* Top/bottom fade overlays — content fades in/out as it scrolls past the edges.
+     Painted in the canvas color so it reads as a fade; above content, below the
+     scroll indicator (--app-z-indicator). Both fades are positional: hidden by
+     default, shown (via .show, toggled in the script) only when there's content
+     scrolled off that edge. Constrained to the centered reading column (matches
+     .messages' max-width), not the full viewport, so the fade only covers where
+     the chat content is. */
+  .edge-fade {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
     width: 100%;
     max-width: var(--chat-col);
-    margin-inline: auto;
-    flex-shrink: 0;
-    padding: 0 32px 8px;
+    height: 52px;
+    pointer-events: none;
+    z-index: var(--app-z-overlay);
+    opacity: 0;
+    transition: opacity var(--app-duration-slow) ease;
   }
-  .auth-banner code {
-    background: var(--app-code-bg);
-    border-radius: 4px;
-    padding: 1px 5px;
-    font-size: 11px;
+  .edge-fade.show {
+    opacity: 1;
+  }
+  .edge-fade-top {
+    top: 0;
+    background: linear-gradient(to bottom, var(--base-bg), transparent);
+  }
+  .edge-fade-bottom {
+    bottom: 0;
+    background: linear-gradient(to top, var(--base-bg), transparent);
+  }
+
+  /* Sign-in banner: rides the shared .chat-col reading column (app.css).
+     Collapses to nothing when AuthNotice renders nothing (authState ok). */
+  .auth-banner {
+    flex-shrink: 0;
+  }
+  .auth-banner:has(> :global(*)) {
+    padding-bottom: 8px;
+  }
+
+  /* Chat's empty/notice line — spacing only; text styling is the shared
+     .empty-state (app.css). */
+  .empty {
+    margin-top: 40px;
   }
 </style>

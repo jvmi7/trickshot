@@ -7,8 +7,9 @@
     activeRepo,
     activeScriptRun,
     activeScripts,
+    closeCommandPalette,
     commandPaletteOpen,
-    mainView,
+    setMainView,
     repos,
     requestNewWorktree,
     selectedWorktree,
@@ -39,7 +40,7 @@
 
   /** Close the palette, then run the picked action. */
   function pick(action: () => void) {
-    commandPaletteOpen.set(false);
+    closeCommandPalette();
     action();
   }
 
@@ -48,7 +49,7 @@
     const w = $selectedWorktree;
     if (!repo || !w) return;
     // Errors surface in the Run tab's header control; the palette is fire-and-forget.
-    api.runScript(repo.path, w, name).then(() => mainView.set("run"), () => {});
+    api.runScript(repo.path, w, name).then(() => setMainView("run"), () => {});
   }
 </script>
 
@@ -81,13 +82,13 @@
         <Command.Shortcut>⌘⇧N</Command.Shortcut>
       </Command.Item>
       {#if $selectedWorktree}
-        <Command.Item value="chat view" onSelect={() => pick(() => { setCenterView("chat"); mainView.set("chat"); })}>
+        <Command.Item value="chat view" onSelect={() => pick(() => { setCenterView("chat"); setMainView("chat"); })}>
           <MessageSquare class="size-3.5" />
           Go to chat
         </Command.Item>
         <Command.Item
           value="changes diff pull request pr view"
-          onSelect={() => pick(() => { setCenterView("chat"); mainView.set("changes"); })}
+          onSelect={() => pick(() => { setCenterView("chat"); setMainView("changes"); })}
         >
           <GitPullRequest class="size-3.5" />
           Changes & pull request

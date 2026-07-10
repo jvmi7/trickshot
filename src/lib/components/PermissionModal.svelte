@@ -43,7 +43,7 @@
   .perm-input {
     background: var(--app-bg);
     border: 1px solid var(--app-border);
-    border-radius: 8px;
+    border-radius: var(--radius-xs);
     padding: 12px;
     max-height: 300px;
     overflow: auto;

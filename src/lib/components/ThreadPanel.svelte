@@ -21,7 +21,7 @@
   import * as Sheet from "$lib/components/ui/sheet";
   import Markdown from "./Markdown.svelte";
   import ThinkingIndicator from "./ThinkingIndicator.svelte";
-  import { Textarea } from "$lib/components/ui/textarea";
+  import { InputGroupTextarea } from "$lib/components/ui/input-group";
   import { Button } from "$lib/components/ui/button";
   import IconButton from "./IconButton.svelte";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
@@ -141,7 +141,7 @@
     <Sheet.Title class="sr-only">Thread</Sheet.Title>
     {#if shown}
       <div class="thread-head">
-        <div class="thread-label">Thread</div>
+        <div class="section-label">Thread</div>
         <IconButton onclick={close} title="Close thread" aria-label="Close thread">
           <X />
         </IconButton>
@@ -164,7 +164,7 @@
             {#if quoteOverflows}
               <button
                 type="button"
-                class="thread-quote-toggle"
+                class="thread-quote-toggle text-action"
                 onclick={() => (quoteExpanded = !quoteExpanded)}
               >
                 {quoteExpanded ? "Show less" : "Show full message"}
@@ -177,7 +177,7 @@
 
         <!-- Divider between the root and its replies: a rule, labelled with the reply
              count once there are any. -->
-        <div class="thread-divider">
+        <div class="thread-divider section-label">
           {#if replyCount > 0}<span>{replyLabel}</span>{/if}
         </div>
 
@@ -194,7 +194,7 @@
           </div>
         {/if}
         {#if shown.error}
-          <div class="thread-error">⚠ {shown.error}</div>
+          <div class="error-text">⚠ {shown.error}</div>
         {/if}
       </div>
 
@@ -206,13 +206,15 @@
              align-items:flex-start, so the single-line reply input + send button sit
              vertically centered in the bubble (the main composer keeps flex-start). -->
         <div class="composer-input items-center">
-          <Textarea
+          <!-- InputGroupTextarea owns the borderless-textarea recipe (no border/
+               ring/bg); only the thread-specific sizing classes remain here. -->
+          <InputGroupTextarea
             bind:value={text}
             onkeydown={onKeydown}
             disabled={shown.pending}
             rows={1}
             placeholder={shown.messages.length ? "Reply…" : "Reply in thread…"}
-            class="max-h-40 min-h-[2.25rem] flex-1 resize-none select-text rounded-none border-0 bg-transparent px-0 py-1.5 text-base shadow-none outline-none focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
+            class="max-h-40 min-h-[2.25rem] flex-1 select-text px-0 py-1.5 text-base"
           />
           <Button
             variant="ghost"
@@ -238,14 +240,7 @@
     justify-content: space-between;
     gap: 8px;
     padding: 8px 8px 8px 16px;
-    border-bottom: 1px solid var(--app-border, var(--border));
-  }
-  .thread-label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--app-dim, var(--muted-foreground));
+    border-bottom: 1px solid var(--app-border);
   }
   .thread-body {
     flex: 1;
@@ -261,11 +256,11 @@
   .thread-quote {
     position: relative;
     margin: 0;
-    border-left: 3px solid var(--app-border, var(--border));
+    border-left: 3px solid var(--app-border);
     padding-left: 12px;
-    font-size: 13px;
+    font-size: var(--text-md);
     line-height: 1.5;
-    color: var(--app-dim, var(--muted-foreground));
+    color: var(--app-dim);
   }
   /* Collapsed: clamp to a few lines; the fade hints there's more below the cut. */
   .thread-quote.clamped {
@@ -277,63 +272,49 @@
     position: absolute;
     inset: auto 0 0 0;
     height: 2.6em;
+    /* Deliberate shadcn-token read (normally scoped CSS uses --app-*): the fade
+       must match the surface it covers, and that surface is the shadcn Sheet
+       (bg-popover) this panel renders on — not an --app-* panel tone. */
     background: linear-gradient(to top, var(--popover), transparent);
     pointer-events: none;
   }
   .thread-root-empty {
-    color: var(--muted-foreground);
+    color: var(--app-dim);
   }
+  /* Chrome/typography come from the composed .text-action (app.css). */
   .thread-quote-toggle {
     margin-top: 4px;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--app-dim, var(--muted-foreground));
-    cursor: pointer;
-    transition: color 0.12s ease;
-  }
-  .thread-quote-toggle:hover {
-    color: var(--app-text, var(--foreground));
   }
   /* Slack-style divider under the root: a centered reply-count label with a rule
-     filling the rest of the row (or just a full-width rule when there are none). */
+     filling the rest of the row (or just a full-width rule when there are none).
+     Label typography comes from the composed .section-label. */
   .thread-divider {
     display: flex;
     align-items: center;
     gap: 10px;
     margin: 2px 0 4px;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    color: var(--app-dim, var(--muted-foreground));
   }
   .thread-divider::after {
     content: "";
     flex: 1;
     height: 1px;
-    background: var(--app-border, var(--border));
+    background: var(--app-border);
   }
   .thread-msg {
-    font-size: 13px;
+    font-size: var(--text-md);
     line-height: 1.5;
   }
   .thread-msg.user {
     align-self: flex-end;
     max-width: 90%;
     padding: 6px 10px;
-    border-radius: 10px;
-    background: var(--app-panel-2, var(--muted));
+    border-radius: var(--radius-sm);
+    background: var(--app-panel-2);
     white-space: pre-wrap;
     word-break: break-word;
   }
   .thread-msg.assistant {
     align-self: stretch;
-  }
-  .thread-error {
-    font-size: 12px;
-    color: var(--destructive);
   }
   /* Wraps `.composer-input` (which owns its own bubble layout) — just pads it off
      the panel edges, mirroring the main composer's wrapper. No top border: the

@@ -27,14 +27,17 @@ export const pickDirectory = () => invoke<string | null>("pick_directory");
 /** Show a desktop (OS) notification. */
 export const notify = (title: string, body: string) => invoke<void>("notify", { title, body });
 
-/** The Claude subscription usage windows (rolling 5-hour + weekly). Rejects when
- *  unavailable (not logged in, token expired, rate limited); callers throttle. */
-export const getUsage = () => invoke<UsageInfo>("get_usage");
+/** The subscription usage windows for a provider's account (for Claude: rolling
+ *  5-hour + weekly). Rejects when unavailable (not logged in, token expired,
+ *  rate limited) or when the provider has no usage probe; callers throttle. */
+export const getUsage = (provider?: string) =>
+  invoke<UsageInfo>("get_usage", { provider: provider ?? null });
 
-/** Whether a Claude Code login exists on this machine (local credential read,
- *  no network). false = definitively not signed in; rejects when the check is
- *  ambiguous (callers stay silent rather than false-alarm). */
-export const checkAuth = () => invoke<boolean>("check_auth");
+/** Whether a login exists on this machine for a provider's account (local
+ *  credential read, no network). false = definitively not signed in; rejects
+ *  when the check is ambiguous (callers stay silent rather than false-alarm). */
+export const checkAuth = (provider?: string) =>
+  invoke<boolean>("check_auth", { provider: provider ?? null });
 
 /** List all worktrees of a git repo (the first entry is the main worktree). */
 export const listWorktrees = (repoPath: string) =>

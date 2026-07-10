@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    activeSessionAlive,
     selectedWorktree,
     sessionStatus,
     setStatus,
@@ -10,11 +11,13 @@
     suppressNextDrain,
     requestOnce,
     minimalMode,
+    setMinimalMode,
   } from "../stores";
   import { onDestroy } from "svelte";
   import * as api from "../api";
+  import { createAnimatedPlaceholder } from "../composerPlaceholder.svelte";
   import { Button } from "$lib/components/ui/button";
-  import { Textarea } from "$lib/components/ui/textarea";
+  import { InputGroupTextarea } from "$lib/components/ui/input-group";
   import { Switch } from "$lib/components/ui/switch";
   import ModelSelector from "./ModelSelector.svelte";
   import PermissionModeSelector from "./PermissionModeSelector.svelte";
@@ -29,60 +32,14 @@
 
   // Animated placeholder: "Start building..." deletes itself char-by-char on focus
   // (so the field reads empty when you click in); restored on blur if still empty.
-  const PLACEHOLDER = "Start building...";
-  // How long the highlighted chunk stays selected before it's deleted — brief, so
-  // the highlight registers without a noticeable pause before the backspace.
-  const HIGHLIGHT_MS = 95;
-  let ph = $state(PLACEHOLDER); // visible (left) placeholder text, backspaced char-by-char
-  let phSel = $state(""); // the highlighted right-hand chunk (shown, then deleted in one go)
-  let phTimer: ReturnType<typeof setInterval> | undefined; // backspace / type-back loop
-  let phSelTimer: ReturnType<typeof setTimeout> | undefined; // delay before deleting phSel
+  // The animation state machine lives in composerPlaceholder.svelte.ts; this
+  // component only wires it to the real input's lifecycle.
+  const ph = createAnimatedPlaceholder({ placeholder: "Start building...", getEl: () => phEl });
+  onDestroy(ph.destroy);
 
-  function clearPhTimers() {
-    clearInterval(phTimer);
-    clearTimeout(phSelTimer);
-  }
-
-  // Char-by-char backspace of the (left) placeholder text.
-  function backspacePlaceholder() {
-    clearInterval(phTimer);
-    phTimer = setInterval(() => {
-      ph = ph.slice(0, -1);
-      if (!ph) clearInterval(phTimer);
-    }, 9);
-  }
-
-  // Map a click's x to the nearest character boundary in the rendered placeholder
-  // (measured per-glyph so it's correct for any font/variable widths).
-  function placeholderIndexAt(clientX: number): number {
-    const node = phEl?.firstChild;
-    if (!node || node.nodeType !== Node.TEXT_NODE) return PLACEHOLDER.length;
-    const len = (node as Text).length;
-    const range = document.createRange();
-    for (let i = 0; i < len; i++) {
-      range.setStart(node, i);
-      range.setEnd(node, i + 1);
-      const r = range.getBoundingClientRect();
-      if (clientX < r.left + r.width / 2) return i;
-    }
-    return len;
-  }
-
-  // Clicking into the (full) placeholder mimics select-to-end → delete → backspace:
-  // the text RIGHT of the click is highlighted (theme selection style), held briefly,
-  // deleted as one chunk, then the left part backspaces. Fires before focus, so
-  // onFocus defers to this sequence.
   function onPointerDown(e: PointerEvent) {
-    if (!alive || text !== "" || ph !== PLACEHOLDER || phSel) return;
-    const i = placeholderIndexAt(e.clientX);
-    if (i >= PLACEHOLDER.length) return; // clicked at/after the end → onFocus full-backspaces
-    clearPhTimers();
-    ph = PLACEHOLDER.slice(0, i);
-    phSel = PLACEHOLDER.slice(i);
-    phSelTimer = setTimeout(() => {
-      phSel = ""; // delete the highlighted chunk in one go
-      backspacePlaceholder(); // then backspace the rest from the cursor
-    }, HIGHLIGHT_MS);
+    // Active only while the overlay is actually showing the placeholder.
+    ph.pointerdown(e, alive && text === "");
   }
 
   function onFocus() {
@@ -90,27 +47,16 @@
     // Programmatic autofocus keeps the placeholder readable (native-like); it
     // hides on the first keystroke since the overlay only renders while empty.
     if (programmaticFocus) return;
-    // A click already kicked off the highlight-then-delete sequence — let it run.
-    if (phSel) return;
-    backspacePlaceholder();
+    ph.focus();
   }
   function onBlur() {
     focused = false;
-    clearPhTimers();
-    phSel = "";
-    if (text.trim()) return; // a real message is showing; leave the placeholder hidden
-    // type "Start building..." back in, char by char (continues from wherever the
-    // delete left off, since `ph` is always a prefix of PLACEHOLDER).
-    phTimer = setInterval(() => {
-      ph = PLACEHOLDER.slice(0, ph.length + 1);
-      if (ph === PLACEHOLDER) clearInterval(phTimer);
-    }, 9);
+    ph.blur(!text.trim());
   }
-  onDestroy(clearPhTimers);
 
   const wt = $derived($selectedWorktree);
   const status = $derived(wt ? $sessionStatus[wt] : undefined);
-  const alive = $derived(status === "ready" || status === "busy");
+  const alive = $derived($activeSessionAlive);
   const working = $derived(status === "busy");
   const canSend = $derived(alive && !working && text.trim().length > 0);
   // While the agent is busy, the same field queues a follow-up instead of sending.
@@ -236,7 +182,7 @@
   }
 </script>
 
-<div class="composer relative">
+<div class="composer chat-col relative">
   {#if showPalette}
     <!-- Slash-command suggestions, floating above the input. mousedown+prevent
          keeps the textarea focused so the click registers before blur hides it. -->
@@ -267,7 +213,9 @@
          (with its trailing caret) is the overlay below, kept pixel-aligned with
          the textarea's text by matching its padding/leading/size. -->
     <div class="relative flex-1">
-      <Textarea
+      <!-- InputGroupTextarea owns the borderless-textarea recipe (no border/ring/
+           bg); only the composer-specific sizing/caret classes remain here. -->
+      <InputGroupTextarea
         bind:value={text}
         bind:ref={textareaEl}
         onkeydown={onKeydown}
@@ -276,14 +224,14 @@
         onblur={onBlur}
         disabled={!alive}
         rows={1}
-        class="max-h-48 min-h-[2.25rem] w-full resize-none select-text rounded-none border-0 bg-transparent px-0 py-1.5 text-base md:text-base shadow-none outline-none transition-colors group-hover/input:text-foreground focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent {showPhCaret ? 'caret-transparent' : 'caret-foreground'}"
+        class="max-h-48 min-h-[2.25rem] w-full select-text px-0 py-1.5 text-base md:text-base group-hover/input:text-foreground {showPhCaret ? 'caret-transparent' : 'caret-foreground'}"
       />
       {#if text === ""}
         <div
           bind:this={phEl}
           class="text-muted-foreground group-hover/input:text-foreground pointer-events-none absolute inset-0 flex items-center text-base whitespace-pre transition-colors select-none"
           aria-hidden="true"
-        >{alive ? ph : idleLabel}{#if alive && phSel}<span class="ph-sel">{phSel}</span>{:else if showPhCaret}<span class="ph-caret"></span>{/if}</div>
+        >{alive ? ph.text : idleLabel}{#if alive && ph.sel}<span class="ph-sel">{ph.sel}</span>{:else if showPhCaret}<span class="ph-caret"></span>{/if}</div>
       {/if}
     </div>
     {#if working}
@@ -314,7 +262,7 @@
     >
       <Switch
         checked={$minimalMode}
-        onCheckedChange={(v) => minimalMode.set(v)}
+        onCheckedChange={(v) => setMinimalMode(v)}
         aria-label="Minimal mode"
       />
       Minimal
