@@ -6,13 +6,22 @@
   import { cn } from "$lib/utils";
 
   // Per-question selected option labels. Reset whenever a new question arrives
-  // (keyed on the request id) so a fresh prompt never inherits stale picks.
+  // so a fresh prompt never inherits stale picks. The identity is (worktree, id),
+  // NOT id alone: request ids are only unique WITHIN a sidecar (each worktree's
+  // provider mints q-0, q-1, ... from its own counter), and this modal is a single
+  // instance shared across worktrees, so keying on id alone skips the reset when
+  // switching between two worktrees whose pending questions collide on the same id
+  // (leaking A's picks into B's prompt). `$activeQuestion` always belongs to
+  // `$selectedWorktree` by construction.
   let selections = $state<string[][]>([]);
+  let lastWt = $state<string | null>(null);
   let lastId = $state<string | null>(null);
   $effect(() => {
     const q = $activeQuestion;
-    if (q && q.id !== lastId) {
+    const wt = $selectedWorktree;
+    if (q && (q.id !== lastId || wt !== lastWt)) {
       lastId = q.id;
+      lastWt = wt;
       selections = q.questions.map(() => []);
     }
   });
@@ -72,7 +81,7 @@
       <div class="flex flex-col gap-5">
         <!-- Keyed by index on purpose: a question_request is replaced wholesale per
              prompt (never mutated in place) and `selections` is index-aligned and
-             reset on id change, so index ↔ selection can't desync. -->
+             reset on identity change, so index ↔ selection can't desync. -->
         {#each $activeQuestion.questions as q, qi (qi)}
           <div class="flex flex-col gap-2">
             <div class="flex items-baseline gap-2">
