@@ -3,7 +3,7 @@
 // and would pollute the chat). Kept out of the adapter so the agent-loop file
 // stays focused; the provider only manages abort/supersede state and emits.
 
-import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { assistantText } from "./claudeMapping";
 
 // Suggested replies run on a cheap, fast model — a tiny text task, not agent work,
@@ -64,7 +64,7 @@ export async function generateSuggestions(opts: {
         abortController: opts.abort,
       },
     });
-    for await (const m of sq as AsyncIterable<SDKMessage>) {
+    for await (const m of sq) {
       if (m.type === "assistant") text += assistantText(m);
     }
   } catch {

@@ -16,6 +16,8 @@ export function makeQueue<T>() {
     async *[Symbol.asyncIterator]() {
       for (;;) {
         if (items.length) {
+          // `shift()` is `T | undefined`, but the `items.length` guard above proves
+          // an element is present — narrow to `T`.
           yield items.shift() as T;
           continue;
         }

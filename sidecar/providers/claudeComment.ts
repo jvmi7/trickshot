@@ -9,7 +9,7 @@
 // context (surrounding chat + selected text + prior Q&A + new question) is
 // assembled app-side and arrives as one `prompt` string — the sidecar is stateless.
 
-import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { assistantText } from "./claudeMapping";
 
 // Framing for the isolated comment agent. It answers a question ABOUT a piece of
@@ -54,7 +54,7 @@ export async function streamCommentReply(opts: {
       abortController: opts.abort,
     },
   });
-  for await (const m of cq as AsyncIterable<SDKMessage>) {
+  for await (const m of cq) {
     if (m.type === "assistant") {
       const text = assistantText(m);
       if (text) opts.onDelta(text);
