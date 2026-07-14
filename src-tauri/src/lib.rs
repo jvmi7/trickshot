@@ -24,6 +24,7 @@ pub fn run() {
             agent::start_session,
             agent::send_to_session,
             agent::stop_session,
+            agent::latest_session_id,
             agent::notify,
             worktree::pick_directory,
             worktree::list_worktrees,

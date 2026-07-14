@@ -3,7 +3,13 @@
   import { get } from "svelte/store";
   import { onAgentEvent, onScriptEvent, onTermEvent, listWorktrees, worktreeStatus } from "./lib/api";
   import { handleTermEvent } from "./lib/terminal";
+  import { providerDisplay } from "./lib/providers";
   import {
+    activeChatMode,
+    activeProvider,
+    CHAT_SURFACE,
+    chatModeByWorktree,
+    setChatMode,
     repos,
     worktreesByRepo,
     setWorktrees,
@@ -32,6 +38,7 @@
   } from "./lib/stores";
   import { handleAgentEvent, handleSessionStatus } from "./lib/agentEvents";
   import { handleScriptEvent } from "./lib/scriptEvents";
+  import ClaudeTerminalPane from "./lib/components/ClaudeTerminalPane.svelte";
   import CommandPalette from "./lib/components/CommandPalette.svelte";
   import Header from "./lib/components/Header.svelte";
   import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
@@ -121,6 +128,16 @@
     if ($mainView === "term" && !$selectedWorktree) setMainView("chat");
   });
 
+  // Don't strand a worktree in CLI chat mode when its provider has no CLI
+  // (provider switched / stale persistence) — same fallback family as the
+  // stranded-tab guards above.
+  $effect(() => {
+    const wt = $selectedWorktree;
+    if (wt && $activeChatMode === "cli" && !providerDisplay($activeProvider).cliChat) {
+      setChatMode(wt, "gui");
+    }
+  });
+
   onMount(() => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
@@ -175,6 +192,11 @@
         );
         if (!exists) {
           selectWorktree(null);
+        } else if (CHAT_SURFACE === "cli" || (get(chatModeByWorktree)[sel] ?? "gui") === "cli") {
+          // The CLI — not a sidecar — owns this session (CLI-first surface, or
+          // the legacy persisted toggle state); ClaudeTerminalPane's mount
+          // reopens the PTY (resuming the newest session id). Starting a
+          // sidecar here would double-own the session.
         } else {
           // Resume the persisted selection's session on launch (idempotent) so
           // the chat — and its model switcher — are usable without re-selecting.
@@ -268,7 +290,9 @@
       {/snippet}
       {#snippet actions()}
         <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
-             nothing to act on there. -->
+             nothing to act on there. (ChatModeToggle is unwired under the
+             CLI-first CHAT_SURFACE — the terminal IS the chat; the component
+             is preserved for the legacy GUI surface.) -->
         {#if $centerView !== "settings" && $repos.length > 0}
           <RunScripts />
           <ViewToggle />
@@ -289,6 +313,12 @@
         <RunOutput />
       {:else if $mainView === "term"}
         <TerminalPane />
+      {:else if $selectedWorktree && (CHAT_SURFACE === "cli" || $activeChatMode === "cli")}
+        <!-- The chat: the REAL Claude Code TUI (CLI-first — see CHAT_SURFACE in
+             stores.ts; also the legacy per-worktree toggle state). The GUI Chat
+             below is deprecated-but-preserved, reachable only with no worktree
+             selected (its empty state) or by flipping CHAT_SURFACE back. -->
+        <ClaudeTerminalPane />
       {:else}
         <Chat />
       {/if}

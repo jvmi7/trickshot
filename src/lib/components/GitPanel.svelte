@@ -3,7 +3,7 @@
   // unstage/commit/push. Refreshes on mount, on worktree change, and whenever
   // gitRefreshNonce bumps (App.svelte bumps it on turn_end). App-specific layout
   // (no shadcn counterpart) so the rows are hand-styled; controls use shadcn.
-  import { selectedWorktree, gitRefreshNonce, activeRepo, submitUserTurn, setMainView } from "../stores";
+  import { selectedWorktree, gitRefreshNonce, activeRepo, submitTurnToChat, setMainView } from "../stores";
   import * as api from "../api";
   import type { GitFileStatus, GitStatus } from "../types";
   import { Button } from "$lib/components/ui/button";
@@ -100,7 +100,9 @@
     const text = lineCommentText.trim();
     if (!w || !target || !text || !selectedFile) return;
     const hunk = target.hunk ? `\nHunk: \`${target.hunk}\`` : "";
-    submitUserTurn(
+    // Routes to the ACTIVE chat surface (CLI keystroke injection under
+    // CLI-first, the GUI transcript otherwise); fire-and-forget like the send.
+    void submitTurnToChat(
       w,
       `Review comment on \`${selectedFile}\`:${hunk}\nLine: \`${target.line}\`\n\n${text}\n\nPlease address this review comment in the code.`,
     );

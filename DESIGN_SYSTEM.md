@@ -83,12 +83,20 @@ rhythms, not interaction feedback.
 `--app-shadow-float: 0 1px 4px rgb(0 0 0 / 0.18)` — the one elevation shadow
 (floating reply pill). Black-based on purpose so it stays legible over light-valued
 theme palettes. If a theme ever needs a custom shadow, promote it to a
-`ThemePalette` key via `PALETTE_VARS` (themes.ts) rather than forking per-site.
+`ThemePalette` key via `PALETTE_VARS` (themes.ts) rather than forking per-site —
+the precedent: `termGlow` → `--base-term-glow`, the per-theme terminal glyph glow.
+
+### ANSI palette + mono stack — `--app-*` block
+
+| Token | Value | Use |
+|---|---|---|
+| `--app-ansi-0..15` | palette-derived, zero literals: 1-5 = `--base-danger/success/warning/info/special`; 0 = border, 7 = text-muted, 15 = text; 6/14 = cyan mixes (`color-mix` of info⊕success / info⊕text); 8 = border⊕text-muted; brights 9-13 = `color-mix(in srgb, hue 75%, var(--base-text))` | the 16 ANSI slots read by `.ansi-fg-N`/`.ansi-bg-N` (emitted by `ansi.ts` → `AnsiText`); conformance §8 pins the token↔rule↔emitter pairing |
+| `--app-font-mono` | `ui-monospace, Menlo, monospace` | mono stack for terminal-flavored surfaces (the terminal chat skin) |
 
 ### Layout + color
 
 `--chat-col: 740px` (the chat reading column, consumed via `.chat-col`); `--app-font`
-(the active font stack). Color: see THEMING.md — 15 `--base-*` palette tokens feed
+(the active font stack). Color: see THEMING.md — 16 `--base-*` palette tokens feed
 both the shadcn tokens (`.dark` block) and the `--app-*` aliases. **What bespoke CSS
 may read:** `--app-*` where an alias exists (`--app-danger`, not `--destructive`),
 `--base-*` for the state hues with no alias (`success`/`warning`/`special`), and
@@ -120,6 +128,8 @@ defined; a reintroduced fallback fails CI.
 | `.text-action` | ghost inline text button (dim → text on hover) | queue actions, thread quote toggle |
 | `.panel-section` / `.panel-spacer` / `.panel-form` | bordered panel sections + form column | git commit block, PR block |
 | `.icon-chrome-btn` | the 24px dim→hover chrome square | titlebar + sidebar icon buttons |
+| `.ansi-fg-{0..15}` / `.ansi-bg-{0..15}` / `.ansi-bold/dim/italic/underline` | ANSI SGR span styling over the `--app-ansi-*` slots (classes emitted by `ansi.ts`; conformance §8) | `AnsiText` (via Collapsible tool results, RunOutput) |
+| `.text-table` | scopes a table onto the shared `.markdown` data-table look (`:where(.markdown, .text-table)`) | `TextTable` (tool-result tabular view) |
 
 ## Component tiers & primitive adoptions
 
@@ -157,7 +167,7 @@ files there. Established adoptions to reuse, not re-invent:
 
 ## Recipes
 
-**Add a theme** — one entry in `themes.ts › THEMES` (all 15 palette keys required
+**Add a theme** — one entry in `themes.ts › THEMES` (all 16 palette keys required
 by the type). If it becomes the default (first entry), sync the `app.css :root`
 static fallback (CI-guarded). Full walkthrough in THEMING.md.
 

@@ -26,6 +26,11 @@ export interface ProviderDisplay {
   signInNotice: { before: string; command?: string; after?: string };
   /** Tooltip footnote for the usage chip (what the numbers estimate). */
   usageNote: string;
+  /** Present when the provider has an interactive CLI the chat pane can swap
+   *  to (the CLI chat mode — see session.ts › enterCliMode). Display-only:
+   *  the binary/args live behind the Rust `term_open` launch whitelist. A
+   *  provider without a CLI simply omits this and the toggle never renders. */
+  cliChat?: { toggleLabel: string; description: string };
 }
 
 export const DEFAULT_PROVIDER_ID = "claude";
@@ -43,6 +48,11 @@ const PROVIDERS: Record<string, ProviderDisplay> = {
       after: " in a terminal to sign in",
     },
     usageNote: "Estimate from your Claude plan limits.",
+    cliChat: {
+      toggleLabel: "Open in Claude Code CLI",
+      description:
+        "Continue this conversation in the real Claude Code terminal (and back) — same session, all CLI features.",
+    },
   },
 };
 

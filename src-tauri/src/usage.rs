@@ -83,7 +83,7 @@ fn neutral_usage(raw: ClaudeUsage) -> UsageInfo {
 /// provider lands. `None` (older callers) and "claude" both mean the existing
 /// Claude Code login probes below; anything else fails loudly rather than
 /// silently reporting Claude's numbers for another provider.
-fn ensure_known_provider(provider: Option<&str>) -> Result<(), String> {
+pub(crate) fn ensure_known_provider(provider: Option<&str>) -> Result<(), String> {
     match provider {
         None | Some("claude") => Ok(()),
         Some(p) => Err(format!("no usage/auth probe for provider \"{p}\"")),

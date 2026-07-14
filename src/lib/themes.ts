@@ -12,7 +12,7 @@
 // (`installThemes`, called from main.ts) both derive from this list, and
 // `<html data-theme="<id>">` selects the active one.
 
-/** Every color a theme must define (the semantic base palette). Each key maps to
+/** Every value a theme must define (the semantic base palette). Each key maps to
  *  a `--base-*` CSS var (see PALETTE_VARS). Keep this exhaustive: a theme defines
  *  ALL of them so it's fully self-contained (no implicit inheritance). */
 export interface ThemePalette {
@@ -46,6 +46,9 @@ export interface ThemePalette {
   overlay: string;
   /** text-selection highlight fill, rendered at 20% (selected text recolors to --base-accent) */
   selection: string;
+  /** terminal glyph glow — a full `text-shadow` value ("none" disables). Use
+   *  currentColor layers so each glyph glows in its own ANSI color. */
+  termGlow: string;
 }
 
 export interface Theme {
@@ -75,6 +78,7 @@ export const PALETTE_VARS: Record<keyof ThemePalette, string> = {
   special: "--base-special",
   overlay: "--base-overlay",
   selection: "--base-selection",
+  termGlow: "--base-term-glow",
 };
 
 /** All themes. The FIRST entry is the default (also mirrored as the static
@@ -101,6 +105,9 @@ export const THEMES: Theme[] = [
       special: "#b57fd9",
       overlay: "rgb(0 0 0 / 0.5)",
       selection: "#837c7c",
+      // Warm ember: a bright core plus a wide halo.
+      termGlow:
+        "0 0 4px color-mix(in srgb, currentColor 55%, transparent), 0 0 12px color-mix(in srgb, currentColor 50%, transparent)",
     },
   },
   {
@@ -122,6 +129,9 @@ export const THEMES: Theme[] = [
       special: "#9b8cf0",
       overlay: "rgb(0 0 0 / 0.5)",
       selection: "#837c7c",
+      // Cool CRT: a tight core plus a wide halo (crisper than terracotta's).
+      termGlow:
+        "0 0 3px color-mix(in srgb, currentColor 50%, transparent), 0 0 14px color-mix(in srgb, currentColor 45%, transparent)",
     },
   },
   {
@@ -143,6 +153,9 @@ export const THEMES: Theme[] = [
       special: "#b57fd9",
       overlay: "rgb(0 0 0 / 0.5)",
       selection: "#837c7c",
+      // Phosphor: the strongest glow of the set — green-terminal nostalgia.
+      termGlow:
+        "0 0 4px color-mix(in srgb, currentColor 60%, transparent), 0 0 16px color-mix(in srgb, currentColor 50%, transparent)",
     },
   },
 ];

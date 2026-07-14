@@ -12,6 +12,8 @@
     requestOnce,
     minimalMode,
     setMinimalMode,
+    chatSkin,
+    setChatSkin,
   } from "../stores";
   import { onDestroy } from "svelte";
   import * as api from "../api";
@@ -266,6 +268,18 @@
         aria-label="Minimal mode"
       />
       Minimal
+    </label>
+    <!-- Terminal skin: global chat restyle — mono column, prompt-line user turns. -->
+    <label
+      class="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground select-none"
+      title="Terminal skin: render the chat in a terminal-style monospace look"
+    >
+      <Switch
+        checked={$chatSkin === "terminal"}
+        onCheckedChange={(v) => setChatSkin(v ? "terminal" : "default")}
+        aria-label="Terminal skin"
+      />
+      Terminal
     </label>
   </div>
 </div>

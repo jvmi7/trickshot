@@ -585,9 +585,52 @@ export function setWorktreeProvider(worktree: string, id: string) {
   _provider.set(worktree, id);
   _model.remove(worktree);
   forgetWorktreeSession(worktree);
+  // A CLI chat mode is meaningless to a provider without one (see providers.ts
+  // › cliChat) — same invalidation family as the model/session id above.
+  _chatMode.remove(worktree);
 }
 /** The selected worktree's provider id (default provider when unset). */
 export const activeProvider = _provider.active<string>(DEFAULT_PROVIDER_ID);
+
+// ---- The chat surface (CLI-first deprecation switch) ----
+// "cli": the REAL Claude Code TUI is the primary chat pane — selecting a
+// worktree opens its claude PTY (no sidecar spawn; one session, one owner) and
+// the GUI chat (Chat/Composer + suggestions/queue/threads/minimal) is
+// deprecated-but-preserved, reachable only by flipping this back to "gui".
+// ONE flag so the deprecation is greppable and reversible in one line; every
+// fork it gates cites it. NOT a store — changing surfaces is a build decision,
+// not runtime state.
+export const CHAT_SURFACE: "cli" | "gui" = "cli";
+
+// ---- Per-worktree chat mode (persisted): our GUI chat vs the real CLI ----
+// DEPRECATED with CHAT_SURFACE === "cli" (the toggle UI is unwired); kept so
+// the legacy GUI⇄CLI handoff (session.ts enterCliMode/exitCliMode) still works
+// if the GUI surface returns.
+// "cli" swaps the chat pane for a PTY running the provider's interactive CLI
+// (Claude Code), resuming the same conversation — see session.ts ›
+// enterCliMode/exitCliMode for the handoff choreography (the sidecar and the
+// CLI must never hold the session concurrently). Gated per provider by
+// providers.ts › cliChat; App.svelte falls back to "gui" when the provider has
+// no CLI.
+export type ChatMode = "gui" | "cli";
+const CHAT_MODES: ChatMode[] = ["gui", "cli"];
+const _chatMode = createWorktreeMap<ChatMode>({
+  persistKey: "trickshot.chatModeByWorktree",
+  // Drop any stored value outside the known set (shape guard for the template).
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    if (!isPlainObject(v)) return {};
+    const out: Record<string, ChatMode> = {};
+    for (const [k, mode] of Object.entries(v)) {
+      if (CHAT_MODES.includes(mode as ChatMode)) out[k] = mode as ChatMode;
+    }
+    return out;
+  },
+});
+export const chatModeByWorktree = _chatMode.store;
+export const setChatMode = _chatMode.set;
+/** The selected worktree's chat mode (GUI when unset). */
+export const activeChatMode = _chatMode.active<ChatMode>("gui");
 
 // ---- Subscription usage windows (account-global, throttled fetch) ----
 // The rolling ~5-hour session window + the weekly window from `get_usage` (the
@@ -729,6 +772,23 @@ export function setMinimalMode(on: boolean) {
   minimalMode.set(on);
 }
 
+// ---- Chat skin (global, persisted) ----
+// Visual style of the GUI chat: the default bubble look, or a terminal-like
+// skin (mono prompt-line turns, flattened bubbles — see app.css
+// `[data-chat-skin="terminal"]`). A string (not a boolean) so a future third
+// skin is an entry, not a migration. Global on purpose — aesthetic preferences
+// (theme/font/minimal) are app-wide, never per-worktree.
+export type ChatSkin = "default" | "terminal";
+export const chatSkin = createPersisted<ChatSkin>("trickshot.chatSkin", "default", {
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    return v === "terminal" ? "terminal" : "default";
+  },
+});
+export function setChatSkin(skin: ChatSkin) {
+  chatSkin.set(skin);
+}
+
 // ---- Custom system-prompt append (global, persisted) ----
 // Appended to the `claude_code` preset system prompt at session start (applies to
 // NEW sessions; existing ones need a restart). Empty = no append.
@@ -761,7 +821,11 @@ export {
   clearQueued,
   consumeSuppressDrain,
   enqueueMessage,
+  ensureClaudeOpen,
   ensureSession,
+  enterCliMode,
+  exitCliMode,
+  handleCliExit,
   maybeDrainQueued,
   openRepository,
   queuedByWorktree,
@@ -769,6 +833,8 @@ export {
   removeQueued,
   requestOnce,
   sendQueuedNow,
+  sendToCli,
+  submitTurnToChat,
   submitUserTurn,
   suppressNextDrain,
 } from "./session";

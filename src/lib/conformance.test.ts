@@ -13,6 +13,8 @@
 //   7. design-system scales (DESIGN_SYSTEM.md)  ↔ no raw font-size/duration/z/radius/
 //      color literals in styles; ui/* dark: tints stay value-relative; the dead
 //      --app-* fallback idiom stays dead
+//   8. ANSI classes emitted by ansi.ts          ↔ app.css .ansi-* rules + the 16
+//      --app-ansi-N tokens they read
 //
 // These read source/docs as text and assert the seams line up, so a one-sided
 // edit fails `bun test` instead of breaking silently in production. Run by
@@ -292,5 +294,37 @@ describe("design-system scales are the only source of style literals", () => {
     // --app-* tokens are unconditionally defined, so a var(--app-x, var(--y))
     // fallback never fires — and historically drifted into contradictions.
     expect(offenders(src, /var\(--app-[a-z0-9-]+,\s*var\(--(?!app-|base-)/)).toEqual([]);
+  });
+});
+
+// ---- 8. ANSI classes (ansi.ts) ↔ app.css .ansi-* rules + --app-ansi-* tokens ----
+// ansi.ts emits `.ansi-*` class names as strings; app.css owns the matching
+// rules and the 16 `--app-ansi-N` tokens they read. No compiler sees a missing
+// rule — a stripped class renders as unstyled text, silently — so assert the
+// pairing here.
+describe("ANSI classes emitted by ansi.ts have app.css rules + tokens", () => {
+  const ANSI_TS = read("src/lib/ansi.ts");
+
+  test("ansi.ts emits the fg/bg class families (guards the lists below going stale)", () => {
+    expect(ANSI_TS.includes("ansi-fg-")).toBe(true);
+    expect(ANSI_TS.includes("ansi-bg-")).toBe(true);
+  });
+
+  const slots = Array.from({ length: 16 }, (_, i) => i);
+  test.each(slots)("--app-ansi-%i token + .ansi-fg/bg-%i rules exist in app.css", (i) => {
+    expect(APP_CSS.includes(`--app-ansi-${i}:`)).toBe(true);
+    expect(new RegExp(`\\.ansi-fg-${i}\\s*\\{`).test(APP_CSS)).toBe(true);
+    expect(new RegExp(`\\.ansi-bg-${i}\\s*\\{`).test(APP_CSS)).toBe(true);
+  });
+
+  // The attribute classes appear as double-quoted literals in the emitter.
+  const attrs = matchAll(ANSI_TS, /"(ansi-(?:bold|dim|italic|underline))"/g).sort();
+
+  test("ansi.ts emits all 4 attribute classes", () => {
+    expect(attrs).toEqual(["ansi-bold", "ansi-dim", "ansi-italic", "ansi-underline"]);
+  });
+
+  test.each(attrs)("`.%s` has an app.css rule", (cls) => {
+    expect(new RegExp(`\\.${cls}\\s*\\{`).test(APP_CSS)).toBe(true);
   });
 });

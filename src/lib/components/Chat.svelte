@@ -5,6 +5,7 @@
     selectedWorktree,
     scrollCursor,
     minimalMode,
+    chatSkin,
     activeComments,
     openThreadFor,
   } from "../stores";
@@ -117,7 +118,7 @@
 
 <div class="chat">
   <div class="messages-viewport" use:customScroll use:replyHover bind:this={viewportEl}>
-    <div class="messages chat-col" class:minimal={$minimalMode} data-scroll-inner>
+    <div class="messages chat-col" class:minimal={$minimalMode} data-chat-skin={$chatSkin} data-scroll-inner>
       {#if $hiddenMessageCount > 0}
         <div class="empty empty-state">{$hiddenMessageCount} earlier message{$hiddenMessageCount === 1 ? "" : "s"} hidden</div>
       {/if}

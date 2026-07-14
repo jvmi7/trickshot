@@ -5,12 +5,101 @@
 // Terminal tab opens (`term_open` is idempotent) and killed on close/app quit.
 
 use std::io::{Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::worktree_map::{lock_ignore_poison, next_generation, WorktreeEvent, WorktreeMap};
+
+/// PTY slot suffix for the dedicated Claude CLI terminal (the chat pane's CLI
+/// mode — a SECOND PTY beside the worktree's shell terminal). NUL can never
+/// occur in a filesystem path, so the composite key cannot collide with a real
+/// worktree. Everything downstream (term_write/resize/close, the WorktreeEvent
+/// envelope, the webview's xterm cache) treats the key as an opaque string, so
+/// only `term_open` knows the split. Hand-mirrored by `claudeTermKey` in
+/// src/lib/terminal.ts — keep the two in sync (see ARCHITECTURE.md).
+pub(crate) const CLAUDE_SLOT: &str = "\u{0}claude";
+
+fn claude_key(worktree: &str) -> String {
+    format!("{worktree}{CLAUDE_SLOT}")
+}
+
+/// The user's login shell (also the shell we ask for PATH/claude resolution).
+fn default_shell() -> String {
+    std::env::var("SHELL").unwrap_or_else(|_| {
+        if cfg!(windows) {
+            "powershell.exe"
+        } else {
+            "/bin/zsh"
+        }
+        .to_string()
+    })
+}
+
+/// Which program a PTY runs. Parsed from the command's `launch` arg — the
+/// webview picks from a FIXED whitelist and never passes a command string
+/// (the same security posture as run_script: names in, commands resolved here).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Launch {
+    Shell,
+    Claude,
+}
+
+fn parse_launch(launch: Option<&str>) -> Result<Launch, String> {
+    match launch {
+        None => Ok(Launch::Shell),
+        Some("claude") => Ok(Launch::Claude),
+        Some(other) => Err(format!("unknown launch target \"{other}\"")),
+    }
+}
+
+/// A `--resume` session id is a UUID-shaped token; reject anything else so the
+/// argv we build stays inert (defense in depth — it's argv-only, never a shell).
+fn is_valid_session_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && !id.starts_with('-') // a leading dash would parse as a CLI flag
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// Resolve the user's `claude` CLI (absolute path) + the login shell's $PATH,
+/// once per app run. Finder-launched apps inherit a minimal PATH, so we ask the
+/// LOGIN shell with fixed strings (no interpolation — nothing user-controlled
+/// enters these commands). The PATH is exported into the CLI's PTY so claude's
+/// own subprocesses (its Bash tool) see the user's real environment.
+fn claude_cli() -> Result<(String, String), String> {
+    #[cfg(not(unix))]
+    {
+        return Err("CLI chat mode is not supported on this platform yet".to_string());
+    }
+    #[cfg(unix)]
+    {
+        static RESOLVED: OnceLock<Result<(String, String), String>> = OnceLock::new();
+        RESOLVED
+            .get_or_init(|| {
+                let shell = default_shell();
+                let run = |script: &str| -> Result<String, String> {
+                    let out = std::process::Command::new(&shell)
+                        .args(["-lc", script])
+                        .output()
+                        .map_err(|e| format!("failed to run login shell: {e}"))?;
+                    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+                };
+                let bin = run("command -v claude")?;
+                if bin.is_empty() {
+                    return Err(
+                        "claude CLI not found on PATH — is Claude Code installed?".to_string()
+                    );
+                }
+                let path = run("printf %s \"$PATH\"").unwrap_or_default();
+                Ok((bin, path))
+            })
+            .clone()
+    }
+}
 
 /// One live PTY session. `generation` disambiguates a respawned session at the
 /// same key so a stale reader thread can't clean up its successor (the same
@@ -71,23 +160,45 @@ fn drain_utf8(carry: &mut Vec<u8>) -> Option<String> {
     }
 }
 
-/// Open (or no-op if already open) a PTY for `worktree`, running the user's
-/// login shell with cwd = the worktree. Output streams as `term-event`s.
-/// Async + spawn_blocking: spawning the shell is a subprocess launch and must
-/// run off the main thread.
+/// Open (or no-op if already open) a PTY for `worktree`. By default it runs the
+/// user's login shell with cwd = the worktree; `launch: "claude"` instead runs
+/// the user's Claude Code CLI (optionally `--resume <resumeSessionId>`) on a
+/// SEPARATE PTY keyed by the claude slot, so the shell terminal and the CLI
+/// chat mode coexist. Output streams as `term-event`s tagged with the PTY key.
+/// Async + spawn_blocking: spawning is a subprocess launch and must run off the
+/// main thread.
 #[tauri::command]
 pub async fn term_open(
     app: AppHandle,
     worktree: String,
     rows: u16,
     cols: u16,
+    launch: Option<String>,
+    resume_session_id: Option<String>,
 ) -> Result<(), String> {
+    let launch = parse_launch(launch.as_deref())?;
+    if let Some(id) = &resume_session_id {
+        if !is_valid_session_id(id) {
+            return Err("invalid session id".to_string());
+        }
+    }
     tauri::async_runtime::spawn_blocking(move || {
+        // Resolve the CLI BEFORE taking the map lock (first resolution shells a
+        // login shell — don't stall every worktree's terminal behind it).
+        let claude = match launch {
+            Launch::Claude => Some(claude_cli()?),
+            Launch::Shell => None,
+        };
+        let key = match launch {
+            Launch::Claude => claude_key(&worktree),
+            Launch::Shell => worktree.clone(),
+        };
+
         let state = app.state::<Terminals>();
         // Hold the lock across the spawn+insert (same double-spawn guard as
         // start_session).
         let mut map = state.lock();
-        if map.contains_key(&worktree) {
+        if map.contains_key(&key) {
             return Ok(());
         }
 
@@ -95,18 +206,26 @@ pub async fn term_open(
             .openpty(size(rows.max(2), cols.max(2)))
             .map_err(|e| e.to_string())?;
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| {
-            if cfg!(windows) {
-                "powershell.exe"
-            } else {
-                "/bin/zsh"
+        let mut cmd = match &claude {
+            Some((bin, login_path)) => {
+                let mut c = CommandBuilder::new(bin);
+                if let Some(id) = &resume_session_id {
+                    c.arg("--resume");
+                    c.arg(id); // argv-only, validated — never through a shell
+                }
+                if !login_path.is_empty() {
+                    c.env("PATH", login_path);
+                }
+                c
             }
-            .to_string()
-        });
-        let mut cmd = CommandBuilder::new(&shell);
-        if !cfg!(windows) {
-            cmd.arg("-l"); // login shell, so the user's profile/PATH load
-        }
+            None => {
+                let mut c = CommandBuilder::new(default_shell());
+                if !cfg!(windows) {
+                    c.arg("-l"); // login shell, so the user's profile/PATH load
+                }
+                c
+            }
+        };
         cmd.cwd(&worktree);
         cmd.env("TERM", "xterm-256color");
 
@@ -120,7 +239,7 @@ pub async fn term_open(
         let generation = next_generation();
 
         map.insert(
-            worktree.clone(),
+            key.clone(),
             TermSession {
                 master: pair.master,
                 writer: Arc::new(Mutex::new(writer)),
@@ -151,7 +270,7 @@ pub async fn term_open(
                         let _ = app.emit(
                             "term-event",
                             WorktreeEvent {
-                                worktree: worktree.clone(),
+                                worktree: key.clone(),
                                 kind: "data".into(),
                                 data: Some(text),
                             },
@@ -161,14 +280,14 @@ pub async fn term_open(
             }
             if let Some(state) = app.try_state::<Terminals>() {
                 let mut map = state.lock();
-                if map.get(&worktree).map(|s| s.generation) == Some(generation) {
-                    map.remove(&worktree);
+                if map.get(&key).map(|s| s.generation) == Some(generation) {
+                    map.remove(&key);
                 }
             }
             let _ = app.emit(
                 "term-event",
                 WorktreeEvent {
-                    worktree,
+                    worktree: key,
                     kind: "exit".into(),
                     data: None,
                 },
@@ -230,9 +349,37 @@ pub fn term_close(worktree: String, state: State<'_, Terminals>) -> Result<(), S
 
 #[cfg(test)]
 mod tests {
-    use super::drain_utf8;
+    use super::{claude_key, drain_utf8, is_valid_session_id, parse_launch, Launch, CLAUDE_SLOT};
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::io::{Read, Write};
+
+    #[test]
+    fn launch_whitelist_accepts_only_known_targets() {
+        assert_eq!(parse_launch(None), Ok(Launch::Shell));
+        assert_eq!(parse_launch(Some("claude")), Ok(Launch::Claude));
+        assert!(parse_launch(Some("bash")).is_err());
+        assert!(parse_launch(Some("claude; rm -rf /")).is_err());
+        assert!(parse_launch(Some("")).is_err());
+    }
+
+    #[test]
+    fn session_id_validation_is_uuid_shaped() {
+        assert!(is_valid_session_id("950d7012-475b-4df8-b483-86d4a55af760"));
+        assert!(is_valid_session_id("abc_123.DEF-456"));
+        assert!(!is_valid_session_id(""));
+        assert!(!is_valid_session_id("id with spaces"));
+        assert!(!is_valid_session_id("--resume")); // dashes are fine, but…
+        assert!(!is_valid_session_id("$(evil)"));
+        assert!(!is_valid_session_id(&"x".repeat(129)));
+    }
+
+    #[test]
+    fn claude_key_is_nul_suffixed_and_collision_free() {
+        let key = claude_key("/some/worktree");
+        assert_eq!(key, format!("/some/worktree{CLAUDE_SLOT}"));
+        assert!(key.contains('\u{0}')); // NUL can't occur in a real path
+        assert_ne!(key, "/some/worktree");
+    }
 
     #[test]
     fn utf8_carry_survives_split_multibyte() {

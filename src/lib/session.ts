@@ -17,6 +17,8 @@ import { MINIMAL_DIRECTIVE } from "./minimal";
 import { DEFAULT_PROVIDER_ID } from "./providers";
 import {
   addRepo,
+  CHAT_SURFACE,
+  chatModeByWorktree,
   clearActivity,
   clearSuggestions,
   clearUnread,
@@ -31,11 +33,17 @@ import {
   sessionByWorktree,
   sessionStatus,
   setCenterView,
+  setChatMode,
   setStatus,
+  setWorktreeSession,
   setWorktrees,
   startActivity,
   systemPromptAppend,
 } from "./stores";
+// CIRCULAR-IMPORT CONTRACT: terminal.ts imports handleCliExit from this module
+// while we import its key/instance helpers — safe because every cross-module
+// access is a call-time function invocation (all hoisted declarations).
+import { claudeTermKey, getTerminal } from "./terminal";
 import { appendMessage, bufferedMessages, summarizeConversation, transcripts } from "./transcript";
 import { basename } from "./utils";
 
@@ -179,6 +187,20 @@ export async function activateWorktree(path: string) {
   selectWorktree(path);
   setCenterView("chat");
   clearUnread(path);
+  // CLI-first: the claude PTY — not a sidecar — is this worktree's session.
+  // ClaudeTerminalPane's mount opens it; re-activating an exited CLI revives
+  // it here (idempotent when already alive). Never spawn a sidecar (two
+  // owners on one session store corrupt it).
+  if (CHAT_SURFACE === "cli") {
+    await ensureClaudeOpen(path).catch((e) => {
+      setStatus(path, "stopped");
+      throw e;
+    });
+    return;
+  }
+  // Legacy GUI⇄CLI toggle state: the CLI owns the session; the pane's own
+  // mount path reopens the PTY.
+  if ((get(chatModeByWorktree)[path] ?? "gui") === "cli") return;
   // Show the boot gap ONLY when a sidecar will actually spawn: an already-live
   // session (ready/busy) re-emits no `ready` event, so blindly setting
   // `starting` on a plain worktree switch would stick forever. The sidecar's
@@ -191,6 +213,130 @@ export async function activateWorktree(path: string) {
     setStatus(path, "stopped");
     throw e;
   }
+}
+
+// ---- CLI chat mode (the GUI⇄terminal handoff) ----
+// The chat pane can swap to the REAL Claude Code CLI TUI, resuming the same
+// conversation. Both surfaces share one session store, but a session must have
+// exactly ONE owner — so entering CLI mode kills the sidecar first, and coming
+// back adopts the CLI's forked session id before the sidecar resumes. The GUI
+// transcript does NOT gain the CLI-made turns (the SDK restores context, not
+// messages); the system markers bracket that gap deliberately. See
+// ARCHITECTURE.md › "CLI chat mode".
+
+/** The session id the next owner should resume: the newest id in the
+ *  worktree's session store (resume FORKS ids, so the persisted one goes stale
+ *  the moment the other surface runs), falling back to the persisted id when
+ *  the scan fails or finds nothing. */
+async function resumeIdFor(worktree: string): Promise<string | undefined> {
+  const scanned = await api.latestSessionId(worktree).catch(() => null);
+  return scanned ?? get(sessionByWorktree)[worktree];
+}
+
+/** (Re)open the claude-slot PTY for a worktree, resuming the live session id.
+ *  Idempotent (Rust no-ops while one is alive) — the pane's (re)mount path.
+ *  Marks the session `ready` on success: under CHAT_SURFACE === "cli" the PTY
+ *  IS the session, so the sidebar dot should read alive (the PTY has no
+ *  busy/idle signal, so `busy` is never set on this path). */
+export async function ensureClaudeOpen(worktree: string): Promise<void> {
+  const inst = getTerminal(claudeTermKey(worktree));
+  const { rows, cols } = inst.term;
+  await api.termOpen(worktree, rows, cols, "claude", await resumeIdFor(worktree));
+  inst.open = true;
+  setStatus(worktree, "ready");
+}
+
+/** Inject a prompt into the worktree's CLI chat as keystrokes: bracketed paste
+ *  (so multi-line text doesn't submit per line — the TUI treats it as one
+ *  pasted block) followed by Enter. The CLI-first counterpart of
+ *  `submitUserTurn`; used by the git panel's "hand this to the agent" actions. */
+export async function sendToCli(worktree: string, text: string): Promise<void> {
+  await ensureClaudeOpen(worktree);
+  await api.termWrite(claudeTermKey(worktree), `\x1b[200~${text}\x1b[201~\r`);
+}
+
+/** Submit a prompt to whatever the ACTIVE chat surface is (see CHAT_SURFACE):
+ *  keystroke-injection into the CLI, or the GUI transcript path. The one entry
+ *  point for features that hand text to the agent from outside the chat pane
+ *  (git-panel review comments, "fix failing checks"). */
+export async function submitTurnToChat(worktree: string, text: string): Promise<void> {
+  if (CHAT_SURFACE === "cli") await sendToCli(worktree, text);
+  else await submitUserTurn(worktree, text);
+}
+
+// exitCliMode's own termClose fires the same PTY `exit` event that a
+// self-inflicted CLI death does; this one-shot flag lets handleCliExit tell
+// the two apart so the return choreography runs exactly once.
+const _exitingCli = new Set<string>();
+
+/** DEPRECATED under CHAT_SURFACE === "cli" (the toggle UI is unwired; the CLI
+ *  is the default surface). Kept for the legacy GUI⇄CLI handoff.
+ *  Swap a worktree's chat pane to the real CLI: marker → kill the sidecar →
+ *  open the claude PTY resuming the newest session id. On failure (claude not
+ *  installed, spawn error) everything reverts — mode back to GUI, sidecar
+ *  restarted — and the error is rethrown for the toggle's local error state. */
+export async function enterCliMode(worktree: string): Promise<void> {
+  _exitingCli.delete(worktree); // hygiene: a stale flag would eat the next exit
+  setChatMode(worktree, "cli");
+  appendMessage(worktree, {
+    type: "system",
+    text: "— conversation continued in the terminal; turns made there won't appear here —",
+  });
+  try {
+    // The sidecar must be DEAD before the CLI resumes the session (two owners
+    // corrupt the store). A clean stop lands quietly: status → stopped, no
+    // error bubble (api.ts only surfaces a bubble when stderr has content).
+    await api.stopSession(worktree);
+    await ensureClaudeOpen(worktree);
+  } catch (e) {
+    // Revert: back to the GUI chat with the sidecar running again.
+    setChatMode(worktree, "gui");
+    setStatus(worktree, "starting");
+    ensureSession(worktree).catch(() => setStatus(worktree, "stopped"));
+    throw e;
+  }
+}
+
+/** Adopt the CLI's (possibly forked) session id, mark the return in the
+ *  transcript, and hand the session back to the sidecar. */
+async function adoptAndResume(worktree: string): Promise<void> {
+  const id = await api.latestSessionId(worktree).catch(() => null);
+  if (id) setWorktreeSession(worktree, id);
+  appendMessage(worktree, { type: "system", text: "— returned from the terminal —" });
+  setChatMode(worktree, "gui");
+  setStatus(worktree, "starting");
+  try {
+    await ensureSession(worktree);
+  } catch (e) {
+    setStatus(worktree, "stopped");
+    throw e;
+  }
+}
+
+/** DEPRECATED under CHAT_SURFACE === "cli" (see enterCliMode).
+ *  Toggle back from CLI mode: close the claude PTY, then adopt + resume. */
+export async function exitCliMode(worktree: string): Promise<void> {
+  _exitingCli.add(worktree);
+  await api.termClose(claudeTermKey(worktree)).catch(() => {});
+  await adoptAndResume(worktree);
+}
+
+/** The CLI exited (`/exit`, ctrl-d, crash, or our own close). Wired from
+ *  terminal.ts's `exit` routing for claude-slot keys; fire-and-forget (PTY
+ *  events have no rejection channel).
+ *  - CLI-first (CHAT_SURFACE === "cli"): the terminal IS the chat — just mark
+ *    the session stopped. No auto-reopen (a crash-looping CLI would respawn
+ *    forever); the next keystroke or worktree re-activation revives it.
+ *  - Legacy GUI surface: run the return choreography (adopt the forked id,
+ *    restart the sidecar) unless an exitCliMode call is already driving it. */
+export function handleCliExit(worktree: string): void {
+  if (_exitingCli.delete(worktree)) return; // toggle-driven close; already handled
+  if (CHAT_SURFACE === "cli") {
+    setStatus(worktree, "stopped");
+    return;
+  }
+  if (get(chatModeByWorktree)[worktree] !== "cli") return;
+  void adoptAndResume(worktree).catch(() => {});
 }
 
 /** Fire `request(worktree)` at most once per (worktree, key) pair within the

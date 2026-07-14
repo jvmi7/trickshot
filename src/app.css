@@ -339,7 +339,7 @@
 /* ============================================================
    THEME ENGINE — semantic base palette. Both the shadcn --* tokens
    and the bespoke --app-* tokens below derive from these via var(),
-   so a theme is just a swap of these ~15 vars.
+   so a theme is just a swap of these ~16 vars.
 
    The ACTIVE theme is injected at runtime from `src/lib/themes.ts`
    (the single source of truth) as a `:root[data-theme="…"]` block.
@@ -366,6 +366,7 @@
   --base-special: #b57fd9;        /* chart / extra */
   --base-overlay: rgb(0 0 0 / 0.5); /* modal scrim */
   --base-selection: #837c7c; /* text-selection highlight fill (rendered at 20%); selected text uses --base-accent */
+  --base-term-glow: 0 0 4px color-mix(in srgb, currentColor 55%, transparent), 0 0 12px color-mix(in srgb, currentColor 50%, transparent); /* terminal glyph glow (a full text-shadow) */
 }
 
 /* Named themes are NO LONGER hand-written here. They live in `src/lib/themes.ts`
@@ -570,6 +571,31 @@
      too; if a theme ever needs a custom shadow, promote this to a ThemePalette
      key via PALETTE_VARS (themes.ts) instead of forking it per-site. */
   --app-shadow-float: 0 1px 4px rgb(0 0 0 / 0.18);
+  /* ANSI terminal palette — the 16 base slots consumed by the `.ansi-*` classes
+     below (emitted by src/lib/ansi.ts → AnsiText; the class↔token↔emitter seam
+     is conformance-tested, §8). ALL derived from the base palette via var()/
+     color-mix — never a raw literal — so ANSI output retints with the theme.
+     Brights (9-13) pull their hue 75% toward the text color; cyan (6/14) is an
+     info⊕success mix since the palette has no cyan of its own. */
+  --app-ansi-0: var(--base-border); /* black */
+  --app-ansi-1: var(--base-danger); /* red */
+  --app-ansi-2: var(--base-success); /* green */
+  --app-ansi-3: var(--base-warning); /* yellow */
+  --app-ansi-4: var(--base-info); /* blue */
+  --app-ansi-5: var(--base-special); /* magenta */
+  --app-ansi-6: color-mix(in srgb, var(--base-info) 55%, var(--base-success)); /* cyan */
+  --app-ansi-7: var(--base-text-muted); /* white */
+  --app-ansi-8: color-mix(in srgb, var(--base-border) 60%, var(--base-text-muted)); /* bright black */
+  --app-ansi-9: color-mix(in srgb, var(--base-danger) 75%, var(--base-text)); /* bright red */
+  --app-ansi-10: color-mix(in srgb, var(--base-success) 75%, var(--base-text)); /* bright green */
+  --app-ansi-11: color-mix(in srgb, var(--base-warning) 75%, var(--base-text)); /* bright yellow */
+  --app-ansi-12: color-mix(in srgb, var(--base-info) 75%, var(--base-text)); /* bright blue */
+  --app-ansi-13: color-mix(in srgb, var(--base-special) 75%, var(--base-text)); /* bright magenta */
+  --app-ansi-14: color-mix(in srgb, var(--base-info) 40%, var(--base-text)); /* bright cyan */
+  --app-ansi-15: var(--base-text); /* bright white */
+  /* Mono stack for terminal-flavored surfaces (the terminal chat skin) — a font
+     STACK, not a color/size literal, so it's conformance-legal by kind. */
+  --app-font-mono: ui-monospace, Menlo, monospace;
   font-family: var(--app-font);
   font-size: 14px;
 }
@@ -720,6 +746,24 @@ html, body {
 .panel-spacer { flex: 1; }
 .panel-form { display: flex; flex-direction: column; gap: 8px; }
 
+/* Terminal pane host, shared by TerminalPane (shell) and ClaudeTerminalPane
+   (CLI chat mode). .content is a flex ROW — flex:1 claims the full pane. The
+   spacing lives on .term-pane, NOT .term-host: the fit addon measures the
+   host's computed height, which under border-box includes its own padding —
+   padding on the host over-counts the rows and the bottom rows draw off-pane.
+   The grid never exactly fills the host, so the leftover strip below the last
+   row must be OUR background; deliberately NO height:100% on .xterm. */
+.term-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 8px 0 8px 12px; background: var(--base-bg); }
+.term-host { flex: 1; min-height: 0; overflow: hidden; background: var(--base-bg); }
+/* Per-theme glyph glow (--base-term-glow, a full text-shadow; a theme sets `none`
+   to disable). Works because xterm runs its DOM renderer (real text in spans) —
+   currentColor resolves PER SPAN, so each ANSI color glows in its own hue. If a
+   WebGL/canvas addon is ever added, glyphs become canvas pixels and this rule
+   silently stops applying. */
+.term-host .xterm-rows { text-shadow: var(--base-term-glow); }
+/* Text styling is the shared .error-text; this just pads it off the pane edges. */
+.term-error { padding: 6px 12px; }
+
 /* ---- sidebar v2: repos + worktrees (Conductor-style) ---- */
 .wt { display: flex; flex-direction: column; }
 /* Section header above the project list: "Projects" label + inline add button.
@@ -863,6 +907,40 @@ html, body {
 .messages.minimal .msg.assistant .body:last-child {
   border-bottom-left-radius: 6px;
 }
+
+/* ---- Terminal skin (`.messages[data-chat-skin="terminal"]`, set from
+   stores.ts › chatSkin via Chat.svelte): mono chat column, user turns as
+   accent `❯ ` prompt lines instead of bubbles, tighter rhythm, denser tool
+   rows. Composes with minimal mode by design: the structural overrides (gap +
+   prompt-line bubble kill) are scoped :not(.minimal) — the attribute selector
+   otherwise out-specifies minimal's bubble rules — so minimal keeps its
+   iMessage look and only the mono type applies there. Assistant turns already
+   render as plain prose in the normal view (no bubble chrome to flatten).
+   All token-derived (conformance §7). ---- */
+.messages[data-chat-skin="terminal"] {
+  font-family: var(--app-font-mono);
+  font-size: var(--text-md);
+}
+.messages[data-chat-skin="terminal"]:not(.minimal) { gap: 6px; }
+/* User turn as a prompt line: kill the bubble surface (the shared gradient +
+   outline above), left-aligned in the one shared column, accent prompt glyph. */
+.messages[data-chat-skin="terminal"]:not(.minimal) .msg.user .body {
+  background: none;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  color: var(--app-text);
+}
+.messages[data-chat-skin="terminal"]:not(.minimal) .msg.user .body::before {
+  content: "❯ ";
+  color: var(--app-accent);
+  font-weight: 600;
+}
+/* Fenced code tightens to the near-square radius, terminal-style. */
+.messages[data-chat-skin="terminal"] .markdown pre { border-radius: var(--radius-2xs); }
+/* Denser tool rows. */
+.messages[data-chat-skin="terminal"] .tool-row { margin-top: 2px; }
+.messages[data-chat-skin="terminal"] .tool-row-head { padding: 1px 0; font-size: var(--text-sm); }
 /* Composer input: same bubble surface, laid out as [textarea | send button].
    The selector row below stays OUTSIDE this surface. */
 .composer-input {
@@ -921,8 +999,15 @@ html, body {
   padding: 10px 12px; margin: 12px 0; overflow-x: auto;
 }
 .markdown pre code { color: var(--app-text); background: none; border: none; padding: 0; font-size: 0.85em; }
-.markdown table { border-collapse: collapse; margin: 0 0 8px; display: block; overflow-x: auto; }
-.markdown th, .markdown td { border: 1px solid var(--app-border); padding: 4px 8px; text-align: left; }
+/* Data tables — the markdown table AND TextTable (tool-result tabular view)
+   share ONE look (the :where(.markdown, .diff) hljs precedent below): panel
+   header band, hairline row dividers (no per-cell side borders), zebra
+   striping, tabular numerals. display:block + overflow-x keeps a wide table
+   scrolling inside its own box. */
+:where(.markdown, .text-table) table { border-collapse: collapse; margin: 0 0 8px; display: block; overflow-x: auto; font-variant-numeric: tabular-nums; }
+:where(.markdown, .text-table) thead th { background: var(--app-panel); font-weight: 600; border-bottom: 1px solid var(--app-border); }
+:where(.markdown, .text-table) th, :where(.markdown, .text-table) td { padding: 4px 10px; text-align: left; border-bottom: 1px solid color-mix(in srgb, var(--app-border) 60%, transparent); }
+:where(.markdown, .text-table) tbody tr:nth-child(even) { background: color-mix(in srgb, var(--app-panel) 55%, transparent); }
 /* highlight.js scopes → the theme's existing chart hues (no imported hljs theme,
    so syntax color follows the active --base-* palette). Shared by markdown fenced
    code and the git diff (DiffView), which both emit `<span class="hljs-…">`. */
@@ -936,6 +1021,46 @@ html, body {
 :where(.markdown, .diff) .hljs-deletion { color: var(--app-danger); }
 :where(.markdown, .diff) .hljs-emphasis { font-style: italic; }
 :where(.markdown, .diff) .hljs-strong { font-weight: 600; }
+/* ---- ANSI text spans (AnsiText.svelte; classes emitted by src/lib/ansi.ts).
+   Shared by Collapsible (tool results) and RunOutput (script logs). Colors
+   route through the --app-ansi-* slots above so ANSI output follows the theme;
+   the emitter↔rule↔token pairing is conformance-tested (§8). ---- */
+.ansi-fg-0 { color: var(--app-ansi-0); }
+.ansi-fg-1 { color: var(--app-ansi-1); }
+.ansi-fg-2 { color: var(--app-ansi-2); }
+.ansi-fg-3 { color: var(--app-ansi-3); }
+.ansi-fg-4 { color: var(--app-ansi-4); }
+.ansi-fg-5 { color: var(--app-ansi-5); }
+.ansi-fg-6 { color: var(--app-ansi-6); }
+.ansi-fg-7 { color: var(--app-ansi-7); }
+.ansi-fg-8 { color: var(--app-ansi-8); }
+.ansi-fg-9 { color: var(--app-ansi-9); }
+.ansi-fg-10 { color: var(--app-ansi-10); }
+.ansi-fg-11 { color: var(--app-ansi-11); }
+.ansi-fg-12 { color: var(--app-ansi-12); }
+.ansi-fg-13 { color: var(--app-ansi-13); }
+.ansi-fg-14 { color: var(--app-ansi-14); }
+.ansi-fg-15 { color: var(--app-ansi-15); }
+.ansi-bg-0 { background: var(--app-ansi-0); }
+.ansi-bg-1 { background: var(--app-ansi-1); }
+.ansi-bg-2 { background: var(--app-ansi-2); }
+.ansi-bg-3 { background: var(--app-ansi-3); }
+.ansi-bg-4 { background: var(--app-ansi-4); }
+.ansi-bg-5 { background: var(--app-ansi-5); }
+.ansi-bg-6 { background: var(--app-ansi-6); }
+.ansi-bg-7 { background: var(--app-ansi-7); }
+.ansi-bg-8 { background: var(--app-ansi-8); }
+.ansi-bg-9 { background: var(--app-ansi-9); }
+.ansi-bg-10 { background: var(--app-ansi-10); }
+.ansi-bg-11 { background: var(--app-ansi-11); }
+.ansi-bg-12 { background: var(--app-ansi-12); }
+.ansi-bg-13 { background: var(--app-ansi-13); }
+.ansi-bg-14 { background: var(--app-ansi-14); }
+.ansi-bg-15 { background: var(--app-ansi-15); }
+.ansi-bold { font-weight: 700; }
+.ansi-dim { opacity: 0.65; }
+.ansi-italic { font-style: italic; }
+.ansi-underline { text-decoration: underline; }
 /* ---- compact tool rows (a tool_call + its folded-in result; see
    ToolActivity.svelte). Dim and one-line by default so assistant prose
    dominates; click the head to expand input + result. ---- */

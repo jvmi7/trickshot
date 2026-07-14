@@ -4,6 +4,7 @@
   // auto-follows unless the user scrolled up. Feature component (reads stores),
   // sibling of GitPanel in the mainView switch.
   import { activeScriptRun } from "../stores";
+  import AnsiText from "./AnsiText.svelte";
 
   const run = $derived($activeScriptRun);
 
@@ -37,7 +38,10 @@
       {/if}
     </div>
     <div class="run-body" bind:this={pane} onscroll={onScroll}>
-      <pre class="run-log">{run.output.join("\n")}</pre>
+      <!-- Each bounded-tail line renders through AnsiText (build logs are the
+           ANSI-heaviest surface); the explicit {"\n"} joiners preserve the exact
+           pre-wrap layout the old join("\n") produced. -->
+      <pre class="run-log">{#each run.output as line, i}{#if i > 0}{"\n"}{/if}<AnsiText text={line} />{/each}</pre>
     </div>
   {/if}
 </div>
