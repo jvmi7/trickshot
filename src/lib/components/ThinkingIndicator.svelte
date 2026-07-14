@@ -1,3 +1,6 @@
+<!-- DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+     (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+     "Deprecated GUI surface" before extending. -->
 <script lang="ts">
   // Prop-driven primitive (Tier A): the shimmer "thinking" label + live elapsed
   // timer, shared by the main-chat loading footer (LoadingState) and the inline

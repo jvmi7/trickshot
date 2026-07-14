@@ -23,6 +23,7 @@
     centerView,
     setCenterView,
     refreshUsage,
+    bumpGitRefresh,
     authState,
     refreshAuth,
     ensureSession,
@@ -40,6 +41,7 @@
   import { handleScriptEvent } from "./lib/scriptEvents";
   import ClaudeTerminalPane from "./lib/components/ClaudeTerminalPane.svelte";
   import CommandPalette from "./lib/components/CommandPalette.svelte";
+  import EmptyState from "./lib/components/EmptyState.svelte";
   import Header from "./lib/components/Header.svelte";
   import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
   import ViewToggle from "./lib/components/ViewToggle.svelte";
@@ -50,6 +52,7 @@
   import ThreadPanel from "./lib/components/ThreadPanel.svelte";
   import GitPanel from "./lib/components/GitPanel.svelte";
   import TerminalPane from "./lib/components/TerminalPane.svelte";
+  import UsageIndicator from "./lib/components/UsageIndicator.svelte";
   import Settings from "./lib/components/Settings.svelte";
   import Welcome from "./lib/components/Welcome.svelte";
   import { Button } from "./lib/components/ui/button";
@@ -63,6 +66,10 @@
   // focus (the macOS check shells out to `security`).
   function onWindowFocus() {
     if (get(authState) === "missing") void refreshAuth();
+    // No sidecar turn_end events under CLI-first, so usage + git-diffstat
+    // freshness ride window focus (throttled internally / cheap git status).
+    void refreshUsage();
+    if (get(selectedWorktree)) bumpGitRefresh();
   }
 
   // Global shortcuts (Conductor parity): ⌘K palette, ⌘⇧N new worktree,
@@ -147,14 +154,27 @@
     // Probe the provider login for the sign-in notice (local read, silent).
     void refreshAuth();
 
+    // CLI-first freshness cadence: with no turn_end events, poll the selected
+    // worktree's git diffstat (cheap status subprocess) so the Changes tab
+    // notices CLI-made edits, and keep the usage chip current (refreshUsage
+    // self-throttles to 90s). Window focus also triggers both (onWindowFocus).
+    const freshness = setInterval(() => {
+      if (get(selectedWorktree)) bumpGitRefresh();
+      void refreshUsage();
+    }, 30_000);
+
     // The dispatch logic lives in lib/agentEvents.ts (plain, testable TS); App
-    // just wires the stream to it.
-    onAgentEvent(handleAgentEvent, handleSessionStatus)
-      .then((u) => {
-        if (cancelled) u();
-        else unlisten = u;
-      })
-      .catch(() => {});
+    // just wires the stream to it. Under CLI-first no sidecar ever runs, so
+    // this stream is silent — skip the wiring entirely (the router is part of
+    // the deprecated GUI surface; see CHAT_SURFACE).
+    if (CHAT_SURFACE !== "cli") {
+      onAgentEvent(handleAgentEvent, handleSessionStatus)
+        .then((u) => {
+          if (cancelled) u();
+          else unlisten = u;
+        })
+        .catch(() => {});
+    }
 
     // Same wiring for the script-output stream (lib/scriptEvents.ts).
     let unlistenScripts: (() => void) | undefined;
@@ -216,6 +236,7 @@
 
     return () => {
       cancelled = true;
+      clearInterval(freshness);
       unlisten?.();
       unlistenScripts?.();
       unlistenTerm?.();
@@ -294,6 +315,9 @@
              CLI-first CHAT_SURFACE — the terminal IS the chat; the component
              is preserved for the legacy GUI surface.) -->
         {#if $centerView !== "settings" && $repos.length > 0}
+          <!-- Usage chip lives in the header under CLI-first (its old home,
+               the Composer footer, is part of the deprecated GUI chat). -->
+          <UsageIndicator />
           <RunScripts />
           <ViewToggle />
         {/if}
@@ -314,12 +338,17 @@
       {:else if $mainView === "term"}
         <TerminalPane />
       {:else if $selectedWorktree && (CHAT_SURFACE === "cli" || $activeChatMode === "cli")}
-        <!-- The chat: the REAL Claude Code TUI (CLI-first — see CHAT_SURFACE in
-             stores.ts; also the legacy per-worktree toggle state). The GUI Chat
-             below is deprecated-but-preserved, reachable only with no worktree
-             selected (its empty state) or by flipping CHAT_SURFACE back. -->
+        <!-- The chat: the REAL agent CLI TUI (CLI-first — see CHAT_SURFACE in
+             stores.ts; also the legacy per-worktree toggle state). -->
         <ClaudeTerminalPane />
+      {:else if CHAT_SURFACE === "cli"}
+        <!-- No worktree selected. A dedicated empty state (NOT the deprecated
+             Chat's empty shell) so the GUI-chat subtree stays fully out of the
+             live tree under CLI-first. -->
+        <EmptyState />
       {:else}
+        <!-- DEPRECATED GUI chat surface — reachable only with CHAT_SURFACE
+             flipped back to "gui" (see CLAUDE.md › Deprecated GUI surface). -->
         <Chat />
       {/if}
     </div>

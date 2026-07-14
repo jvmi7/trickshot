@@ -1,3 +1,9 @@
+// MOSTLY DEPRECATED (GUI chat surface) — under CHAT_SURFACE === "cli"
+// (stores.ts) nothing WRITES transcripts (appendMessage has no live caller), so
+// the batching/flush/save machinery is dormant. Still LIVE: the boot-time
+// load/migration of persisted transcripts and `resetTranscript` (worktree
+// removal/archive). See CLAUDE.md › "Deprecated GUI surface" before extending.
+//
 // The transcript engine — a self-contained subsystem split out of stores.ts so
 // its invariants live (and can be tested) in one place. It owns the per-worktree
 // message log: the batched/persisted `transcripts` writable, the append/reset

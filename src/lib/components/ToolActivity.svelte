@@ -1,3 +1,6 @@
+<!-- DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+     (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+     "Deprecated GUI surface" before extending. -->
 <script lang="ts">
   // Compact, merged rendering of ONE tool invocation. A tool_call and its
   // tool_result share an `id` (shared/protocol.ts); we look the result up by id

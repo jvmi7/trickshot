@@ -1,3 +1,6 @@
+// DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+// (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+// "Deprecated GUI surface" before extending.
 // Shared sidecar core — the provider-neutral transport. Each platform entrypoint
 // (agent.<platform>.ts) embeds the matching native Claude Code binary, extracts
 // it from Bun's $bunfs at startup, and calls run(cliPath).

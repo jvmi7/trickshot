@@ -139,16 +139,17 @@ export const prCreate = (
 // ---- Integrated terminal (one PTY per worktree) ---------------------------
 
 /** Open (idempotent) a PTY for the worktree. Default: the user's login shell.
- *  `launch: "claude"` runs the Claude Code CLI instead (optionally resuming
- *  `resumeSessionId`) on a SEPARATE PTY keyed by the claude slot (see
- *  `claudeTermKey` in terminal.ts) — the CLI chat mode. The launch value is a
- *  fixed whitelist name; Rust resolves the actual binary (never a command
- *  string from here). */
+ *  `launch: <cli id>` runs that agent CLI instead (optionally resuming
+ *  `resumeSessionId`) on a SEPARATE PTY keyed by the agent slot (see
+ *  `agentTermKey` in terminal.ts) — the CLI chat mode. The launch value is a
+ *  registry id from Rust's fixed whitelist (terminal.rs `CLIS`, "claude" the
+ *  only entry today); Rust resolves the actual binary (never a command
+ *  string from here) and rejects unknown ids. */
 export const termOpen = (
   worktree: string,
   rows: number,
   cols: number,
-  launch?: "claude",
+  launch?: string,
   resumeSessionId?: string,
 ) =>
   invoke<void>("term_open", {
@@ -197,10 +198,10 @@ export const startSession = (worktree: string, config: SessionConfig = {}) =>
 /** Kill a worktree's agent session. */
 export const stopSession = (worktree: string) => invoke<void>("stop_session", { worktree });
 
-/** The newest Claude Code session id recorded for a worktree (resume forks a
- *  new id, so after a CLI chat-mode stint the persisted id is stale — this
- *  scan finds the live thread). null when the worktree has no sessions yet.
- *  Provider-gated like getUsage/checkAuth. */
+/** The newest session id `provider`'s CLI recorded for a worktree (resume
+ *  forks a new id, so after a CLI chat-mode stint the persisted id is stale —
+ *  this scan finds the live thread). null when the worktree has no sessions
+ *  yet; rejects for a provider with no known session store (default "claude"). */
 export const latestSessionId = (worktree: string, provider?: string) =>
   invoke<string | null>("latest_session_id", { worktree, provider: provider ?? null });
 

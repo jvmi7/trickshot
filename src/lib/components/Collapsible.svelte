@@ -1,3 +1,6 @@
+<!-- DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+     (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+     "Deprecated GUI surface" before extending. -->
 <script lang="ts">
   // Renders potentially-huge text (tool inputs, tool results) without dumping
   // the whole blob into the DOM. Long content truncates to `max` chars with a

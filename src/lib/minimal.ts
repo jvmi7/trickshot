@@ -1,3 +1,6 @@
+// DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+// (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+// "Deprecated GUI surface" before extending.
 // Minimal mode: a global, reversible VIEW FILTER. While on, each user turn is sent
 // to the agent with an appended directive asking it to end its reply with a single
 // fenced one-sentence summary; the UI then renders ONLY those summaries (plus the

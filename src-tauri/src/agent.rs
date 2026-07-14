@@ -199,14 +199,14 @@ fn encode_claude_project_dir(path: &str) -> String {
 }
 
 /// The newest session id in `dir` by file mtime (session transcripts are
-/// `<session-id>.jsonl`). `None` when the dir doesn't exist or holds no
+/// `<session-id>.<ext>`). `None` when the dir doesn't exist or holds no
 /// sessions — not an error. Pure over a directory path so it's unit-testable.
-fn newest_session_in(dir: &std::path::Path) -> Option<String> {
+fn newest_session_in(dir: &std::path::Path, ext: &str) -> Option<String> {
     let entries = std::fs::read_dir(dir).ok()?;
     let mut newest: Option<(std::time::SystemTime, String)> = None;
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+        if path.extension().and_then(|e| e.to_str()) != Some(ext) {
             continue;
         }
         let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
@@ -222,25 +222,46 @@ fn newest_session_in(dir: &std::path::Path) -> Option<String> {
     newest.map(|(_, id)| id)
 }
 
-/// The most recent Claude Code session id for a worktree — the resume target
-/// after a CLI chat-mode handoff. Resuming FORKS a new session id (both in the
-/// CLI and the SDK), so after the user chats in the terminal the app's
-/// persisted id is stale; the newest `.jsonl` in the project's session dir is
-/// the live thread. Provider-gated like `get_usage`/`check_auth`: the session
-/// store layout is Claude-specific.
+/// Where a provider's CLI persists its per-worktree session transcripts: the
+/// dir to scan + the transcript file extension. The ONE per-provider dispatch
+/// point for the session-store layout; `None` for a provider with no known
+/// store, which `latest_session_id` surfaces as an error. This dispatch IS the
+/// provider gate here (it replaces the `ensure_known_provider` reuse — an
+/// unknown id can't reach a scan); usage.rs keeps its own gate for the
+/// usage/auth probes. Pure so it's unit-testable.
+fn session_store_dir(
+    provider: &str,
+    home: &std::path::Path,
+    worktree: &str,
+) -> Option<(std::path::PathBuf, &'static str)> {
+    match provider {
+        "claude" => Some((
+            home.join(".claude")
+                .join("projects")
+                .join(encode_claude_project_dir(worktree)),
+            "jsonl",
+        )),
+        _ => None,
+    }
+}
+
+/// The most recent session id a provider's CLI recorded for a worktree — the
+/// resume target after a CLI chat-mode handoff. Resuming FORKS a new session
+/// id (both in the CLI and the SDK), so after the user chats in the terminal
+/// the app's persisted id is stale; the newest transcript in the provider's
+/// session store (see `session_store_dir`) is the live thread. `provider`
+/// defaults to "claude"; a provider with no known store rejects loudly.
 #[tauri::command]
 pub async fn latest_session_id(
     worktree: String,
     provider: Option<String>,
 ) -> Result<Option<String>, String> {
-    crate::usage::ensure_known_provider(provider.as_deref())?;
+    let provider = provider.unwrap_or_else(|| "claude".to_string());
     tauri::async_runtime::spawn_blocking(move || {
         let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
-        let dir = std::path::PathBuf::from(home)
-            .join(".claude")
-            .join("projects")
-            .join(encode_claude_project_dir(&worktree));
-        Ok(newest_session_in(&dir))
+        let (dir, ext) = session_store_dir(&provider, std::path::Path::new(&home), &worktree)
+            .ok_or_else(|| format!("no session store for provider \"{provider}\""))?;
+        Ok(newest_session_in(&dir, ext))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -248,7 +269,8 @@ pub async fn latest_session_id(
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_claude_project_dir, newest_session_in};
+    use super::{encode_claude_project_dir, newest_session_in, session_store_dir};
+    use std::path::Path;
 
     #[test]
     fn encodes_every_non_alphanumeric_byte_as_dash() {
@@ -279,18 +301,31 @@ mod tests {
         let f = std::fs::File::options().write(true).open(&newer).unwrap();
         f.set_modified(later).unwrap();
 
-        assert_eq!(newest_session_in(&dir).as_deref(), Some("newer"));
+        assert_eq!(newest_session_in(&dir, "jsonl").as_deref(), Some("newer"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn newest_session_scan_handles_missing_or_empty_dir() {
         let missing = std::env::temp_dir().join("trickshot-scan-definitely-missing");
-        assert_eq!(newest_session_in(&missing), None);
+        assert_eq!(newest_session_in(&missing, "jsonl"), None);
         let empty =
             std::env::temp_dir().join(format!("trickshot-scan-empty-{}", std::process::id()));
         std::fs::create_dir_all(&empty).unwrap();
-        assert_eq!(newest_session_in(&empty), None);
+        assert_eq!(newest_session_in(&empty, "jsonl"), None);
         std::fs::remove_dir_all(&empty).unwrap();
+    }
+
+    #[test]
+    fn session_store_dispatch_maps_claude_to_its_projects_dir() {
+        let (dir, ext) = session_store_dir("claude", Path::new("/home/u"), "/a/b.c").unwrap();
+        assert_eq!(dir, Path::new("/home/u/.claude/projects/-a-b-c"));
+        assert_eq!(ext, "jsonl");
+    }
+
+    #[test]
+    fn session_store_dispatch_yields_none_for_unknown_providers() {
+        // `latest_session_id` maps this None to a loud "no session store" Err.
+        assert!(session_store_dir("gemini", Path::new("/home/u"), "/w").is_none());
     }
 }

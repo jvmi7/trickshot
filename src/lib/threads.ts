@@ -1,3 +1,6 @@
+// DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+// (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+// "Deprecated GUI surface" before extending.
 // The comment-thread ("threads") subsystem — split out of stores.ts by the
 // transcript.ts precedent: the per-worktree thread state, its mutators, and the
 // one submit path live here; the pure data model + prompt assembly stay in

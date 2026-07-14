@@ -1,3 +1,6 @@
+<!-- DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+     (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+     "Deprecated GUI surface" before extending. -->
 <script lang="ts">
   // Store-free primitive: renders a detectTable() result (tabular.ts) as a real
   // table. The `.text-table` scope shares the markdown table look via app.css's

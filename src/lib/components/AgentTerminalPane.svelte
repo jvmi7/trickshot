@@ -1,13 +1,13 @@
 <script lang="ts">
-  // The CLI chat mode pane: the REAL Claude Code TUI on the worktree's
-  // dedicated claude-slot PTY (see ARCHITECTURE.md › "CLI chat mode"),
+  // The CLI chat mode pane: the REAL agent CLI TUI (Claude Code today) on the
+  // worktree's dedicated agent-slot PTY (see ARCHITECTURE.md › "CLI chat mode"),
   // rendered in place of the GUI chat while `chatModeByWorktree` is "cli".
   // Same attach machinery as TerminalPane; the PTY (re)open path resumes the
-  // worktree's newest session id (session.ts › ensureClaudeOpen), which is
+  // worktree's newest session id (session.ts › ensureAgentCli), which is
   // also how a relaunch with a persisted "cli" mode gets its CLI back.
   // Feature component (reads stores + session orchestration).
-  import { ensureClaudeOpen, selectedWorktree } from "../stores";
-  import { attachTerminal, claudeTermKey } from "../terminal";
+  import { agentCliFor, ensureAgentCli, selectedWorktree } from "../stores";
+  import { agentTermKey, attachTerminal } from "../terminal";
 
   let container = $state<HTMLDivElement | null>(null);
   let error = $state("");
@@ -17,8 +17,9 @@
     const el = container;
     if (!wt || !el) return;
     error = "";
-    return attachTerminal(claudeTermKey(wt), el, {
-      onOpen: () => ensureClaudeOpen(wt),
+    const cli = agentCliFor(wt); // one-shot read — the provider is fixed per worktree
+    return attachTerminal(agentTermKey(wt, cli), el, {
+      onOpen: () => ensureAgentCli(wt, cli),
       onError: (e) => (error = String(e)),
     });
   });

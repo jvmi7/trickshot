@@ -1,3 +1,6 @@
+// DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+// (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+// "Deprecated GUI surface" before extending.
 // Animated composer placeholder (DOM/interaction helper, the customScroll.ts
 // precedent): the placeholder text deletes itself char-by-char on focus — so the
 // field reads empty when you click in — and retypes itself on blur if the input

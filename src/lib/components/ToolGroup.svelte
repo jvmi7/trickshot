@@ -1,3 +1,6 @@
+<!-- DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+     (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+     "Deprecated GUI surface" before extending. -->
 <script lang="ts">
   // A run of consecutive tool calls (see renderedGroups in stores). 2+ calls
   // collapse into ONE line ("N tool calls", collapsed by default) that expands to

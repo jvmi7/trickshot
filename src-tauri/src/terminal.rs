@@ -12,17 +12,16 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::worktree_map::{lock_ignore_poison, next_generation, WorktreeEvent, WorktreeMap};
 
-/// PTY slot suffix for the dedicated Claude CLI terminal (the chat pane's CLI
-/// mode — a SECOND PTY beside the worktree's shell terminal). NUL can never
+/// PTY-slot key for a worktree's dedicated agent-CLI terminal (the chat pane's
+/// CLI mode — a SECOND PTY beside the worktree's shell terminal). NUL can never
 /// occur in a filesystem path, so the composite key cannot collide with a real
-/// worktree. Everything downstream (term_write/resize/close, the WorktreeEvent
+/// worktree, and the CLI id after the NUL keeps different agent CLIs' slots
+/// distinct. Everything downstream (term_write/resize/close, the WorktreeEvent
 /// envelope, the webview's xterm cache) treats the key as an opaque string, so
-/// only `term_open` knows the split. Hand-mirrored by `claudeTermKey` in
+/// only `term_open` knows the split. Hand-mirrored by `agentTermKey` in
 /// src/lib/terminal.ts — keep the two in sync (see ARCHITECTURE.md).
-pub(crate) const CLAUDE_SLOT: &str = "\u{0}claude";
-
-fn claude_key(worktree: &str) -> String {
-    format!("{worktree}{CLAUDE_SLOT}")
+fn agent_key(worktree: &str, id: &str) -> String {
+    format!("{worktree}\u{0}{id}")
 }
 
 /// The user's login shell (also the shell we ask for PATH/claude resolution).
@@ -37,20 +36,38 @@ fn default_shell() -> String {
     })
 }
 
-/// Which program a PTY runs. Parsed from the command's `launch` arg — the
-/// webview picks from a FIXED whitelist and never passes a command string
-/// (the same security posture as run_script: names in, commands resolved here).
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum Launch {
-    Shell,
-    Claude,
+/// One agent CLI the chat pane can run on its dedicated PTY slot. `probe` is a
+/// FIXED login-shell script (no interpolation — nothing user-controlled enters
+/// it) that prints the binary's absolute path; the arg builders produce the
+/// argv for resuming a validated session id vs starting fresh.
+struct CliDef {
+    id: &'static str,
+    probe: &'static str,
+    resume_args: fn(&str) -> Vec<String>,
+    fresh_args: fn() -> Vec<String>,
 }
 
-fn parse_launch(launch: Option<&str>) -> Result<Launch, String> {
+/// The agent-CLI registry. SECURITY: this registry IS the launch whitelist —
+/// the webview only ever passes a NAME looked up here and never a command
+/// string; the binary is resolved in `resolve_cli` (the same posture as
+/// run_script: names in, binaries resolved here).
+const CLIS: &[CliDef] = &[CliDef {
+    id: "claude",
+    probe: "command -v claude",
+    resume_args: |id| vec!["--resume".to_string(), id.to_string()],
+    fresh_args: Vec::new,
+}];
+
+/// Look up the command's `launch` arg in the registry. `None` = the plain
+/// login shell; an unknown id is an error (see the whitelist note on `CLIS`).
+fn parse_launch(launch: Option<&str>) -> Result<Option<&'static CliDef>, String> {
     match launch {
-        None => Ok(Launch::Shell),
-        Some("claude") => Ok(Launch::Claude),
-        Some(other) => Err(format!("unknown launch target \"{other}\"")),
+        None => Ok(None),
+        Some(id) => CLIS
+            .iter()
+            .find(|def| def.id == id)
+            .map(Some)
+            .ok_or_else(|| format!("unknown launch target \"{id}\"")),
     }
 }
 
@@ -65,21 +82,27 @@ fn is_valid_session_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
-/// Resolve the user's `claude` CLI (absolute path) + the login shell's $PATH,
-/// once per app run. Finder-launched apps inherit a minimal PATH, so we ask the
-/// LOGIN shell with fixed strings (no interpolation — nothing user-controlled
-/// enters these commands). The PATH is exported into the CLI's PTY so claude's
-/// own subprocesses (its Bash tool) see the user's real environment.
-fn claude_cli() -> Result<(String, String), String> {
+/// Resolve a registry CLI (absolute binary path) + the login shell's $PATH,
+/// once per CLI id per app run. Finder-launched apps inherit a minimal PATH,
+/// so we ask the LOGIN shell with fixed strings (`def.probe` comes from the
+/// const registry — nothing user-controlled enters these commands). The PATH
+/// is exported into the CLI's PTY so the agent's own subprocesses (e.g. its
+/// Bash tool) see the user's real environment.
+fn resolve_cli(def: &'static CliDef) -> Result<(String, String), String> {
     #[cfg(not(unix))]
     {
+        let _ = def;
         return Err("CLI chat mode is not supported on this platform yet".to_string());
     }
     #[cfg(unix)]
     {
-        static RESOLVED: OnceLock<Result<(String, String), String>> = OnceLock::new();
-        RESOLVED
-            .get_or_init(|| {
+        type Cache =
+            Mutex<std::collections::HashMap<&'static str, Result<(String, String), String>>>;
+        static RESOLVED: OnceLock<Cache> = OnceLock::new();
+        let cache = RESOLVED.get_or_init(Cache::default);
+        lock_ignore_poison(cache)
+            .entry(def.id)
+            .or_insert_with(|| {
                 let shell = default_shell();
                 let run = |script: &str| -> Result<String, String> {
                     let out = std::process::Command::new(&shell)
@@ -88,11 +111,12 @@ fn claude_cli() -> Result<(String, String), String> {
                         .map_err(|e| format!("failed to run login shell: {e}"))?;
                     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
                 };
-                let bin = run("command -v claude")?;
+                let bin = run(def.probe)?;
                 if bin.is_empty() {
-                    return Err(
-                        "claude CLI not found on PATH — is Claude Code installed?".to_string()
-                    );
+                    return Err(format!(
+                        "{} CLI not found on PATH — is it installed?",
+                        def.id
+                    ));
                 }
                 let path = run("printf %s \"$PATH\"").unwrap_or_default();
                 Ok((bin, path))
@@ -161,10 +185,11 @@ fn drain_utf8(carry: &mut Vec<u8>) -> Option<String> {
 }
 
 /// Open (or no-op if already open) a PTY for `worktree`. By default it runs the
-/// user's login shell with cwd = the worktree; `launch: "claude"` instead runs
-/// the user's Claude Code CLI (optionally `--resume <resumeSessionId>`) on a
-/// SEPARATE PTY keyed by the claude slot, so the shell terminal and the CLI
-/// chat mode coexist. Output streams as `term-event`s tagged with the PTY key.
+/// user's login shell with cwd = the worktree; `launch: <cli id>` (a registry
+/// name — see `CLIS`) instead runs that agent CLI (resuming a validated
+/// `resumeSessionId` via its `resume_args` when one is present) on a SEPARATE
+/// PTY keyed by the agent slot, so the shell terminal and the CLI chat mode
+/// coexist. Output streams as `term-event`s tagged with the PTY key.
 /// Async + spawn_blocking: spawning is a subprocess launch and must run off the
 /// main thread.
 #[tauri::command]
@@ -185,13 +210,13 @@ pub async fn term_open(
     tauri::async_runtime::spawn_blocking(move || {
         // Resolve the CLI BEFORE taking the map lock (first resolution shells a
         // login shell — don't stall every worktree's terminal behind it).
-        let claude = match launch {
-            Launch::Claude => Some(claude_cli()?),
-            Launch::Shell => None,
+        let cli = match launch {
+            Some(def) => Some((def, resolve_cli(def)?)),
+            None => None,
         };
         let key = match launch {
-            Launch::Claude => claude_key(&worktree),
-            Launch::Shell => worktree.clone(),
+            Some(def) => agent_key(&worktree, def.id),
+            None => worktree.clone(),
         };
 
         let state = app.state::<Terminals>();
@@ -206,12 +231,16 @@ pub async fn term_open(
             .openpty(size(rows.max(2), cols.max(2)))
             .map_err(|e| e.to_string())?;
 
-        let mut cmd = match &claude {
-            Some((bin, login_path)) => {
+        let mut cmd = match &cli {
+            Some((def, (bin, login_path))) => {
                 let mut c = CommandBuilder::new(bin);
-                if let Some(id) = &resume_session_id {
-                    c.arg("--resume");
-                    c.arg(id); // argv-only, validated — never through a shell
+                let args = match &resume_session_id {
+                    // argv-only, validated (is_valid_session_id) — never through a shell
+                    Some(id) => (def.resume_args)(id),
+                    None => (def.fresh_args)(),
+                };
+                for arg in args {
+                    c.arg(arg);
                 }
                 if !login_path.is_empty() {
                     c.env("PATH", login_path);
@@ -349,17 +378,28 @@ pub fn term_close(worktree: String, state: State<'_, Terminals>) -> Result<(), S
 
 #[cfg(test)]
 mod tests {
-    use super::{claude_key, drain_utf8, is_valid_session_id, parse_launch, Launch, CLAUDE_SLOT};
+    use super::{agent_key, drain_utf8, is_valid_session_id, parse_launch};
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::io::{Read, Write};
 
     #[test]
-    fn launch_whitelist_accepts_only_known_targets() {
-        assert_eq!(parse_launch(None), Ok(Launch::Shell));
-        assert_eq!(parse_launch(Some("claude")), Ok(Launch::Claude));
+    fn launch_whitelist_accepts_only_registry_ids() {
+        assert!(parse_launch(None).unwrap().is_none()); // no launch = the shell
+        let claude = parse_launch(Some("claude")).unwrap().expect("registered");
+        assert_eq!(claude.id, "claude");
         assert!(parse_launch(Some("bash")).is_err());
         assert!(parse_launch(Some("claude; rm -rf /")).is_err());
         assert!(parse_launch(Some("")).is_err());
+    }
+
+    #[test]
+    fn registry_builds_resume_and_fresh_args() {
+        let claude = parse_launch(Some("claude")).unwrap().expect("registered");
+        assert_eq!(
+            (claude.resume_args)("950d7012-475b-4df8-b483-86d4a55af760"),
+            vec!["--resume", "950d7012-475b-4df8-b483-86d4a55af760"]
+        );
+        assert!((claude.fresh_args)().is_empty());
     }
 
     #[test]
@@ -374,11 +414,13 @@ mod tests {
     }
 
     #[test]
-    fn claude_key_is_nul_suffixed_and_collision_free() {
-        let key = claude_key("/some/worktree");
-        assert_eq!(key, format!("/some/worktree{CLAUDE_SLOT}"));
+    fn agent_key_is_nul_separated_and_collision_free() {
+        let key = agent_key("/some/worktree", "claude");
+        assert_eq!(key, "/some/worktree\u{0}claude");
         assert!(key.contains('\u{0}')); // NUL can't occur in a real path
         assert_ne!(key, "/some/worktree");
+        // Distinct CLI ids get distinct slots on the same worktree.
+        assert_ne!(agent_key("/w", "claude"), agent_key("/w", "codex"));
     }
 
     #[test]

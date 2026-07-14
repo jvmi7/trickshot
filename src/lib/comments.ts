@@ -1,3 +1,6 @@
+// DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+// (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+// "Deprecated GUI surface" before extending.
 // Threads — the pure, app-side data model + prompt assembly for the Slack-style
 // per-message threads. NO svelte/api imports (testable in isolation, see
 // comments.test.ts). The store wiring + mutators live in stores.ts; the streaming

@@ -1,3 +1,6 @@
+<!-- DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+     (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+     "Deprecated GUI surface" before extending. -->
 <script lang="ts">
   // Prop-driven primitive (no stores/api): renders a Mermaid diagram source to
   // an inline SVG. Mermaid runs with `securityLevel: 'strict'` so it sanitizes

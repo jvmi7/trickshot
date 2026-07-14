@@ -43,7 +43,7 @@ import {
 // CIRCULAR-IMPORT CONTRACT: terminal.ts imports handleCliExit from this module
 // while we import its key/instance helpers — safe because every cross-module
 // access is a call-time function invocation (all hoisted declarations).
-import { claudeTermKey, getTerminal } from "./terminal";
+import { agentTermKey, getTerminal } from "./terminal";
 import { appendMessage, bufferedMessages, summarizeConversation, transcripts } from "./transcript";
 import { basename } from "./utils";
 
@@ -187,12 +187,12 @@ export async function activateWorktree(path: string) {
   selectWorktree(path);
   setCenterView("chat");
   clearUnread(path);
-  // CLI-first: the claude PTY — not a sidecar — is this worktree's session.
-  // ClaudeTerminalPane's mount opens it; re-activating an exited CLI revives
+  // CLI-first: the agent-CLI PTY — not a sidecar — is this worktree's session.
+  // AgentTerminalPane's mount opens it; re-activating an exited CLI revives
   // it here (idempotent when already alive). Never spawn a sidecar (two
   // owners on one session store corrupt it).
   if (CHAT_SURFACE === "cli") {
-    await ensureClaudeOpen(path).catch((e) => {
+    await ensureAgentCli(path).catch((e) => {
       setStatus(path, "stopped");
       throw e;
     });
@@ -216,32 +216,47 @@ export async function activateWorktree(path: string) {
 }
 
 // ---- CLI chat mode (the GUI⇄terminal handoff) ----
-// The chat pane can swap to the REAL Claude Code CLI TUI, resuming the same
-// conversation. Both surfaces share one session store, but a session must have
-// exactly ONE owner — so entering CLI mode kills the sidecar first, and coming
-// back adopts the CLI's forked session id before the sidecar resumes. The GUI
-// transcript does NOT gain the CLI-made turns (the SDK restores context, not
-// messages); the system markers bracket that gap deliberately. See
-// ARCHITECTURE.md › "CLI chat mode".
+// The chat pane can swap to the REAL agent CLI TUI (Claude Code today),
+// resuming the same conversation. Both surfaces share one session store, but a
+// session must have exactly ONE owner — so entering CLI mode kills the sidecar
+// first, and coming back adopts the CLI's forked session id before the sidecar
+// resumes. The GUI transcript does NOT gain the CLI-made turns (the SDK
+// restores context, not messages); the system markers bracket that gap
+// deliberately. See ARCHITECTURE.md › "CLI chat mode".
 
-/** The session id the next owner should resume: the newest id in the
- *  worktree's session store (resume FORKS ids, so the persisted one goes stale
- *  the moment the other surface runs), falling back to the persisted id when
- *  the scan fails or finds nothing. */
-async function resumeIdFor(worktree: string): Promise<string | undefined> {
-  const scanned = await api.latestSessionId(worktree).catch(() => null);
-  return scanned ?? get(sessionByWorktree)[worktree];
+/** The agent-CLI id a worktree's chat runs — its persisted provider, falling
+ *  back to the default. The ONE launch-path lookup, so every CLI flow (open,
+ *  keystroke injection, dispose, resume scan) steers by the same id. */
+export function agentCliFor(worktree: string): string {
+  return get(providerByWorktree)[worktree] ?? DEFAULT_PROVIDER_ID;
 }
 
-/** (Re)open the claude-slot PTY for a worktree, resuming the live session id.
- *  Idempotent (Rust no-ops while one is alive) — the pane's (re)mount path.
- *  Marks the session `ready` on success: under CHAT_SURFACE === "cli" the PTY
- *  IS the session, so the sidebar dot should read alive (the PTY has no
- *  busy/idle signal, so `busy` is never set on this path). */
-export async function ensureClaudeOpen(worktree: string): Promise<void> {
-  const inst = getTerminal(claudeTermKey(worktree));
+/** The session id the next owner should resume: the newest id in the
+ *  worktree's session store for `cli` (resume FORKS ids, so the persisted one
+ *  goes stale the moment the other surface runs), falling back to the
+ *  persisted id when the scan fails or finds nothing. A successful scan is
+ *  persisted back so the fallback stays as fresh as the last successful
+ *  discovery (under CLI-first nothing else ever updates `sessionByWorktree`). */
+async function resumeIdFor(worktree: string, cli: string): Promise<string | undefined> {
+  const scanned = await api.latestSessionId(worktree, cli).catch(() => null);
+  if (scanned) {
+    setWorktreeSession(worktree, scanned);
+    return scanned;
+  }
+  return get(sessionByWorktree)[worktree];
+}
+
+/** (Re)open the agent-slot PTY for a worktree, resuming the live session id.
+ *  `cli` defaults to the worktree's provider (pass it explicitly when the id
+ *  was extracted from an existing PTY key — the reconnect path). Idempotent
+ *  (Rust no-ops while one is alive) — the pane's (re)mount path. Marks the
+ *  session `ready` on success: under CHAT_SURFACE === "cli" the PTY IS the
+ *  session, so the sidebar dot should read alive (the PTY has no busy/idle
+ *  signal, so `busy` is never set on this path). */
+export async function ensureAgentCli(worktree: string, cli = agentCliFor(worktree)): Promise<void> {
+  const inst = getTerminal(agentTermKey(worktree, cli));
   const { rows, cols } = inst.term;
-  await api.termOpen(worktree, rows, cols, "claude", await resumeIdFor(worktree));
+  await api.termOpen(worktree, rows, cols, cli, await resumeIdFor(worktree, cli));
   inst.open = true;
   setStatus(worktree, "ready");
 }
@@ -251,8 +266,9 @@ export async function ensureClaudeOpen(worktree: string): Promise<void> {
  *  pasted block) followed by Enter. The CLI-first counterpart of
  *  `submitUserTurn`; used by the git panel's "hand this to the agent" actions. */
 export async function sendToCli(worktree: string, text: string): Promise<void> {
-  await ensureClaudeOpen(worktree);
-  await api.termWrite(claudeTermKey(worktree), `\x1b[200~${text}\x1b[201~\r`);
+  const cli = agentCliFor(worktree);
+  await ensureAgentCli(worktree, cli);
+  await api.termWrite(agentTermKey(worktree, cli), `\x1b[200~${text}\x1b[201~\r`);
 }
 
 /** Submit a prompt to whatever the ACTIVE chat surface is (see CHAT_SURFACE):
@@ -272,7 +288,7 @@ const _exitingCli = new Set<string>();
 /** DEPRECATED under CHAT_SURFACE === "cli" (the toggle UI is unwired; the CLI
  *  is the default surface). Kept for the legacy GUI⇄CLI handoff.
  *  Swap a worktree's chat pane to the real CLI: marker → kill the sidecar →
- *  open the claude PTY resuming the newest session id. On failure (claude not
+ *  open the agent-CLI PTY resuming the newest session id. On failure (CLI not
  *  installed, spawn error) everything reverts — mode back to GUI, sidecar
  *  restarted — and the error is rethrown for the toggle's local error state. */
 export async function enterCliMode(worktree: string): Promise<void> {
@@ -287,7 +303,7 @@ export async function enterCliMode(worktree: string): Promise<void> {
     // corrupt the store). A clean stop lands quietly: status → stopped, no
     // error bubble (api.ts only surfaces a bubble when stderr has content).
     await api.stopSession(worktree);
-    await ensureClaudeOpen(worktree);
+    await ensureAgentCli(worktree);
   } catch (e) {
     // Revert: back to the GUI chat with the sidecar running again.
     setChatMode(worktree, "gui");
@@ -299,8 +315,8 @@ export async function enterCliMode(worktree: string): Promise<void> {
 
 /** Adopt the CLI's (possibly forked) session id, mark the return in the
  *  transcript, and hand the session back to the sidecar. */
-async function adoptAndResume(worktree: string): Promise<void> {
-  const id = await api.latestSessionId(worktree).catch(() => null);
+async function adoptAndResume(worktree: string, cli = agentCliFor(worktree)): Promise<void> {
+  const id = await api.latestSessionId(worktree, cli).catch(() => null);
   if (id) setWorktreeSession(worktree, id);
   appendMessage(worktree, { type: "system", text: "— returned from the terminal —" });
   setChatMode(worktree, "gui");
@@ -314,29 +330,31 @@ async function adoptAndResume(worktree: string): Promise<void> {
 }
 
 /** DEPRECATED under CHAT_SURFACE === "cli" (see enterCliMode).
- *  Toggle back from CLI mode: close the claude PTY, then adopt + resume. */
+ *  Toggle back from CLI mode: close the agent-CLI PTY, then adopt + resume. */
 export async function exitCliMode(worktree: string): Promise<void> {
+  const cli = agentCliFor(worktree);
   _exitingCli.add(worktree);
-  await api.termClose(claudeTermKey(worktree)).catch(() => {});
-  await adoptAndResume(worktree);
+  await api.termClose(agentTermKey(worktree, cli)).catch(() => {});
+  await adoptAndResume(worktree, cli);
 }
 
 /** The CLI exited (`/exit`, ctrl-d, crash, or our own close). Wired from
- *  terminal.ts's `exit` routing for claude-slot keys; fire-and-forget (PTY
- *  events have no rejection channel).
+ *  terminal.ts's `exit` routing for agent-slot keys, which extracts both the
+ *  worktree and the CLI id from the PTY key; fire-and-forget (PTY events have
+ *  no rejection channel).
  *  - CLI-first (CHAT_SURFACE === "cli"): the terminal IS the chat — just mark
  *    the session stopped. No auto-reopen (a crash-looping CLI would respawn
  *    forever); the next keystroke or worktree re-activation revives it.
  *  - Legacy GUI surface: run the return choreography (adopt the forked id,
  *    restart the sidecar) unless an exitCliMode call is already driving it. */
-export function handleCliExit(worktree: string): void {
+export function handleCliExit(worktree: string, cli = agentCliFor(worktree)): void {
   if (_exitingCli.delete(worktree)) return; // toggle-driven close; already handled
   if (CHAT_SURFACE === "cli") {
     setStatus(worktree, "stopped");
     return;
   }
   if (get(chatModeByWorktree)[worktree] !== "cli") return;
-  void adoptAndResume(worktree).catch(() => {});
+  void adoptAndResume(worktree, cli).catch(() => {});
 }
 
 /** Fire `request(worktree)` at most once per (worktree, key) pair within the

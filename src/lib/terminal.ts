@@ -9,26 +9,34 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import * as api from "./api";
-// CIRCULAR-IMPORT CONTRACT: session.ts imports claudeTermKey/getTerminal from
-// here while this module imports handleCliExit/ensureClaudeOpen from
+// CIRCULAR-IMPORT CONTRACT: session.ts imports agentTermKey/getTerminal from
+// here while this module imports handleCliExit/ensureAgentCli/agentCliFor from
 // session.ts — safe because every cross-module access is a CALL-time function
 // invocation (all hoisted function declarations), never a module-eval
 // dereference.
-import { ensureClaudeOpen, handleCliExit } from "./session";
+import { agentCliFor, ensureAgentCli, handleCliExit } from "./session";
 import type { TermEnvelope } from "./types";
 
-/** PTY slot suffix for the dedicated Claude CLI terminal (the chat pane's CLI
- *  mode). NUL can't occur in a filesystem path, so the composite key can't
- *  collide with a real worktree. Hand-mirrored by `CLAUDE_SLOT` in
- *  src-tauri/src/terminal.rs — keep the pair in sync (see ARCHITECTURE.md). */
-const CLAUDE_SLOT = "\u0000claude";
-/** The claude-slot PTY key for a worktree (see CLAUDE_SLOT). */
-export function claudeTermKey(worktree: string): string {
-  return worktree + CLAUDE_SLOT;
+/** Separator for the dedicated agent-CLI PTY slot (the chat pane's CLI mode):
+ *  key = worktree + NUL + <cli id>. NUL can't occur in a filesystem path, so
+ *  the composite key can't collide with a real worktree, and the CLI id after
+ *  the NUL keeps different agent CLIs' slots distinct. */
+const AGENT_SLOT_SEP = "\u0000";
+/** The agent-slot PTY key for a worktree's `cli` (a registry id, e.g.
+ *  "claude"). Hand-mirrored by `agent_key` in src-tauri/src/terminal.rs —
+ *  keep the pair in sync (see ARCHITECTURE.md). */
+export function agentTermKey(worktree: string, cli: string): string {
+  return worktree + AGENT_SLOT_SEP + cli;
 }
 /** The real worktree path behind a PTY key (identity for shell keys). */
 function keyWorktree(key: string): string {
-  return key.endsWith(CLAUDE_SLOT) ? key.slice(0, -CLAUDE_SLOT.length) : key;
+  const sep = key.indexOf(AGENT_SLOT_SEP);
+  return sep === -1 ? key : key.slice(0, sep);
+}
+/** The agent-CLI id behind a PTY key, or null for a shell key. */
+function keyCli(key: string): string | null {
+  const sep = key.indexOf(AGENT_SLOT_SEP);
+  return sep === -1 ? null : key.slice(sep + AGENT_SLOT_SEP.length);
 }
 
 interface TermInstance {
@@ -36,10 +44,11 @@ interface TermInstance {
   fit: FitAddon;
   /** Whether the PTY behind this xterm is alive (reset by `exit` events). */
   open: boolean;
-  /** Which program the PTY runs (derived from the cache key). The claude slot
-   *  skips the keystroke auto-reconnect: reopening it as a SHELL would be
-   *  wrong, and handleCliExit has already returned the user to the GUI chat. */
-  slot: "shell" | "claude";
+  /** Which program the PTY runs (derived from the cache key: an agent slot
+   *  contains the NUL separator). The agent slot's keystroke auto-reconnect
+   *  reopens that CLI, never a shell — reopening it as a SHELL would be wrong,
+   *  and handleCliExit has already routed the exit per chat surface. */
+  slot: "shell" | "agent";
 }
 
 // The cache lives on globalThis, NOT at module scope: a vite HMR update clones
@@ -50,31 +59,76 @@ interface TermInstance {
 // anyway. (Cast confined to this line: globalThis has no typed slot for it.)
 const instances = ((globalThis as any).__trickshotTerms ??= new Map()) as Map<string, TermInstance>;
 
-/** The current `--base-*` palette values, so new terminals match the theme.
+/** The current theme's terminal colors, so new terminals match the theme.
  *  Exported so the pane can RE-SYNC an existing instance on attach — the value
  *  is a snapshot, and a stale one paints xterm's background a different shade
- *  than the pane behind it (a visible seam under the last row). */
+ *  than the pane behind it (a visible seam under the last row).
+ *
+ *  The 16 ANSI slots ride the same `--app-ansi-0..15` tokens the GUI's
+ *  AnsiText renderer uses (DESIGN_SYSTEM.md), so the REAL CLI's colored
+ *  output follows the active theme exactly like transcript ANSI does. xterm
+ *  needs concrete colors (it paints a canvas/DOM itself, `color-mix()` isn't
+ *  resolvable there) — getComputedStyle resolves the tokens to final values. */
 export function themeColors() {
   if (typeof getComputedStyle === "undefined") return {};
   const css = getComputedStyle(document.documentElement);
   const v = (name: string) => css.getPropertyValue(name).trim() || undefined;
-  return {
+  // The ANSI tokens are `color-mix()` expressions — xterm's own color parser
+  // can't evaluate those, so resolve each to a concrete rgb() by bouncing it
+  // through a probe element's computed `color` (the browser does the mixing).
+  const probe = document.createElement("span");
+  probe.style.display = "none";
+  document.body.appendChild(probe);
+  const ansi = (n: number) => {
+    probe.style.color = `var(--app-ansi-${n})`;
+    return getComputedStyle(probe).color || undefined;
+  };
+  const theme = {
     background: v("--base-bg"),
     foreground: v("--base-text"),
     cursor: v("--base-accent"),
     selectionBackground: v("--base-selection"),
+    black: ansi(0),
+    red: ansi(1),
+    green: ansi(2),
+    yellow: ansi(3),
+    blue: ansi(4),
+    magenta: ansi(5),
+    cyan: ansi(6),
+    white: ansi(7),
+    brightBlack: ansi(8),
+    brightRed: ansi(9),
+    brightGreen: ansi(10),
+    brightYellow: ansi(11),
+    brightBlue: ansi(12),
+    brightMagenta: ansi(13),
+    brightCyan: ansi(14),
+    brightWhite: ansi(15),
   };
+  probe.remove();
+  return theme;
+}
+
+/** The app's mono stack for terminal surfaces — one source of truth
+ *  (`--app-font-mono`, see DESIGN_SYSTEM.md) with the same literal as a
+ *  fallback for environments without computed styles. */
+function monoFont(): string {
+  if (typeof getComputedStyle === "undefined") return "ui-monospace, Menlo, monospace";
+  return (
+    getComputedStyle(document.documentElement).getPropertyValue("--app-font-mono").trim() ||
+    "ui-monospace, Menlo, monospace"
+  );
 }
 
 /** Get (or lazily create) the persistent xterm instance for a PTY key (a
- *  worktree path, or its claude-slot composite — see claudeTermKey). */
+ *  worktree path, or its agent-slot composite — see agentTermKey). */
 export function getTerminal(key: string): TermInstance {
   let inst = instances.get(key);
   if (!inst) {
-    const slot: TermInstance["slot"] = key.endsWith(CLAUDE_SLOT) ? "claude" : "shell";
+    const slot: TermInstance["slot"] = key.includes(AGENT_SLOT_SEP) ? "agent" : "shell";
     const term = new Terminal({
       fontSize: 12,
-      fontFamily: "ui-monospace, Menlo, monospace",
+      fontFamily: monoFont(),
       cursorBlink: true,
       scrollback: 5000,
       theme: themeColors(),
@@ -84,7 +138,7 @@ export function getTerminal(key: string): TermInstance {
     // Keystrokes → PTY. If the write fails the PTY is gone (killed, or the Rust
     // core restarted under a dev rebuild — no `exit` event reaches us then), so
     // RECONNECT: reopen the PTY — as the login shell for the shell slot, as the
-    // Claude CLI (resuming the newest session) for the claude slot — and replay
+    // key's agent CLI (resuming the newest session) for the agent slot — and replay
     // this keystroke. Without this, typing into a dead terminal is silently
     // swallowed with zero feedback; under CLI-first chat it's also the natural
     // "type to revive" path after a /exit.
@@ -93,7 +147,9 @@ export function getTerminal(key: string): TermInstance {
         const i = instances.get(key);
         if (!i) return;
         try {
-          if (i.slot === "claude") await ensureClaudeOpen(keyWorktree(key));
+          if (i.slot === "agent") {
+            await ensureAgentCli(keyWorktree(key), keyCli(key) ?? undefined);
+          }
           else {
             await api.termOpen(key, i.term.rows, i.term.cols);
             i.open = true;
@@ -121,7 +177,7 @@ export async function ensureOpen(worktree: string) {
 
 /** Route one `term-event` into the cached xterm (creating it if the first
  *  output arrives before the pane ever mounted — e.g. a background exit).
- *  `key` is the PTY key (a worktree path, or its claude-slot composite). */
+ *  `key` is the PTY key (a worktree path, or its agent-slot composite). */
 export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: string | null) {
   const inst = getTerminal(key);
   switch (kind) {
@@ -130,13 +186,13 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
       break;
     case "exit":
       inst.open = false;
-      if (inst.slot === "claude") {
+      if (inst.slot === "agent") {
         // The CLI ended (/exit, crash, or our own termClose). session.ts
         // decides what that means per chat surface (CLI-first: mark stopped,
         // type-to-revive; legacy toggle: adopt the forked id + restart the
         // sidecar). Call-time import per the CIRCULAR-IMPORT CONTRACT.
-        inst.term.write("\r\n\x1b[2m[claude exited — type here to restart it]\x1b[0m\r\n");
-        handleCliExit(keyWorktree(key));
+        inst.term.write("\r\n\x1b[2m[agent CLI exited — type here to restart it]\x1b[0m\r\n");
+        handleCliExit(keyWorktree(key), keyCli(key) ?? undefined);
       } else {
         inst.term.write("\r\n\x1b[2m[session ended — reopen the tab to restart]\x1b[0m\r\n");
       }
@@ -149,10 +205,16 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
   }
 }
 
-/** Kill the PTYs and drop the cached xterms (worktree removal/archive) — BOTH
- *  slots, so an archived worktree's CLI terminal can't linger. */
+/** Kill the PTYs and drop the cached xterms (worktree removal/archive): the
+ *  shell key, every cached agent-slot key, AND the persisted provider's agent
+ *  key even when no xterm was ever cached for it (its PTY can outlive the
+ *  cache) — so an archived worktree's CLI terminal can't linger. */
 export function disposeTerminal(worktree: string) {
-  for (const key of [worktree, claudeTermKey(worktree)]) {
+  const keys = new Set([worktree, agentTermKey(worktree, agentCliFor(worktree))]);
+  for (const key of instances.keys()) {
+    if (key.startsWith(worktree + AGENT_SLOT_SEP)) keys.add(key);
+  }
+  for (const key of keys) {
     api.termClose(key).catch(() => {});
     const inst = instances.get(key);
     if (inst) {
@@ -163,7 +225,7 @@ export function disposeTerminal(worktree: string) {
 }
 
 /** Attach a cached xterm to a pane element and keep it fitted — the ONE
- *  attach/fit implementation shared by TerminalPane and ClaudeTerminalPane.
+ *  attach/fit implementation shared by TerminalPane and AgentTerminalPane.
  *  Re-parents the persistent terminal (xterm's open() is once-per-instance),
  *  re-syncs the theme snapshot, runs the settle loop + ResizeObserver with
  *  rAF-coalesced fits, and calls `onOpen` to (re)open the PTY. Returns the

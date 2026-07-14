@@ -1,3 +1,6 @@
+// DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+// (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+// "Deprecated GUI surface" before extending.
 // The agent-event router — the app's central reducer over the sidecar stream,
 // split out of App.svelte so it's plain, testable TypeScript instead of logic
 // buried in an onMount closure. `handleAgentEvent` dispatches one parsed `Outbound`

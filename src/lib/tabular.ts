@@ -1,3 +1,6 @@
+// DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+// (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+// "Deprecated GUI surface" before extending.
 // Strict tabular-text detection for tool results (ToolActivity → TextTable).
 // Deliberately modest: ONLY two unambiguous shapes are recognized — real-tab
 // TSV, and `|`-piped rows with OUTER pipes on every line (the markdown-table

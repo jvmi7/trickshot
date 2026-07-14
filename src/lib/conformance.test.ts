@@ -15,6 +15,9 @@
 //      --app-* fallback idiom stays dead
 //   8. ANSI classes emitted by ansi.ts          ↔ app.css .ansi-* rules + the 16
 //      --app-ansi-N tokens they read
+//   9. the deprecated GUI-chat surface manifest ↔ every listed file exists and
+//      carries the DEPRECATED banner (the preservation contract under
+//      CHAT_SURFACE === "cli")
 //
 // These read source/docs as text and assert the seams line up, so a one-sided
 // edit fails `bun test` instead of breaking silently in production. Run by
@@ -326,5 +329,60 @@ describe("ANSI classes emitted by ansi.ts have app.css rules + tokens", () => {
 
   test.each(attrs)("`.%s` has an app.css rule", (cls) => {
     expect(new RegExp(`\\.${cls}\\s*\\{`).test(APP_CSS)).toBe(true);
+  });
+});
+
+// ---- 9. deprecated GUI-chat surface: manifest ↔ banners ----
+// The GUI chat is deprecated-but-preserved under CHAT_SURFACE === "cli"
+// (stores.ts). THIS list is the canonical manifest (CLAUDE.md › "Deprecated GUI
+// surface" points here): every file must exist (deletion breaks the
+// preservation contract) and carry the DEPRECATED banner (so no one extends it
+// unaware). Removing a file from the surface for real = remove it here + in
+// CLAUDE.md in the same commit.
+describe("deprecated GUI surface stays preserved and bannered", () => {
+  const MANIFEST = [
+    // components (the Chat subtree + its modals/chrome + the unwired toggle)
+    "src/lib/components/Chat.svelte",
+    "src/lib/components/Composer.svelte",
+    "src/lib/components/Message.svelte",
+    "src/lib/components/ToolGroup.svelte",
+    "src/lib/components/ToolActivity.svelte",
+    "src/lib/components/Collapsible.svelte",
+    "src/lib/components/TextTable.svelte",
+    "src/lib/components/Suggestions.svelte",
+    "src/lib/components/PermissionModal.svelte",
+    "src/lib/components/QuestionModal.svelte",
+    "src/lib/components/ScrollIndicator.svelte",
+    "src/lib/components/LoadingState.svelte",
+    "src/lib/components/QueuedMessages.svelte",
+    "src/lib/components/ThinkingIndicator.svelte",
+    "src/lib/components/Markdown.svelte",
+    "src/lib/components/Mermaid.svelte",
+    "src/lib/components/ThreadPanel.svelte",
+    "src/lib/components/ChatModeToggle.svelte",
+    "src/lib/components/ModelSelector.svelte",
+    "src/lib/components/PermissionModeSelector.svelte",
+    // lib backings
+    "src/lib/minimal.ts",
+    "src/lib/comments.ts",
+    "src/lib/threads.ts",
+    "src/lib/agentMessage.ts",
+    "src/lib/mermaidTheme.ts",
+    "src/lib/tabular.ts",
+    "src/lib/composerPlaceholder.svelte.ts",
+    "src/lib/agentEvents.ts",
+    // the sidecar pipeline entry (providers/* ride along with it)
+    "sidecar/core.ts",
+  ];
+
+  test.each(MANIFEST)("%s exists and carries the DEPRECATED banner", (rel) => {
+    const src = read(rel); // throws (fails) if the file was deleted
+    expect(src.includes("DEPRECATED (GUI chat surface)")).toBe(true);
+  });
+
+  test("transcript.ts carries its nuanced mostly-deprecated banner", () => {
+    expect(read("src/lib/transcript.ts").includes("MOSTLY DEPRECATED (GUI chat surface)")).toBe(
+      true,
+    );
   });
 });

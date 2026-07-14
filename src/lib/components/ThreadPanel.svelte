@@ -1,3 +1,6 @@
+<!-- DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+     (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+     "Deprecated GUI surface" before extending. -->
 <script lang="ts">
   // Slack-style thread, as a floating Sheet that slides in from the right and
   // overlays the chat WITHOUT reflowing the layout. Feature component (Tier B):

@@ -1,3 +1,6 @@
+// DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+// (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+// "Deprecated GUI surface" before extending.
 // Presentation helpers for the neutral AgentMessage schema. Currently just the
 // tool label/detail mapping the loading footer (App.svelte) shows for a
 // `tool_call`. Provider-neutral: unknown tool names fall back to a generic

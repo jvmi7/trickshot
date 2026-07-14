@@ -1,3 +1,6 @@
+<!-- DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+     (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+     "Deprecated GUI surface" before extending. -->
 <script lang="ts">
   // GUI⇄CLI chat-mode toggle for the header: swaps the selected worktree's
   // chat pane to the REAL Claude Code CLI TUI (and back), keeping the

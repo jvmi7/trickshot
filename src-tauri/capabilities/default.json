@@ -7,10 +7,6 @@
     "core:default",
     "core:window:allow-start-dragging",
     "dialog:default",
-    "notification:default",
-    {
-      "identifier": "shell:allow-spawn",
-      "allow": [{ "name": "binaries/agent", "sidecar": true, "args": false }]
-    }
+    "notification:default"
   ]
 }

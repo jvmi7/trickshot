@@ -1,3 +1,6 @@
+<!-- DEPRECATED (GUI chat surface) — unreachable while CHAT_SURFACE === "cli"
+     (stores.ts). Preserved for a possible GUI return; see CLAUDE.md ›
+     "Deprecated GUI surface" before extending. -->
 <script lang="ts">
   // Suggested-reply chips shown above the composer when the agent is idle: pick one
   // to SEND it immediately. Data is the per-worktree `activeSuggestions` (generated
