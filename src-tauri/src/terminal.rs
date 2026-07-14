@@ -4,51 +4,123 @@
 // `agent-event`/`script-event`). One PTY per worktree, spawned lazily when the
 // Terminal tab opens (`term_open` is idempotent) and killed on close/app quit.
 
-use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
-use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-/// One live PTY session. `gen` disambiguates a respawned session at the same
-/// key so a stale reader thread can't clean up its successor (the same
-/// identity-check pattern as agent.rs's pid check).
-struct TermSession {
+use crate::worktree_map::{lock_ignore_poison, next_generation, WorktreeEvent, WorktreeMap};
+
+/// PTY slot suffix for the dedicated Claude CLI terminal (the chat pane's CLI
+/// mode — a SECOND PTY beside the worktree's shell terminal). NUL can never
+/// occur in a filesystem path, so the composite key cannot collide with a real
+/// worktree. Everything downstream (term_write/resize/close, the WorktreeEvent
+/// envelope, the webview's xterm cache) treats the key as an opaque string, so
+/// only `term_open` knows the split. Hand-mirrored by `claudeTermKey` in
+/// src/lib/terminal.ts — keep the two in sync (see ARCHITECTURE.md).
+pub(crate) const CLAUDE_SLOT: &str = "\u{0}claude";
+
+fn claude_key(worktree: &str) -> String {
+    format!("{worktree}{CLAUDE_SLOT}")
+}
+
+/// The user's login shell (also the shell we ask for PATH/claude resolution).
+fn default_shell() -> String {
+    std::env::var("SHELL").unwrap_or_else(|_| {
+        if cfg!(windows) {
+            "powershell.exe"
+        } else {
+            "/bin/zsh"
+        }
+        .to_string()
+    })
+}
+
+/// Which program a PTY runs. Parsed from the command's `launch` arg — the
+/// webview picks from a FIXED whitelist and never passes a command string
+/// (the same security posture as run_script: names in, commands resolved here).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Launch {
+    Shell,
+    Claude,
+}
+
+fn parse_launch(launch: Option<&str>) -> Result<Launch, String> {
+    match launch {
+        None => Ok(Launch::Shell),
+        Some("claude") => Ok(Launch::Claude),
+        Some(other) => Err(format!("unknown launch target \"{other}\"")),
+    }
+}
+
+/// A `--resume` session id is a UUID-shaped token; reject anything else so the
+/// argv we build stays inert (defense in depth — it's argv-only, never a shell).
+fn is_valid_session_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && !id.starts_with('-') // a leading dash would parse as a CLI flag
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// Resolve the user's `claude` CLI (absolute path) + the login shell's $PATH,
+/// once per app run. Finder-launched apps inherit a minimal PATH, so we ask the
+/// LOGIN shell with fixed strings (no interpolation — nothing user-controlled
+/// enters these commands). The PATH is exported into the CLI's PTY so claude's
+/// own subprocesses (its Bash tool) see the user's real environment.
+fn claude_cli() -> Result<(String, String), String> {
+    #[cfg(not(unix))]
+    {
+        return Err("CLI chat mode is not supported on this platform yet".to_string());
+    }
+    #[cfg(unix)]
+    {
+        static RESOLVED: OnceLock<Result<(String, String), String>> = OnceLock::new();
+        RESOLVED
+            .get_or_init(|| {
+                let shell = default_shell();
+                let run = |script: &str| -> Result<String, String> {
+                    let out = std::process::Command::new(&shell)
+                        .args(["-lc", script])
+                        .output()
+                        .map_err(|e| format!("failed to run login shell: {e}"))?;
+                    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+                };
+                let bin = run("command -v claude")?;
+                if bin.is_empty() {
+                    return Err(
+                        "claude CLI not found on PATH — is Claude Code installed?".to_string()
+                    );
+                }
+                let path = run("printf %s \"$PATH\"").unwrap_or_default();
+                Ok((bin, path))
+            })
+            .clone()
+    }
+}
+
+/// One live PTY session. `generation` disambiguates a respawned session at the
+/// same key so a stale reader thread can't clean up its successor (the same
+/// identity check as agent.rs/scripts.rs). The writer sits behind its own
+/// Arc'd lock so keystrokes are written WITHOUT holding the Terminals map lock
+/// — one flow-controlled PTY must not stall every worktree's terminal.
+pub(crate) struct TermSession {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn Child + Send + Sync>,
     generation: u64,
 }
 
-/// One PTY per worktree, keyed by worktree path (poison-safe lock, mirroring
-/// `Sessions`/`ScriptProcs`).
-#[derive(Default)]
-pub struct Terminals(Mutex<HashMap<String, TermSession>>);
+/// One PTY per worktree (poison-safe lock via WorktreeMap).
+pub type Terminals = WorktreeMap<TermSession>;
 
-impl Terminals {
-    // Not pub: TermSession is module-private; outside callers use kill_all().
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, TermSession>> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner())
+/// Kill every PTY (the lib.rs exit handler).
+pub(crate) fn kill_all(state: &Terminals) {
+    for (_, mut s) in state.lock().drain() {
+        let _ = s.child.kill();
     }
-
-    /// Kill every PTY (the lib.rs exit handler).
-    pub(crate) fn kill_all(&self) {
-        for (_, mut s) in self.lock().drain() {
-            let _ = s.child.kill();
-        }
-    }
-}
-
-/// Event relayed from a worktree's PTY on the `term-event` channel (mirrored
-/// by the TS `TermEnvelope`; the conformance test pins the seam).
-#[derive(Clone, Serialize)]
-struct TermEvent {
-    worktree: String,
-    /// "data" | "exit"
-    kind: String,
-    data: Option<String>,
 }
 
 fn size(rows: u16, cols: u16) -> PtySize {
@@ -88,124 +160,164 @@ fn drain_utf8(carry: &mut Vec<u8>) -> Option<String> {
     }
 }
 
-/// Open (or no-op if already open) a PTY for `worktree`, running the user's
-/// login shell with cwd = the worktree. Output streams as `term-event`s.
+/// Open (or no-op if already open) a PTY for `worktree`. By default it runs the
+/// user's login shell with cwd = the worktree; `launch: "claude"` instead runs
+/// the user's Claude Code CLI (optionally `--resume <resumeSessionId>`) on a
+/// SEPARATE PTY keyed by the claude slot, so the shell terminal and the CLI
+/// chat mode coexist. Output streams as `term-event`s tagged with the PTY key.
+/// Async + spawn_blocking: spawning is a subprocess launch and must run off the
+/// main thread.
 #[tauri::command]
-pub fn term_open(
+pub async fn term_open(
     app: AppHandle,
     worktree: String,
     rows: u16,
     cols: u16,
-    state: State<'_, Terminals>,
+    launch: Option<String>,
+    resume_session_id: Option<String>,
 ) -> Result<(), String> {
-    // Hold the lock across the spawn+insert (same double-spawn guard as
-    // start_session).
-    let mut map = state.lock();
-    if map.contains_key(&worktree) {
-        return Ok(());
-    }
-
-    let pair = native_pty_system()
-        .openpty(size(rows.max(2), cols.max(2)))
-        .map_err(|e| e.to_string())?;
-
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
-        if cfg!(windows) {
-            "powershell.exe"
-        } else {
-            "/bin/zsh"
+    let launch = parse_launch(launch.as_deref())?;
+    if let Some(id) = &resume_session_id {
+        if !is_valid_session_id(id) {
+            return Err("invalid session id".to_string());
         }
-        .to_string()
-    });
-    let mut cmd = CommandBuilder::new(&shell);
-    if !cfg!(windows) {
-        cmd.arg("-l"); // login shell, so the user's profile/PATH load
     }
-    cmd.cwd(&worktree);
-    cmd.env("TERM", "xterm-256color");
+    tauri::async_runtime::spawn_blocking(move || {
+        // Resolve the CLI BEFORE taking the map lock (first resolution shells a
+        // login shell — don't stall every worktree's terminal behind it).
+        let claude = match launch {
+            Launch::Claude => Some(claude_cli()?),
+            Launch::Shell => None,
+        };
+        let key = match launch {
+            Launch::Claude => claude_key(&worktree),
+            Launch::Shell => worktree.clone(),
+        };
 
-    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-    drop(pair.slave); // the child owns the slave side now
-    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+        let state = app.state::<Terminals>();
+        // Hold the lock across the spawn+insert (same double-spawn guard as
+        // start_session).
+        let mut map = state.lock();
+        if map.contains_key(&key) {
+            return Ok(());
+        }
 
-    // A per-spawn generation stamp: strictly increasing across ALL sessions so
-    // a respawn at the same key never reuses a stamp.
-    static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let pair = native_pty_system()
+            .openpty(size(rows.max(2), cols.max(2)))
+            .map_err(|e| e.to_string())?;
 
-    map.insert(
-        worktree.clone(),
-        TermSession {
-            master: pair.master,
-            writer,
-            child,
-            generation,
-        },
-    );
-    drop(map);
-
-    // Reader thread: relay chunks with a UTF-8 carry. A multi-byte character
-    // split across two reads must NOT be decoded lossily per chunk — TUIs
-    // paint long runs of 3-byte box-drawing chars (─), so chunk boundaries
-    // routinely land mid-character and per-chunk decoding renders �� garbage.
-    // Keep the incomplete trailing sequence and prepend it to the next read.
-    // On EOF the shell exited — clean up (only if we still own the entry) and
-    // emit the final `exit`.
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 8192];
-        let mut carry: Vec<u8> = Vec::new();
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    carry.extend_from_slice(&buf[..n]);
-                    let Some(text) = drain_utf8(&mut carry) else {
-                        continue; // only an incomplete tail so far — wait for more bytes
-                    };
-                    let _ = app.emit(
-                        "term-event",
-                        TermEvent {
-                            worktree: worktree.clone(),
-                            kind: "data".into(),
-                            data: Some(text),
-                        },
-                    );
+        let mut cmd = match &claude {
+            Some((bin, login_path)) => {
+                let mut c = CommandBuilder::new(bin);
+                if let Some(id) = &resume_session_id {
+                    c.arg("--resume");
+                    c.arg(id); // argv-only, validated — never through a shell
                 }
+                if !login_path.is_empty() {
+                    c.env("PATH", login_path);
+                }
+                c
             }
-        }
-        if let Some(state) = app.try_state::<Terminals>() {
-            let mut map = state.lock();
-            if map.get(&worktree).map(|s| s.generation) == Some(generation) {
-                map.remove(&worktree);
+            None => {
+                let mut c = CommandBuilder::new(default_shell());
+                if !cfg!(windows) {
+                    c.arg("-l"); // login shell, so the user's profile/PATH load
+                }
+                c
             }
-        }
-        let _ = app.emit(
-            "term-event",
-            TermEvent {
-                worktree,
-                kind: "exit".into(),
-                data: None,
+        };
+        cmd.cwd(&worktree);
+        cmd.env("TERM", "xterm-256color");
+
+        let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+        drop(pair.slave); // the child owns the slave side now
+        let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+        let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+
+        // Stamp this spawn so the reader thread can prove it still owns the map
+        // entry before removing it on EOF (see the identity-checked cleanup below).
+        let generation = next_generation();
+
+        map.insert(
+            key.clone(),
+            TermSession {
+                master: pair.master,
+                writer: Arc::new(Mutex::new(writer)),
+                child,
+                generation,
             },
         );
-    });
+        drop(map);
 
-    Ok(())
+        // Reader thread: relay chunks with a UTF-8 carry. A multi-byte character
+        // split across two reads must NOT be decoded lossily per chunk — TUIs
+        // paint long runs of 3-byte box-drawing chars (─), so chunk boundaries
+        // routinely land mid-character and per-chunk decoding renders �� garbage.
+        // Keep the incomplete trailing sequence and prepend it to the next read.
+        // On EOF the shell exited — clean up (only if we still own the entry) and
+        // emit the final `exit`.
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 8192];
+            let mut carry: Vec<u8> = Vec::new();
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        carry.extend_from_slice(&buf[..n]);
+                        let Some(text) = drain_utf8(&mut carry) else {
+                            continue; // only an incomplete tail so far — wait for more bytes
+                        };
+                        let _ = app.emit(
+                            "term-event",
+                            WorktreeEvent {
+                                worktree: key.clone(),
+                                kind: "data".into(),
+                                data: Some(text),
+                            },
+                        );
+                    }
+                }
+            }
+            if let Some(state) = app.try_state::<Terminals>() {
+                let mut map = state.lock();
+                if map.get(&key).map(|s| s.generation) == Some(generation) {
+                    map.remove(&key);
+                }
+            }
+            let _ = app.emit(
+                "term-event",
+                WorktreeEvent {
+                    worktree: key,
+                    kind: "exit".into(),
+                    data: None,
+                },
+            );
+        });
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
-/// Write user keystrokes to a worktree's PTY.
+/// Write user keystrokes to a worktree's PTY. Deliberately sync (a runtime hop
+/// per keystroke would add latency); the write happens OUTSIDE the map lock so
+/// a flow-controlled PTY only stalls its own worktree's keystrokes.
 #[tauri::command]
 pub fn term_write(
     worktree: String,
     data: String,
     state: State<'_, Terminals>,
 ) -> Result<(), String> {
-    let mut map = state.lock();
-    let session = map.get_mut(&worktree).ok_or("terminal not open")?;
-    session
-        .writer
-        .write_all(data.as_bytes())
-        .map_err(|e| e.to_string())
+    let writer = {
+        let map = state.lock();
+        map.get(&worktree)
+            .ok_or("terminal not open")?
+            .writer
+            .clone()
+    };
+    let result = lock_ignore_poison(&writer).write_all(data.as_bytes());
+    result.map_err(|e| e.to_string())
 }
 
 /// Resize a worktree's PTY (the webview's fit addon drives this).
@@ -228,7 +340,8 @@ pub fn term_resize(
 /// the final `exit` event.
 #[tauri::command]
 pub fn term_close(worktree: String, state: State<'_, Terminals>) -> Result<(), String> {
-    if let Some(mut session) = state.lock().remove(&worktree) {
+    let session = state.lock().remove(&worktree);
+    if let Some(mut session) = session {
         let _ = session.child.kill();
     }
     Ok(())
@@ -236,9 +349,37 @@ pub fn term_close(worktree: String, state: State<'_, Terminals>) -> Result<(), S
 
 #[cfg(test)]
 mod tests {
-    use super::drain_utf8;
+    use super::{claude_key, drain_utf8, is_valid_session_id, parse_launch, Launch, CLAUDE_SLOT};
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::io::{Read, Write};
+
+    #[test]
+    fn launch_whitelist_accepts_only_known_targets() {
+        assert_eq!(parse_launch(None), Ok(Launch::Shell));
+        assert_eq!(parse_launch(Some("claude")), Ok(Launch::Claude));
+        assert!(parse_launch(Some("bash")).is_err());
+        assert!(parse_launch(Some("claude; rm -rf /")).is_err());
+        assert!(parse_launch(Some("")).is_err());
+    }
+
+    #[test]
+    fn session_id_validation_is_uuid_shaped() {
+        assert!(is_valid_session_id("950d7012-475b-4df8-b483-86d4a55af760"));
+        assert!(is_valid_session_id("abc_123.DEF-456"));
+        assert!(!is_valid_session_id(""));
+        assert!(!is_valid_session_id("id with spaces"));
+        assert!(!is_valid_session_id("--resume")); // dashes are fine, but…
+        assert!(!is_valid_session_id("$(evil)"));
+        assert!(!is_valid_session_id(&"x".repeat(129)));
+    }
+
+    #[test]
+    fn claude_key_is_nul_suffixed_and_collision_free() {
+        let key = claude_key("/some/worktree");
+        assert_eq!(key, format!("/some/worktree{CLAUDE_SLOT}"));
+        assert!(key.contains('\u{0}')); // NUL can't occur in a real path
+        assert_ne!(key, "/some/worktree");
+    }
 
     #[test]
     fn utf8_carry_survives_split_multibyte() {

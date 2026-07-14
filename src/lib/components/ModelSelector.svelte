@@ -1,19 +1,18 @@
 <script lang="ts">
   import * as Select from "$lib/components/ui/select";
+  import { ghostSelectTrigger } from "$lib/utils";
   import * as api from "../api";
   import {
     availableModels,
     activeModel,
+    activeSessionAlive,
     selectedWorktree,
-    sessionStatus,
     setWorktreeModel,
     requestOnce,
   } from "../stores";
 
   // setModel is a streaming-mode control request, so the session must be live.
-  const status = $derived($selectedWorktree ? $sessionStatus[$selectedWorktree] : undefined);
-  const alive = $derived(status === "ready" || status === "busy");
-  const disabled = $derived(!$selectedWorktree || !alive || $availableModels.length === 0);
+  const disabled = $derived(!$selectedWorktree || !$activeSessionAlive || $availableModels.length === 0);
 
   const label = $derived(
     $availableModels.find((m) => m.value === $activeModel)?.displayName ?? $activeModel ?? "Model",
@@ -24,7 +23,7 @@
   const requested = new Set<string>();
   $effect(() => {
     const wt = $selectedWorktree;
-    if (wt && alive && $availableModels.length === 0)
+    if (wt && $activeSessionAlive && $availableModels.length === 0)
       requestOnce(requested, wt, "models", api.requestModels);
   });
 
@@ -43,11 +42,7 @@
 </script>
 
 <Select.Root type="single" value={$activeModel ?? ""} onValueChange={choose} {disabled}>
-  <Select.Trigger
-    size="sm"
-    class="text-muted-foreground h-9 gap-1 border-0 bg-transparent shadow-none focus-visible:ring-0 data-[size=sm]:h-9 dark:bg-transparent dark:hover:bg-input/40"
-    aria-label="Model for this chat"
-  >
+  <Select.Trigger size="sm" class={ghostSelectTrigger} aria-label="Model for this chat">
     {label}
   </Select.Trigger>
   <Select.Content class={metaLabels.length ? "min-w-[360px]" : undefined}>

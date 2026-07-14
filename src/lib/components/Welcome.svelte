@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { authState, openRepository, refreshAuth } from "../stores";
+  import { openRepository } from "../stores";
   import { Button } from "$lib/components/ui/button";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import GitBranch from "@lucide/svelte/icons/git-branch";
   import Bot from "@lucide/svelte/icons/bot";
-  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
-  import RotateCw from "@lucide/svelte/icons/rotate-cw";
+  import AuthNotice from "./AuthNotice.svelte";
 
   let picking = $state(false);
   let error = $state("");
@@ -40,7 +39,7 @@
 <div class="welcome">
   <div class="welcome-inner">
     <h1 class="wordmark">trickshot</h1>
-    <p class="tagline">parallel Claude agents — one per git worktree</p>
+    <p class="tagline">parallel coding agents — one per git worktree</p>
 
     <Button class="mt-7 gap-2" bind:ref={ctaEl} disabled={picking} onclick={open}>
       <FolderPlus class="size-4" />
@@ -65,22 +64,7 @@
       </div>
     </div>
 
-    {#if $authState === "missing"}
-      <div class="bg-destructive/10 text-destructive mt-8 flex max-w-sm items-center gap-2.5 rounded-md p-3 text-left text-xs">
-        <TriangleAlert class="size-4 shrink-0" />
-        <span>
-          trickshot uses your Claude Code login — run <code>claude</code> in a terminal to sign in
-        </span>
-        <Button
-          variant="ghost"
-          size="xs"
-          class="text-destructive hover:text-destructive shrink-0 gap-1"
-          onclick={() => void refreshAuth()}
-        >
-          <RotateCw class="size-3" /> retry
-        </Button>
-      </div>
-    {/if}
+    <AuthNotice class="mt-8 max-w-sm p-3 text-left" />
   </div>
 </div>
 
@@ -103,20 +87,20 @@
     margin-top: -6vh;
   }
   .wordmark {
-    font-size: 20px;
+    font-size: 20px; /* conformance-allowlisted: one-off display size, off the token scale */
     font-weight: 600;
     letter-spacing: 0.01em;
     color: var(--app-text);
   }
   .tagline {
     margin-top: 6px;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--app-dim);
   }
   .pick-error {
     margin-top: 10px;
     max-width: 340px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--app-danger);
   }
   .steps {
@@ -130,13 +114,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--app-dim);
-  }
-  code {
-    background: var(--app-code-bg);
-    border-radius: 4px;
-    padding: 1px 5px;
-    font-size: 11px;
   }
 </style>

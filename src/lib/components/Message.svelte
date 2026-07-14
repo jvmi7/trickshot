@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { TranscriptMessage } from "../types";
   import { splitSummary } from "../minimal";
+  import { badgeVariants } from "$lib/components/ui/badge";
+  import { cn } from "$lib/utils";
   import Markdown from "./Markdown.svelte";
   import MessageSquare from "@lucide/svelte/icons/message-square";
 
@@ -32,6 +34,12 @@
   // Threads attach only to top-level agent messages (not subagent turns), and not
   // in minimal mode (Chat doesn't pass the handler there).
   const threadable = $derived(m.type === "assistant" && !m.parentId && !!onReplyInThread);
+  // "N replies" pill = the Badge recipe (outline) recolored to the dim→text hover
+  // scheme; badge owns the pill chrome (radius, border, size, focus ring).
+  const threadPillClass = cn(
+    badgeVariants({ variant: "outline" }),
+    "text-muted-foreground hover:text-foreground hover:bg-card",
+  );
 </script>
 
 {#if m.type === "user_local"}
@@ -55,7 +63,7 @@
     {/if}
     {#if threadable && replyCount > 0}
       <div class="thread-actions">
-        <button type="button" class="thread-pill" onclick={onReplyInThread}>
+        <button type="button" class={threadPillClass} onclick={onReplyInThread}>
           <MessageSquare class="size-3" />
           {replyCount} {replyCount === 1 ? "reply" : "replies"}
         </button>
@@ -78,35 +86,17 @@
   .msg.subagent {
     margin-left: 16px;
     padding-left: 10px;
-    border-left: 2px solid var(--app-border, var(--border));
+    border-left: 2px solid var(--app-border);
   }
 
   /* Persistent "N replies" pill shown under an agent message once its thread has
      turns — an at-a-glance marker that a thread exists. The "Reply" initiation
      action lives in Chat's floating button (reachable on long messages). The pill
-     stays visible in the dim color and brightens on hover. */
+     itself is `badgeVariants` (see threadPillClass in the script). */
   .thread-actions {
     display: flex;
     align-items: center;
     gap: 6px;
     margin-top: 6px;
-  }
-  .thread-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    border-radius: 999px;
-    border: 1px solid var(--app-border, var(--border));
-    background: transparent;
-    color: var(--app-dim, var(--muted-foreground));
-    font-size: 11px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: color 0.12s ease, background 0.12s ease;
-  }
-  .thread-pill:hover {
-    color: var(--app-text, var(--foreground));
-    background: var(--app-panel, var(--muted));
   }
 </style>

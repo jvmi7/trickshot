@@ -32,15 +32,26 @@ export const MINIMAL_DIRECTIVE =
  *  recap (one entry per line, capped at MAX_BUBBLES; empty when the marker is
  *  absent — mid-stream, a non-minimal turn, or the model skipped it). `body` is
  *  everything before it (the marker line is stripped so the full prose never shows
- *  the sentinel, in either view mode). */
+ *  the sentinel, in either view mode).
+ *
+ *  The marker only counts on its OWN line — the directive's contract. An inline
+ *  occurrence (quoting this file, discussing the directive, a code fence) must
+ *  NOT truncate the rendered message: a bare lastIndexOf would silently hide
+ *  everything after a mere mention of the sentinel even with minimal mode off. */
 export function splitSummary(text: string): { body: string; bubbles: string[] } {
-  const i = text.lastIndexOf(MINIMAL_MARKER);
-  if (i < 0) return { body: text, bubbles: [] };
-  const bubbles = text
-    .slice(i + MINIMAL_MARKER.length)
-    .split(/\n+/)
+  const lines = text.split("\n");
+  let idx = -1;
+  for (let k = lines.length - 1; k >= 0; k--) {
+    if (lines[k]?.trim() === MINIMAL_MARKER) {
+      idx = k;
+      break;
+    }
+  }
+  if (idx < 0) return { body: text, bubbles: [] };
+  const bubbles = lines
+    .slice(idx + 1)
     .map((s) => s.trim())
     .filter(Boolean)
     .slice(0, MAX_BUBBLES);
-  return { body: text.slice(0, i).trimEnd(), bubbles };
+  return { body: lines.slice(0, idx).join("\n").trimEnd(), bubbles };
 }

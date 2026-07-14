@@ -8,6 +8,7 @@
   import * as api from "../api";
   import type { ConnectorInfo } from "../types";
   import {
+    CHAT_SURFACE,
     connectorsByWorktree,
     selectedWorktree,
     sessionStatus,
@@ -40,6 +41,10 @@
   // to `stopped`, which would otherwise re-trigger this effect in a retry loop.
   const sessionTried = new Set<string>();
   $effect(() => {
+    // CLI-first (CHAT_SURFACE === "cli"): there is no sidecar to feed this
+    // catalog — the CLI owns the session (and its own /mcp management), and
+    // spawning a sidecar here would double-own it. The panel is inert.
+    if (CHAT_SURFACE === "cli") return;
     const sel = $selectedWorktree;
     // `starting` while the sidecar boots; its `ready` event flips the status
     // (spawn success alone isn't readiness — same contract as activateWorktree).
@@ -53,6 +58,7 @@
   // is still empty — the resilience the prior per-mount Set provided.
   const requested = new Set<string>();
   $effect(() => {
+    if (CHAT_SURFACE === "cli") return; // no sidecar to ask (see above)
     if (sourceWt && alive(sourceWt) && servers.length === 0) {
       requestOnce(requested, sourceWt, "connectors", api.requestConnectors);
     }

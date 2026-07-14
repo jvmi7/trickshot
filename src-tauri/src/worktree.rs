@@ -78,10 +78,18 @@ pub async fn pick_directory(app: AppHandle) -> Option<String> {
 }
 
 /// List worktrees via `git worktree list --porcelain`. The first entry is the main worktree.
+/// Async + spawn_blocking (like every command below that shells git): a sync
+/// command runs on the main thread, and even a "fast" git subprocess would
+/// freeze the UI for its duration — network round-trips (push/pull/merge)
+/// would freeze it for seconds. Same shape as github.rs's `gh` commands.
 #[tauri::command]
-pub fn list_worktrees(repo_path: String) -> Result<Vec<Worktree>, String> {
-    let out = git(&repo_path, &["worktree", "list", "--porcelain"])?;
-    Ok(parse_worktree_list(&out))
+pub async fn list_worktrees(repo_path: String) -> Result<Vec<Worktree>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = git(&repo_path, &["worktree", "list", "--porcelain"])?;
+        Ok(parse_worktree_list(&out))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Parse `git worktree list --porcelain` output (blank-line-separated blocks of
@@ -171,62 +179,70 @@ fn branch_exists(repo: &str, branch: &str) -> Result<bool, String> {
 /// Create a worktree (and the branch, if new) under a sibling
 /// `.<repo-name>-worktrees/<branch>` directory. This is the one-click primitive.
 #[tauri::command]
-pub fn create_worktree(
+pub async fn create_worktree(
     repo_path: String,
     branch: String,
     base_ref: Option<String>,
 ) -> Result<Worktree, String> {
-    let branch = branch.trim().to_string();
-    validate_branch(&branch)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let branch = branch.trim().to_string();
+        validate_branch(&branch)?;
 
-    let wt_path = worktree_path_for(&repo_path, &branch)?;
+        let wt_path = worktree_path_for(&repo_path, &branch)?;
 
-    if branch_exists(&repo_path, &branch)? {
-        // base_ref has no meaning for an already-existing branch; fail loudly
-        // rather than silently ignoring it.
-        if base_ref.is_some() {
-            return Err("base_ref cannot be applied to an existing branch".into());
+        if branch_exists(&repo_path, &branch)? {
+            // base_ref has no meaning for an already-existing branch; fail loudly
+            // rather than silently ignoring it.
+            if base_ref.is_some() {
+                return Err("base_ref cannot be applied to an existing branch".into());
+            }
+            // `--` terminates options so a value can never be parsed as a git flag.
+            git(&repo_path, &["worktree", "add", &wt_path, "--", &branch])?;
+        } else {
+            let base = base_ref.unwrap_or_else(|| "HEAD".to_string());
+            git(
+                &repo_path,
+                &["worktree", "add", "-b", &branch, &wt_path, "--", &base],
+            )?;
         }
-        // `--` terminates options so a value can never be parsed as a git flag.
-        git(&repo_path, &["worktree", "add", &wt_path, "--", &branch])?;
-    } else {
-        let base = base_ref.unwrap_or_else(|| "HEAD".to_string());
-        git(
-            &repo_path,
-            &["worktree", "add", "-b", &branch, &wt_path, "--", &base],
-        )?;
-    }
 
-    // Read HEAD from the new worktree (not the main repo) so it reflects `base_ref`.
-    let head = git(&wt_path, &["rev-parse", "HEAD"])
-        .ok()
-        .map(|s| s.trim().to_string());
+        // Read HEAD from the new worktree (not the main repo) so it reflects `base_ref`.
+        let head = git(&wt_path, &["rev-parse", "HEAD"])
+            .ok()
+            .map(|s| s.trim().to_string());
 
-    Ok(Worktree {
-        path: wt_path,
-        branch: Some(branch),
-        head,
-        is_main: false,
-        locked: false,
-        is_bare: false,
+        Ok(Worktree {
+            path: wt_path,
+            branch: Some(branch),
+            head,
+            is_main: false,
+            locked: false,
+            is_bare: false,
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Remove a worktree (its branch is left intact).
 #[tauri::command]
-pub fn remove_worktree(
+pub async fn remove_worktree(
     repo_path: String,
     worktree_path: String,
     force: bool,
 ) -> Result<(), String> {
-    let mut args: Vec<&str> = vec!["worktree", "remove"];
-    if force {
-        args.push("--force");
-    }
-    args.push("--"); // terminate options; the path can't be parsed as a flag
-    args.push(&worktree_path);
-    git(&repo_path, &args)?;
-    Ok(())
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut args: Vec<&str> = vec!["worktree", "remove"];
+        if force {
+            args.push("--force");
+        }
+        args.push("--"); // terminate options; the path can't be parsed as a flag
+        args.push(&worktree_path);
+        git(&repo_path, &args)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ---- Git review (status / diff / stage / commit / push / merge) ----
@@ -379,27 +395,32 @@ fn ahead_of(worktree_path: &str, default: &str) -> i32 {
     .unwrap_or(0)
 }
 
-/// Parsed `git status --porcelain=v1 --branch` for a worktree.
+/// Parsed `git status --porcelain=v1 --branch` for a worktree. Async: this
+/// spawns FOUR git subprocesses — far too much work for the main thread.
 #[tauri::command]
-pub fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> {
-    let out = git(&worktree_path, &["status", "--porcelain=v1", "--branch"])?;
-    let (branch, ahead, behind, has_upstream, files) = parse_status(&out);
-    let (insertions, deletions) = diff_shortstat(&worktree_path);
-    let default = default_branch(&worktree_path);
-    let ahead_of_default = default
-        .as_deref()
-        .map_or(0, |d| ahead_of(&worktree_path, d));
-    Ok(WorktreeStatus {
-        branch,
-        ahead,
-        behind,
-        has_upstream,
-        default_branch: default,
-        ahead_of_default,
-        insertions,
-        deletions,
-        files,
+pub async fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = git(&worktree_path, &["status", "--porcelain=v1", "--branch"])?;
+        let (branch, ahead, behind, has_upstream, files) = parse_status(&out);
+        let (insertions, deletions) = diff_shortstat(&worktree_path);
+        let default = default_branch(&worktree_path);
+        let ahead_of_default = default
+            .as_deref()
+            .map_or(0, |d| ahead_of(&worktree_path, d));
+        Ok(WorktreeStatus {
+            branch,
+            ahead,
+            behind,
+            has_upstream,
+            default_branch: default,
+            ahead_of_default,
+            insertions,
+            deletions,
+            files,
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Sync a worktree's branch with its upstream: `git pull --rebase --autostash`
@@ -407,15 +428,19 @@ pub fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> 
 /// work across). Conflicts abort the rebase back to the pre-pull state and
 /// surface as an Err — nothing is left mid-rebase for the UI to manage.
 #[tauri::command]
-pub fn worktree_pull(worktree_path: String) -> Result<String, String> {
-    match git(&worktree_path, &["pull", "--rebase", "--autostash"]) {
-        Ok(out) => Ok(out),
-        Err(e) => {
-            // Best-effort: never strand the worktree mid-rebase.
-            let _ = git(&worktree_path, &["rebase", "--abort"]);
-            Err(e)
+pub async fn worktree_pull(worktree_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        match git(&worktree_path, &["pull", "--rebase", "--autostash"]) {
+            Ok(out) => Ok(out),
+            Err(e) => {
+                // Best-effort: never strand the worktree mid-rebase.
+                let _ = git(&worktree_path, &["rebase", "--abort"]);
+                Err(e)
+            }
         }
-    }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// `git diff --no-index <null> <file>` — an all-addition diff for an untracked
@@ -436,103 +461,129 @@ fn git_no_index_diff(repo: &str, file: &str) -> Result<String, String> {
 /// scoped to one file. Falls back to an untracked-file diff when the tracked
 /// diff is empty for a specific file (i.e. the file is new and unstaged).
 #[tauri::command]
-pub fn worktree_diff(
+pub async fn worktree_diff(
     worktree_path: String,
     file: Option<String>,
     base: Option<String>,
 ) -> Result<String, String> {
-    let base = base.unwrap_or_else(|| "HEAD".to_string());
-    let mut args: Vec<String> = vec!["diff".into(), base];
-    if let Some(f) = &file {
-        args.push("--".into());
-        args.push(f.clone());
-    }
-    let diff = git(&worktree_path, &args)?;
-    if diff.trim().is_empty() {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = base.unwrap_or_else(|| "HEAD".to_string());
+        let mut args: Vec<String> = vec!["diff".into(), base];
         if let Some(f) = &file {
-            return git_no_index_diff(&worktree_path, f);
+            args.push("--".into());
+            args.push(f.clone());
         }
-    }
-    Ok(diff)
+        let diff = git(&worktree_path, &args)?;
+        if diff.trim().is_empty() {
+            if let Some(f) = &file {
+                return git_no_index_diff(&worktree_path, f);
+            }
+        }
+        Ok(diff)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Stage paths (`git add`); with an empty list, stage everything (`git add -A`).
 #[tauri::command]
-pub fn worktree_stage(worktree_path: String, paths: Vec<String>) -> Result<(), String> {
-    let mut args: Vec<String> = vec!["add".into()];
-    if paths.is_empty() {
-        args.push("-A".into());
-    } else {
-        args.push("--".into());
-        args.extend(paths);
-    }
-    git(&worktree_path, &args)?;
-    Ok(())
+pub async fn worktree_stage(worktree_path: String, paths: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut args: Vec<String> = vec!["add".into()];
+        if paths.is_empty() {
+            args.push("-A".into());
+        } else {
+            args.push("--".into());
+            args.extend(paths);
+        }
+        git(&worktree_path, &args)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Unstage paths (`git restore --staged`); with an empty list, unstage all.
 #[tauri::command]
-pub fn worktree_unstage(worktree_path: String, paths: Vec<String>) -> Result<(), String> {
-    let mut args: Vec<String> = vec!["restore".into(), "--staged".into()];
-    if paths.is_empty() {
-        args.push(".".into());
-    } else {
-        args.push("--".into());
-        args.extend(paths);
-    }
-    git(&worktree_path, &args)?;
-    Ok(())
+pub async fn worktree_unstage(worktree_path: String, paths: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut args: Vec<String> = vec!["restore".into(), "--staged".into()];
+        if paths.is_empty() {
+            args.push(".".into());
+        } else {
+            args.push("--".into());
+            args.extend(paths);
+        }
+        git(&worktree_path, &args)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Commit the staged changes. Returns git's stdout; a "nothing to commit" or
 /// other failure propagates as an Err for the UI to surface.
 #[tauri::command]
-pub fn worktree_commit(worktree_path: String, message: String) -> Result<String, String> {
-    let message = message.trim();
-    if message.is_empty() {
-        return Err("commit message is required".into());
-    }
-    git(&worktree_path, &["commit", "-m", message])
+pub async fn worktree_commit(worktree_path: String, message: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let message = message.trim();
+        if message.is_empty() {
+            return Err("commit message is required".into());
+        }
+        git(&worktree_path, &["commit", "-m", message])
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Push the current branch. With `set_upstream`, push `-u origin <branch>` so a
 /// brand-new branch is tracked (and GitHub prints its create-PR link on stderr).
 #[tauri::command]
-pub fn worktree_push(
+pub async fn worktree_push(
     worktree_path: String,
     set_upstream: bool,
     force: bool,
 ) -> Result<String, String> {
-    let mut args: Vec<String> = vec!["push".into()];
-    // --force-with-lease, never bare --force: overwrites the remote only if it
-    // still is what we last fetched — a diverged-but-stale remote (rebase,
-    // amend, stale twin push) is replaced; anything pushed since is protected.
-    if force {
-        args.push("--force-with-lease".into());
-    }
-    if set_upstream {
-        let branch = git(&worktree_path, &["rev-parse", "--abbrev-ref", "HEAD"])?
-            .trim()
-            .to_string();
-        args.extend(["-u".into(), "origin".into(), branch]);
-    }
-    git(&worktree_path, &args)
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut args: Vec<String> = vec!["push".into()];
+        // --force-with-lease, never bare --force: overwrites the remote only if it
+        // still is what we last fetched — a diverged-but-stale remote (rebase,
+        // amend, stale twin push) is replaced; anything pushed since is protected.
+        if force {
+            args.push("--force-with-lease".into());
+        }
+        if set_upstream {
+            let branch = git(&worktree_path, &["rev-parse", "--abbrev-ref", "HEAD"])?
+                .trim()
+                .to_string();
+            args.extend(["-u".into(), "origin".into(), branch]);
+        }
+        git(&worktree_path, &args)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Merge `branch` into the branch currently checked out at `repo_path` (the main
 /// worktree). Conflicts/failures surface as an Err with git's stderr.
 #[tauri::command]
-pub fn worktree_merge(repo_path: String, branch: String) -> Result<String, String> {
-    let branch = branch.trim();
-    if branch.is_empty() {
-        return Err("branch is required".into());
-    }
-    git(&repo_path, &["merge", "--no-ff", branch])
+pub async fn worktree_merge(repo_path: String, branch: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let branch = branch.trim();
+        if branch.is_empty() {
+            return Err("branch is required".into());
+        }
+        git(&repo_path, &["merge", "--no-ff", branch])
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_shortstat, parse_status, parse_worktree_list, validate_branch};
+    use super::{
+        parse_shortstat, parse_status, parse_worktree_list, validate_branch, worktree_path_for,
+    };
 
     // ---- parse_worktree_list (git worktree list --porcelain) ----
 
@@ -588,6 +639,41 @@ mod tests {
         assert!(validate_branch("").is_err());
         assert!(validate_branch("a\nb").is_err());
         assert!(validate_branch("a\0b").is_err());
+    }
+
+    // ---- worktree_path_for (the containment guard) ----
+
+    #[test]
+    fn worktree_path_lands_under_the_sibling_base() {
+        let p = worktree_path_for("/home/u/repo", "feat").unwrap();
+        assert_eq!(p, "/home/u/.repo-worktrees/feat");
+        // Slashes nest as directories (feature/foo vs feature-foo stay distinct).
+        let nested = worktree_path_for("/home/u/repo", "feature/foo").unwrap();
+        assert_eq!(nested, "/home/u/.repo-worktrees/feature/foo");
+    }
+
+    #[test]
+    fn worktree_path_rejects_an_absolute_branch() {
+        // Path::join with an absolute path REPLACES the base entirely — the
+        // starts_with check is what catches it. (This is the case the lexical
+        // guard covers itself; `..`/control chars are validate_branch's job,
+        // which create_worktree runs first — see rejects_path_escape above.)
+        assert!(worktree_path_for("/home/u/repo", "/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn worktree_path_guard_pairs_with_validate_branch() {
+        // The security invariant is the PAIR: every branch create_worktree
+        // accepts must resolve inside the base. Sweep the validate_branch
+        // corpus and assert containment holds for everything it lets through.
+        for b in ["feature", "feature/foo", "fix-123", "user.name/wip", "v2.0"] {
+            assert!(validate_branch(b).is_ok());
+            let p = worktree_path_for("/home/u/repo", b).unwrap();
+            assert!(
+                p.starts_with("/home/u/.repo-worktrees/"),
+                "{b:?} escaped: {p}"
+            );
+        }
     }
 
     // ---- parse_shortstat (git diff --shortstat) ----

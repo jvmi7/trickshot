@@ -4,6 +4,7 @@ mod scripts;
 mod terminal;
 mod usage;
 mod worktree;
+mod worktree_map;
 
 use agent::Sessions;
 use scripts::ScriptProcs;
@@ -23,6 +24,7 @@ pub fn run() {
             agent::start_session,
             agent::send_to_session,
             agent::stop_session,
+            agent::latest_session_id,
             agent::notify,
             worktree::pick_directory,
             worktree::list_worktrees,
@@ -57,17 +59,13 @@ pub fn run() {
             // server a run script started.
             if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
                 if let Some(state) = app_handle.try_state::<Sessions>() {
-                    for (_, child) in state.lock().drain() {
-                        let _ = child.kill();
-                    }
+                    agent::kill_all(&state);
                 }
                 if let Some(state) = app_handle.try_state::<ScriptProcs>() {
-                    for (_, child) in state.lock().drain() {
-                        scripts::kill_script(child);
-                    }
+                    scripts::kill_all(&state);
                 }
                 if let Some(state) = app_handle.try_state::<Terminals>() {
-                    state.kill_all();
+                    terminal::kill_all(&state);
                 }
             }
         });

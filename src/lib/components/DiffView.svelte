@@ -76,7 +76,7 @@
 </script>
 
 {#if shown.length === 0}
-  <div class="diff-empty">No changes in this file.</div>
+  <div class="diff-empty empty-state">No changes in this file.</div>
 {:else}
   <div class="diff">
     {#each shown as line, i (i)}
@@ -104,7 +104,7 @@
 <style>
   .diff {
     font-family: ui-monospace, monospace;
-    font-size: 12px;
+    font-size: var(--text-sm);
     line-height: 1.5;
     overflow: auto;
     height: 100%;
@@ -131,7 +131,7 @@
     height: 16px;
     padding: 0;
     border: 0;
-    border-radius: 3px;
+    border-radius: var(--radius-2xs);
     background: none;
     color: var(--app-dim);
     opacity: 0;
@@ -140,8 +140,8 @@
     opacity: 1;
   }
   .ln-comment:hover {
-    color: var(--primary);
-    background: color-mix(in oklch, var(--primary) 14%, transparent);
+    color: var(--app-accent);
+    background: color-mix(in oklch, var(--app-accent) 14%, transparent);
   }
   /* Add/del rows carry only the background tint; token text color comes from the
      shared `.hljs-*` palette in app.css (which is layered, so an unlayered scoped
@@ -151,19 +151,17 @@
     background: color-mix(in oklch, var(--base-success) 16%, transparent);
   }
   .del {
-    background: color-mix(in oklch, var(--destructive) 16%, transparent);
+    background: color-mix(in oklch, var(--app-danger) 16%, transparent);
   }
   .hunk {
-    color: var(--primary);
-    background: color-mix(in oklch, var(--primary) 8%, transparent);
+    color: var(--app-accent);
+    background: color-mix(in oklch, var(--app-accent) 8%, transparent);
   }
   .meta {
     color: var(--app-dim);
   }
+  /* Text styling is the shared .empty-state (app.css); spacing stays per-site. */
   .diff-empty {
-    color: var(--app-dim);
-    font-size: 12px;
     padding: 16px;
-    text-align: center;
   }
 </style>

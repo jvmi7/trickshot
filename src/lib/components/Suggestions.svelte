@@ -34,7 +34,7 @@
 </script>
 
 {#if show}
-  <div class="suggestions">
+  <div class="suggestions chat-col">
     {#each chips as s (s)}
       <Button variant="outline" size="sm" class="rounded-full" onclick={() => pick(s)}>
         {s}
@@ -44,12 +44,9 @@
 {/if}
 
 <style>
-  /* Align with the composer's reading column (same max-width + horizontal padding). */
+  /* Chip row layout; the reading-column width/gutter comes from the shared
+     .chat-col (app.css), matching the composer. */
   .suggestions {
-    width: 100%;
-    max-width: var(--chat-col);
-    margin-inline: auto;
-    padding: 0 32px 0;
     display: flex;
     flex-wrap: wrap;
     gap: 8px;

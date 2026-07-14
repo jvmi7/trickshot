@@ -27,14 +27,17 @@ export const pickDirectory = () => invoke<string | null>("pick_directory");
 /** Show a desktop (OS) notification. */
 export const notify = (title: string, body: string) => invoke<void>("notify", { title, body });
 
-/** The Claude subscription usage windows (rolling 5-hour + weekly). Rejects when
- *  unavailable (not logged in, token expired, rate limited); callers throttle. */
-export const getUsage = () => invoke<UsageInfo>("get_usage");
+/** The subscription usage windows for a provider's account (for Claude: rolling
+ *  5-hour + weekly). Rejects when unavailable (not logged in, token expired,
+ *  rate limited) or when the provider has no usage probe; callers throttle. */
+export const getUsage = (provider?: string) =>
+  invoke<UsageInfo>("get_usage", { provider: provider ?? null });
 
-/** Whether a Claude Code login exists on this machine (local credential read,
- *  no network). false = definitively not signed in; rejects when the check is
- *  ambiguous (callers stay silent rather than false-alarm). */
-export const checkAuth = () => invoke<boolean>("check_auth");
+/** Whether a login exists on this machine for a provider's account (local
+ *  credential read, no network). false = definitively not signed in; rejects
+ *  when the check is ambiguous (callers stay silent rather than false-alarm). */
+export const checkAuth = (provider?: string) =>
+  invoke<boolean>("check_auth", { provider: provider ?? null });
 
 /** List all worktrees of a git repo (the first entry is the main worktree). */
 export const listWorktrees = (repoPath: string) =>
@@ -135,9 +138,26 @@ export const prCreate = (
 
 // ---- Integrated terminal (one PTY per worktree) ---------------------------
 
-/** Open (idempotent) a PTY running the user's shell with cwd = the worktree. */
-export const termOpen = (worktree: string, rows: number, cols: number) =>
-  invoke<void>("term_open", { worktree, rows, cols });
+/** Open (idempotent) a PTY for the worktree. Default: the user's login shell.
+ *  `launch: "claude"` runs the Claude Code CLI instead (optionally resuming
+ *  `resumeSessionId`) on a SEPARATE PTY keyed by the claude slot (see
+ *  `claudeTermKey` in terminal.ts) — the CLI chat mode. The launch value is a
+ *  fixed whitelist name; Rust resolves the actual binary (never a command
+ *  string from here). */
+export const termOpen = (
+  worktree: string,
+  rows: number,
+  cols: number,
+  launch?: "claude",
+  resumeSessionId?: string,
+) =>
+  invoke<void>("term_open", {
+    worktree,
+    rows,
+    cols,
+    launch: launch ?? null,
+    resumeSessionId: resumeSessionId ?? null,
+  });
 
 /** Write keystrokes to a worktree's PTY. */
 export const termWrite = (worktree: string, data: string) =>
@@ -176,6 +196,13 @@ export const startSession = (worktree: string, config: SessionConfig = {}) =>
 
 /** Kill a worktree's agent session. */
 export const stopSession = (worktree: string) => invoke<void>("stop_session", { worktree });
+
+/** The newest Claude Code session id recorded for a worktree (resume forks a
+ *  new id, so after a CLI chat-mode stint the persisted id is stale — this
+ *  scan finds the live thread). null when the worktree has no sessions yet.
+ *  Provider-gated like getUsage/checkAuth. */
+export const latestSessionId = (worktree: string, provider?: string) =>
+  invoke<string | null>("latest_session_id", { worktree, provider: provider ?? null });
 
 const send = (worktree: string, msg: Inbound) =>
   invoke<void>("send_to_session", { worktree, payload: JSON.stringify(msg) });

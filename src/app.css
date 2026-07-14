@@ -339,7 +339,7 @@
 /* ============================================================
    THEME ENGINE — semantic base palette. Both the shadcn --* tokens
    and the bespoke --app-* tokens below derive from these via var(),
-   so a theme is just a swap of these ~15 vars.
+   so a theme is just a swap of these ~16 vars.
 
    The ACTIVE theme is injected at runtime from `src/lib/themes.ts`
    (the single source of truth) as a `:root[data-theme="…"]` block.
@@ -366,6 +366,7 @@
   --base-special: #b57fd9;        /* chart / extra */
   --base-overlay: rgb(0 0 0 / 0.5); /* modal scrim */
   --base-selection: #837c7c; /* text-selection highlight fill (rendered at 20%); selected text uses --base-accent */
+  --base-term-glow: 0 0 4px color-mix(in srgb, currentColor 55%, transparent), 0 0 12px color-mix(in srgb, currentColor 50%, transparent); /* terminal glyph glow (a full text-shadow) */
 }
 
 /* Named themes are NO LONGER hand-written here. They live in `src/lib/themes.ts`
@@ -377,42 +378,17 @@
 /* ============================================================
    shadcn-svelte design tokens (Tailwind v4). These drive the
    shadcn primitives in $lib/components/ui. Do NOT rename them.
-   Light values (oklch) are the unused shadcn baseline; the app
-   runs class="dark", whose values derive from the base palette.
+   The values live in the `.dark` block below, ALL derived from
+   the base palette. `class="dark"` (index.html) is a permanent
+   token-activation selector, NOT a light/dark mode: themes —
+   including a light-VALUED one — are palette swaps under it
+   (add a THEMES entry in themes.ts; see DESIGN_SYSTEM.md).
+   The stock shadcn light-oklch baseline that used to sit here
+   was inert (nothing ever removes .dark) and was removed so it
+   can't masquerade as a light mode.
    ============================================================ */
 :root {
   --radius: 1rem; /* global corner radius (16px) — everything derives from this */
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.147 0.004 49.25);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.147 0.004 49.25);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.147 0.004 49.25);
-  --primary: oklch(0.216 0.006 56.043);
-  --primary-foreground: oklch(0.985 0.001 106.423);
-  --secondary: oklch(0.97 0.001 106.424);
-  --secondary-foreground: oklch(0.216 0.006 56.043);
-  --muted: oklch(0.97 0.001 106.424);
-  --muted-foreground: oklch(0.553 0.013 58.071);
-  --accent: oklch(0.97 0.001 106.424);
-  --accent-foreground: oklch(0.216 0.006 56.043);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.923 0.003 48.717);
-  --input: oklch(0.923 0.003 48.717);
-  --ring: oklch(0.709 0.01 56.259);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0.001 106.423);
-  --sidebar-foreground: oklch(0.147 0.004 49.25);
-  --sidebar-primary: oklch(0.216 0.006 56.043);
-  --sidebar-primary-foreground: oklch(0.985 0.001 106.423);
-  --sidebar-accent: oklch(0.97 0.001 106.424);
-  --sidebar-accent-foreground: oklch(0.216 0.006 56.043);
-  --sidebar-border: oklch(0.923 0.003 48.717);
-  --sidebar-ring: oklch(0.709 0.01 56.259);
 }
 
 /* shadcn dark tokens retuned to the app's dark/terracotta palette so shadcn
@@ -458,10 +434,33 @@
      --font-sans to <html>, so every element inherits it unless overridden. */
   --font-sans: var(--app-font);
   --font-mono: var(--app-font);
+  /* Typographic scale — px-valued to match the bespoke grid exactly (the 14px
+     :root font-size makes Tailwind's rem-based defaults land on fractional px:
+     text-xs was 10.5px, text-sm 12.25px). These snap the utilities onto the
+     sizes the app actually uses, so `text-xs` IS the 11px meta/label size.
+     Raw `font-size: NNpx` in styles is banned (conformance-enforced) — use
+     these utilities in markup or `var(--text-*)` in a scoped rule. */
+  --text-2xs: 10px;
+  --text-2xs--line-height: 1.4; /* overlines, micro-badges (.wt-unread) */
+  --text-xs: 11px;
+  --text-xs--line-height: 1.45; /* the workhorse small size: labels, pills, meta */
+  --text-sm: 12px;
+  --text-sm--line-height: 1.5; /* secondary body: empty states, errors, tool rows */
+  --text-md: 13px;
+  --text-md--line-height: 1.5; /* list rows, thread messages */
+  --text-base: 14px;
+  --text-base--line-height: 1.5; /* body (equals the :root size) */
+  /* Radius ladder — every corner derives from --radius (see :root). 999px is the
+     blessed "pill" radius and stays literal. */
+  --radius-2xs: calc(var(--radius) - 12px); /* 4px — code chips, tiny controls */
+  --radius-xs: calc(var(--radius) - 8px); /* 8px — inset panels, list rows */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  /* Easings (Tailwind's --ease-* namespace → usable as ease-* utilities too). */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1); /* deceleration reveals */
+  --ease-slide: cubic-bezier(0.4, 0, 0.2, 1); /* structural slides */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -501,6 +500,16 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+  /* Keyboard-focus ring for every HAND-STYLED interactive element (pills, ghost
+     text buttons, chrome buttons, list rows, links). Never write a per-component
+     focus ring — this is the one treatment, and it themes via --ring
+     (= --base-accent). shadcn ui/* primitives are unaffected: their
+     `outline-none` + `focus-visible:ring-*` utilities live in the utilities
+     layer, which beats base. */
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--ring) 60%, transparent);
+    outline-offset: 1px;
   }
 }
 
@@ -545,6 +554,48 @@
   /* Max width of the chat reading column (messages + loading + composer); it
      centers in the pane when wider. */
   --chat-col: 740px;
+  /* Z ladder for bespoke chrome. shadcn overlays own z-50 — stay below it.
+     Local stacking inside one component (z-index: 0/1) stays literal; anything
+     that orders ACROSS components uses these (conformance-enforced). */
+  --app-z-overlay: 3; /* in-pane overlays: edge fades */
+  --app-z-float: 4; /* floating affordances over content: the reply pill */
+  --app-z-indicator: 5; /* scroll indicator (above the fades) */
+  --app-z-chrome: 20; /* window chrome: sidebar resize handle, titlebar buttons */
+  /* Motion. `fast` is THE feedback duration (hover/color/opacity); `slow` is
+     structural (panel slides, fades, reveals). Keyframe choreography (dot-pulse,
+     shimmer, caret blink) keeps literal durations — those are animations with
+     their own rhythm, not interaction feedback. */
+  --app-duration-fast: 120ms;
+  --app-duration-slow: 300ms;
+  /* Shadows. Black-based so the value works over light-valued theme palettes
+     too; if a theme ever needs a custom shadow, promote this to a ThemePalette
+     key via PALETTE_VARS (themes.ts) instead of forking it per-site. */
+  --app-shadow-float: 0 1px 4px rgb(0 0 0 / 0.18);
+  /* ANSI terminal palette — the 16 base slots consumed by the `.ansi-*` classes
+     below (emitted by src/lib/ansi.ts → AnsiText; the class↔token↔emitter seam
+     is conformance-tested, §8). ALL derived from the base palette via var()/
+     color-mix — never a raw literal — so ANSI output retints with the theme.
+     Brights (9-13) pull their hue 75% toward the text color; cyan (6/14) is an
+     info⊕success mix since the palette has no cyan of its own. */
+  --app-ansi-0: var(--base-border); /* black */
+  --app-ansi-1: var(--base-danger); /* red */
+  --app-ansi-2: var(--base-success); /* green */
+  --app-ansi-3: var(--base-warning); /* yellow */
+  --app-ansi-4: var(--base-info); /* blue */
+  --app-ansi-5: var(--base-special); /* magenta */
+  --app-ansi-6: color-mix(in srgb, var(--base-info) 55%, var(--base-success)); /* cyan */
+  --app-ansi-7: var(--base-text-muted); /* white */
+  --app-ansi-8: color-mix(in srgb, var(--base-border) 60%, var(--base-text-muted)); /* bright black */
+  --app-ansi-9: color-mix(in srgb, var(--base-danger) 75%, var(--base-text)); /* bright red */
+  --app-ansi-10: color-mix(in srgb, var(--base-success) 75%, var(--base-text)); /* bright green */
+  --app-ansi-11: color-mix(in srgb, var(--base-warning) 75%, var(--base-text)); /* bright yellow */
+  --app-ansi-12: color-mix(in srgb, var(--base-info) 75%, var(--base-text)); /* bright blue */
+  --app-ansi-13: color-mix(in srgb, var(--base-special) 75%, var(--base-text)); /* bright magenta */
+  --app-ansi-14: color-mix(in srgb, var(--base-info) 40%, var(--base-text)); /* bright cyan */
+  --app-ansi-15: var(--base-text); /* bright white */
+  /* Mono stack for terminal-flavored surfaces (the terminal chat skin) — a font
+     STACK, not a color/size literal, so it's conformance-legal by kind. */
+  --app-font-mono: ui-monospace, Menlo, monospace;
   font-family: var(--app-font);
   font-size: 14px;
 }
@@ -583,15 +634,6 @@ html, body {
      on screen is the sidebar's full-height right border. */
 }
 .app-header .spacer { flex: 1; }
-/* Segmented view toggle (Chat | Changes): items sit above the sliding highlight
-   (slidingToggle prepends a z-index:0 bg), which fills the active item. */
-.view-toggle { display: inline-flex; align-items: center; gap: 2px; position: relative; }
-.view-toggle-item { position: relative; z-index: 1; }
-/* Diffstat counts on the header's Changes tab (added green / removed red,
-   matching DiffView's line colors). */
-.diff-add { color: var(--base-success); font-variant-numeric: tabular-nums; }
-.diff-del { color: var(--destructive); font-variant-numeric: tabular-nums; }
-
 /* ---- floating top-bar icon buttons (HeaderIconButton.svelte): the sidebar
    toggle (left, past the macOS traffic lights so it survives the sidebar
    sliding away) and the settings gear (right). Shared styling so they feel
@@ -613,12 +655,15 @@ html, body {
   padding: 0;
   border-radius: calc(var(--radius) - 5px); /* derives from global --radius */
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+  transition:
+    background var(--app-duration-fast) ease,
+    color var(--app-duration-fast) ease,
+    opacity var(--app-duration-fast) ease;
 }
 .icon-chrome-btn:hover { background: var(--app-panel-2); color: var(--app-text); }
 .icon-chrome-btn svg { display: block; width: 13px; height: 13px; }
 /* Header chrome buttons add absolute positioning over the overlay titlebar. */
-.header-icon-btn { position: absolute; top: 4px; left: 74px; z-index: 20; }
+.header-icon-btn { position: absolute; top: 4px; left: 74px; z-index: var(--app-z-chrome); }
 
 /* ---- sidebar column: full-height, right border is the sole divider ---- */
 .sidebar {
@@ -632,7 +677,7 @@ html, body {
   border-right: 1px solid var(--app-border);
   /* slide in/out: collapsed pulls the panel fully off to the left (by its current
      width), letting the content smoothly fill the freed space. */
-  transition: margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: margin-left var(--app-duration-slow) var(--ease-slide);
 }
 .sidebar.collapsed { margin-left: calc(-1 * var(--sidebar-width, 320px)); }
 .sidebar-head { height: 48px; flex-shrink: 0; }
@@ -648,7 +693,7 @@ html, body {
   right: -6px;
   width: 12px;
   cursor: col-resize;
-  z-index: 15;
+  z-index: var(--app-z-chrome);
 }
 .sidebar-resize::after {
   content: "";
@@ -659,7 +704,7 @@ html, body {
   transform: translateX(-50%);
   width: 2px;
   background: transparent;
-  transition: background 0.12s ease;
+  transition: background var(--app-duration-fast) ease;
 }
 .sidebar-resize:hover::after { background: var(--app-accent); }
 .sidebar.collapsed .sidebar-resize { display: none; } /* nothing to grab when hidden */
@@ -674,24 +719,70 @@ html, body {
 .settings-page { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 24px 32px 48px; }
 .settings-inner { max-width: 720px; margin: 0 auto; }
 
-.error-box { margin-top: 16px; color: var(--app-danger); font-size: 12px; white-space: pre-wrap; }
+/* ---- shared building-block classes. Small, single-purpose, composed by feature
+   components (class="foo chat-col") — each names its consumers so reach stays
+   greppable. ---- */
+/* Centered reading column: Chat `.messages`, `.composer`, Suggestions,
+   QueuedMessages, Chat `.auth-banner`. */
+.chat-col { width: 100%; max-width: var(--chat-col); margin-inline: auto; padding-inline: 32px; }
+/* Uppercase section label — TYPOGRAPHY ONLY (sites own their layout): sidebar
+   `.wt-section`/`.repo-name`, PrPanel title, QueuedMessages label, ThreadPanel
+   label + reply divider. */
+.section-label { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--app-dim); }
+/* Centered dim empty-state line: Chat `.empty`, GitPanel, RunOutput, DiffView. */
+.empty-state { color: var(--app-dim); font-size: var(--text-sm); text-align: center; }
+/* Inline error text: GitPanel/PrPanel `.git-error`, RunScripts, TerminalPane,
+   ThreadPanel, the sidebar error line (Worktrees). */
+.error-text { color: var(--app-danger); font-size: var(--text-xs); white-space: pre-wrap; word-break: break-word; }
+/* Success-toned sibling of .error-text: GitPanel `.git-notice`. */
+.notice-text { color: var(--base-success); font-size: var(--text-xs); white-space: pre-wrap; word-break: break-word; }
+/* Ghost text button (chromeless inline action): QueuedMessages actions,
+   ThreadPanel quote toggle. */
+.text-action { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; font-size: var(--text-xs); font-weight: 500; color: var(--app-dim); cursor: pointer; transition: color var(--app-duration-fast) ease; }
+.text-action:hover { color: var(--app-text); }
+/* Bordered panel section + its plumbing, shared by GitPanel and PrPanel (hoisted
+   from their formerly copy-pasted "keep in sync" scoped styles). */
+.panel-section { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-top: 1px solid var(--app-border); }
+.panel-spacer { flex: 1; }
+.panel-form { display: flex; flex-direction: column; gap: 8px; }
+
+/* Terminal pane host, shared by TerminalPane (shell) and ClaudeTerminalPane
+   (CLI chat mode). .content is a flex ROW — flex:1 claims the full pane. The
+   spacing lives on .term-pane, NOT .term-host: the fit addon measures the
+   host's computed height, which under border-box includes its own padding —
+   padding on the host over-counts the rows and the bottom rows draw off-pane.
+   The grid never exactly fills the host, so the leftover strip below the last
+   row must be OUR background; deliberately NO height:100% on .xterm. */
+.term-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 8px 0 8px 12px; background: var(--base-bg); }
+.term-host { flex: 1; min-height: 0; overflow: hidden; background: var(--base-bg); }
+/* Per-theme glyph glow (--base-term-glow, a full text-shadow; a theme sets `none`
+   to disable). Works because xterm runs its DOM renderer (real text in spans) —
+   currentColor resolves PER SPAN, so each ANSI color glows in its own hue. If a
+   WebGL/canvas addon is ever added, glyphs become canvas pixels and this rule
+   silently stops applying. */
+.term-host .xterm-rows { text-shadow: var(--base-term-glow); }
+/* Text styling is the shared .error-text; this just pads it off the pane edges. */
+.term-error { padding: 6px 12px; }
 
 /* ---- sidebar v2: repos + worktrees (Conductor-style) ---- */
 .wt { display: flex; flex-direction: column; }
-/* Section header above the project list: "Projects" label + inline add button. */
-.wt-section { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--app-dim); padding: 0 2px; margin: 2px 0 6px; }
-.wt-empty { font-size: 12px; color: var(--app-dim); padding: 4px 2px; }
+/* Section header above the project list: "Projects" label + inline add button.
+   Typography comes from the composed .section-label (see Worktrees markup). */
+.wt-section { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 2px; margin: 2px 0 6px; }
+.wt-empty { font-size: var(--text-sm); color: var(--app-dim); padding: 4px 2px; }
 .repo-group { margin-bottom: 12px; }
 .repo-head { display: flex; align-items: center; gap: 6px; padding: 2px; }
 /* Accordion toggle: chevron + repo name, clickable to fold/unfold the worktrees. */
 .repo-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: 0; cursor: pointer; text-align: left; }
-.repo-chevron { display: inline-flex; flex-shrink: 0; color: var(--app-dim); transition: transform 0.15s ease; }
+.repo-chevron { display: inline-flex; flex-shrink: 0; color: var(--app-dim); transition: transform var(--app-duration-fast) ease; }
 .repo-chevron.collapsed { transform: rotate(-90deg); }
-.repo-name { flex: 1; min-width: 0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--app-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Typography comes from the composed .section-label (see Worktrees markup). */
+.repo-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wt-rows { list-style: none; margin: 2px 0 0; padding: 0; }
-.wt-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: calc(var(--radius) - 4px); cursor: pointer; font-size: 13px; outline: none; }
+/* Focus ring comes from the global @layer base :focus-visible rule — the row's
+   old bespoke inset ring + outline:none were dropped when that rule landed. */
+.wt-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: calc(var(--radius) - 4px); cursor: pointer; font-size: var(--text-md); }
 .wt-row:hover { background: var(--app-panel); }
-.wt-row:focus-visible { box-shadow: inset 0 0 0 1px var(--app-accent); }
 .wt-row.active { background: var(--app-panel-2); }
 .wt-row .wt-home { color: var(--app-dim); flex-shrink: 0; width: 16px; height: 16px; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--app-border); flex-shrink: 0; }
@@ -700,8 +791,11 @@ html, body {
 @keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .wt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Sidebar activity badges: pending-permission flag + background unread count. */
-.wt-pending { flex-shrink: 0; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--base-warning); }
-.wt-unread { flex-shrink: 0; min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border-radius: 8px; background: var(--app-accent); color: var(--app-bg); }
+.wt-pending { flex-shrink: 0; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: 700; color: var(--base-warning); }
+/* Text on the accent fill is --base-on-accent, NOT --app-bg: they coincide in the
+   current dark themes but diverge on a light-valued palette (dark accent text over
+   a light canvas). Pill radius: 999px (the blessed pill radius). */
+.wt-unread { flex-shrink: 0; min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-2xs); font-weight: 700; border-radius: 999px; background: var(--app-accent); color: var(--base-on-accent); }
 
 /* ---- chat ---- */
 .chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
@@ -720,7 +814,7 @@ html, body {
 .workspace-label .path {
   display: inline-block;
   max-width: 100%;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--app-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -738,48 +832,8 @@ html, body {
 /* The chat content (messages, loading footer, composer) shares one reading column
    capped at --chat-col and centered when the pane is wider. The scroll viewport
    and dividers stay full-width; only the content centers. */
-.messages { width: 100%; max-width: var(--chat-col); margin-inline: auto; padding: 16px 32px; display: flex; flex-direction: column; gap: 22px; will-change: transform; }
-.empty { color: var(--app-dim); text-align: center; margin-top: 40px; }
-
-/* Top/bottom fade overlays — content fades in/out as it scrolls past the edges.
-   Painted in the canvas color so it reads as a fade; above content, below the
-   scroll indicator (z 5). */
-/* Both fades are positional: hidden by default, shown (via .show, toggled in
-   Chat.svelte) only when there's content scrolled off that edge. */
-/* Constrained to the centered reading column (matches .messages' max-width),
-   not the full viewport, so the fade only covers where the chat content is. */
-.edge-fade { position: absolute; left: 50%; transform: translateX(-50%); width: 100%; max-width: var(--chat-col); height: 52px; pointer-events: none; z-index: 3; opacity: 0; transition: opacity 0.3s ease; }
-.edge-fade.show { opacity: 1; }
-.edge-fade-top { top: 0; background: linear-gradient(to bottom, var(--base-bg), transparent); }
-.edge-fade-bottom { bottom: 0; background: linear-gradient(to top, var(--base-bg), transparent); }
-
-/* Scroll position indicator (top-right): animates in on scroll, fill tracks the
-   cursor frame-accurately, fades out when idle. */
-.scroll-indic {
-  position: absolute;
-  top: 14px;
-  right: 12px;
-  width: 4px;
-  height: 120px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--app-dim) 30%, transparent); /* track = dim muted */
-  /* Hidden = slid fully off the right edge (clipped by the viewport's overflow).
-     Pure slide — no opacity or scale — on a smooth ease-out curve. */
-  transform: translateX(calc(100% + 12px));
-  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 5;
-}
-.scroll-indic.visible { transform: translateX(0); }
-.scroll-indic-fill {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  background: color-mix(in srgb, var(--app-text) 60%, transparent); /* fill = dimmed text */
-  border-radius: 999px;
-}
+/* Width/gutter come from the composed .chat-col (see Chat markup). */
+.messages { padding-block: 16px; display: flex; flex-direction: column; gap: 22px; will-change: transform; }
 
 /* Shared "bubble" surface — the user message bubble AND the composer input use
    the SAME gradient + faint outline + radius, so the input matches the chat
@@ -829,7 +883,7 @@ html, body {
 .messages.minimal .msg .body {
   width: fit-content;
   max-width: 78%;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   padding: 9px 14px;
   line-height: 1.35;
 }
@@ -853,6 +907,40 @@ html, body {
 .messages.minimal .msg.assistant .body:last-child {
   border-bottom-left-radius: 6px;
 }
+
+/* ---- Terminal skin (`.messages[data-chat-skin="terminal"]`, set from
+   stores.ts › chatSkin via Chat.svelte): mono chat column, user turns as
+   accent `❯ ` prompt lines instead of bubbles, tighter rhythm, denser tool
+   rows. Composes with minimal mode by design: the structural overrides (gap +
+   prompt-line bubble kill) are scoped :not(.minimal) — the attribute selector
+   otherwise out-specifies minimal's bubble rules — so minimal keeps its
+   iMessage look and only the mono type applies there. Assistant turns already
+   render as plain prose in the normal view (no bubble chrome to flatten).
+   All token-derived (conformance §7). ---- */
+.messages[data-chat-skin="terminal"] {
+  font-family: var(--app-font-mono);
+  font-size: var(--text-md);
+}
+.messages[data-chat-skin="terminal"]:not(.minimal) { gap: 6px; }
+/* User turn as a prompt line: kill the bubble surface (the shared gradient +
+   outline above), left-aligned in the one shared column, accent prompt glyph. */
+.messages[data-chat-skin="terminal"]:not(.minimal) .msg.user .body {
+  background: none;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  color: var(--app-text);
+}
+.messages[data-chat-skin="terminal"]:not(.minimal) .msg.user .body::before {
+  content: "❯ ";
+  color: var(--app-accent);
+  font-weight: 600;
+}
+/* Fenced code tightens to the near-square radius, terminal-style. */
+.messages[data-chat-skin="terminal"] .markdown pre { border-radius: var(--radius-2xs); }
+/* Denser tool rows. */
+.messages[data-chat-skin="terminal"] .tool-row { margin-top: 2px; }
+.messages[data-chat-skin="terminal"] .tool-row-head { padding: 1px 0; font-size: var(--text-sm); }
 /* Composer input: same bubble surface, laid out as [textarea | send button].
    The selector row below stays OUTSIDE this surface. */
 .composer-input {
@@ -863,7 +951,9 @@ html, body {
   /* The container chrome isn't selectable; the textarea re-enables it (select-text). */
   -webkit-user-select: none;
   user-select: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color var(--app-duration-fast) ease,
+    box-shadow var(--app-duration-fast) ease;
 }
 /* Brighten the border on hover, and keep it bright while the input is focused. */
 .composer-input:hover,
@@ -909,8 +999,15 @@ html, body {
   padding: 10px 12px; margin: 12px 0; overflow-x: auto;
 }
 .markdown pre code { color: var(--app-text); background: none; border: none; padding: 0; font-size: 0.85em; }
-.markdown table { border-collapse: collapse; margin: 0 0 8px; display: block; overflow-x: auto; }
-.markdown th, .markdown td { border: 1px solid var(--app-border); padding: 4px 8px; text-align: left; }
+/* Data tables — the markdown table AND TextTable (tool-result tabular view)
+   share ONE look (the :where(.markdown, .diff) hljs precedent below): panel
+   header band, hairline row dividers (no per-cell side borders), zebra
+   striping, tabular numerals. display:block + overflow-x keeps a wide table
+   scrolling inside its own box. */
+:where(.markdown, .text-table) table { border-collapse: collapse; margin: 0 0 8px; display: block; overflow-x: auto; font-variant-numeric: tabular-nums; }
+:where(.markdown, .text-table) thead th { background: var(--app-panel); font-weight: 600; border-bottom: 1px solid var(--app-border); }
+:where(.markdown, .text-table) th, :where(.markdown, .text-table) td { padding: 4px 10px; text-align: left; border-bottom: 1px solid color-mix(in srgb, var(--app-border) 60%, transparent); }
+:where(.markdown, .text-table) tbody tr:nth-child(even) { background: color-mix(in srgb, var(--app-panel) 55%, transparent); }
 /* highlight.js scopes → the theme's existing chart hues (no imported hljs theme,
    so syntax color follows the active --base-* palette). Shared by markdown fenced
    code and the git diff (DiffView), which both emit `<span class="hljs-…">`. */
@@ -924,6 +1021,46 @@ html, body {
 :where(.markdown, .diff) .hljs-deletion { color: var(--app-danger); }
 :where(.markdown, .diff) .hljs-emphasis { font-style: italic; }
 :where(.markdown, .diff) .hljs-strong { font-weight: 600; }
+/* ---- ANSI text spans (AnsiText.svelte; classes emitted by src/lib/ansi.ts).
+   Shared by Collapsible (tool results) and RunOutput (script logs). Colors
+   route through the --app-ansi-* slots above so ANSI output follows the theme;
+   the emitter↔rule↔token pairing is conformance-tested (§8). ---- */
+.ansi-fg-0 { color: var(--app-ansi-0); }
+.ansi-fg-1 { color: var(--app-ansi-1); }
+.ansi-fg-2 { color: var(--app-ansi-2); }
+.ansi-fg-3 { color: var(--app-ansi-3); }
+.ansi-fg-4 { color: var(--app-ansi-4); }
+.ansi-fg-5 { color: var(--app-ansi-5); }
+.ansi-fg-6 { color: var(--app-ansi-6); }
+.ansi-fg-7 { color: var(--app-ansi-7); }
+.ansi-fg-8 { color: var(--app-ansi-8); }
+.ansi-fg-9 { color: var(--app-ansi-9); }
+.ansi-fg-10 { color: var(--app-ansi-10); }
+.ansi-fg-11 { color: var(--app-ansi-11); }
+.ansi-fg-12 { color: var(--app-ansi-12); }
+.ansi-fg-13 { color: var(--app-ansi-13); }
+.ansi-fg-14 { color: var(--app-ansi-14); }
+.ansi-fg-15 { color: var(--app-ansi-15); }
+.ansi-bg-0 { background: var(--app-ansi-0); }
+.ansi-bg-1 { background: var(--app-ansi-1); }
+.ansi-bg-2 { background: var(--app-ansi-2); }
+.ansi-bg-3 { background: var(--app-ansi-3); }
+.ansi-bg-4 { background: var(--app-ansi-4); }
+.ansi-bg-5 { background: var(--app-ansi-5); }
+.ansi-bg-6 { background: var(--app-ansi-6); }
+.ansi-bg-7 { background: var(--app-ansi-7); }
+.ansi-bg-8 { background: var(--app-ansi-8); }
+.ansi-bg-9 { background: var(--app-ansi-9); }
+.ansi-bg-10 { background: var(--app-ansi-10); }
+.ansi-bg-11 { background: var(--app-ansi-11); }
+.ansi-bg-12 { background: var(--app-ansi-12); }
+.ansi-bg-13 { background: var(--app-ansi-13); }
+.ansi-bg-14 { background: var(--app-ansi-14); }
+.ansi-bg-15 { background: var(--app-ansi-15); }
+.ansi-bold { font-weight: 700; }
+.ansi-dim { opacity: 0.65; }
+.ansi-italic { font-style: italic; }
+.ansi-underline { text-decoration: underline; }
 /* ---- compact tool rows (a tool_call + its folded-in result; see
    ToolActivity.svelte). Dim and one-line by default so assistant prose
    dominates; click the head to expand input + result. ---- */
@@ -931,10 +1068,10 @@ html, body {
 .tool-row-head {
   display: flex; align-items: center; gap: 6px; width: 100%;
   padding: 3px 0; background: none; border: none; cursor: pointer;
-  font-size: 12px; color: var(--app-dim); text-align: left;
+  font-size: var(--text-sm); color: var(--app-dim); text-align: left;
 }
 .tool-row-head:hover { color: var(--app-text); }
-.tool-chevron { flex-shrink: 0; opacity: 0.7; transition: transform 0.15s ease; }
+.tool-chevron { flex-shrink: 0; opacity: 0.7; transition: transform var(--app-duration-fast) ease; }
 .tool-row-head[data-state="open"] .tool-chevron { transform: rotate(90deg); }
 .tool-label { color: var(--app-text); flex-shrink: 0; }
 .tool-detail { color: var(--app-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -943,13 +1080,13 @@ html, body {
 .tool-pending { width: 5px; height: 5px; border-radius: 50%; background: var(--app-dim); display: inline-block; opacity: 0.6; }
 .tool-row-body { padding: 4px 0 2px 20px; }
 .tool-block { margin-top: 4px; }
-.tool-block-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--app-dim); opacity: 0.7; margin-bottom: 2px; }
+.tool-block-label { font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--app-dim); opacity: 0.7; margin-bottom: 2px; }
 /* A run of tool calls batched behind one collapsible header (see ToolGroup). */
 .tool-group { margin-top: 4px; }
 .tool-group.error .tool-status { color: var(--app-danger); opacity: 1; }
 .tool-group-body { padding-left: 14px; }
-.msg.system { align-self: center; color: var(--app-dim); font-size: 11px; }
-.msg.error { align-self: center; color: var(--app-danger); font-size: 12px; }
+.msg.system { align-self: center; color: var(--app-dim); font-size: var(--text-xs); }
+.msg.error { align-self: center; color: var(--app-danger); font-size: var(--text-sm); }
 
 /* ---- loading state (verbose "what's happening" footer while a turn runs) ---- */
 /* One row: the shimmer "thinking" label, with the elapsed timer inline beside it.
@@ -957,10 +1094,10 @@ html, body {
 /* In-flow chat item (last child of .messages): aligns with the message column,
    spaced by the column's gap — no footer-specific max-width/padding. */
 .loading-state { display: flex; align-items: baseline; gap: 8px; }
-.loading-label { font-size: 13px; color: var(--app-text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.loading-meta { font-size: 11px; color: var(--app-dim); flex-shrink: 0; }
+.loading-label { font-size: var(--text-md); color: var(--app-text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.loading-meta { font-size: var(--text-xs); color: var(--app-dim); flex-shrink: 0; }
 /* Idle end-of-turn summary ("Finished in 17s · 4 steps") in the same footer slot. */
-.loading-summary { font-size: 12px; color: var(--app-dim); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.loading-summary { font-size: var(--text-sm); color: var(--app-dim); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* "Thinking" text animation: a shimmer sweep (a moving highlight in a gradient
    clipped to the glyphs) over the JS typewriter reveal (see LoadingState.svelte). */
 .loading-label .shimmer {
@@ -978,7 +1115,8 @@ html, body {
 }
 
 /* ---- composer ---- */
-.composer { position: relative; width: 100%; max-width: var(--chat-col); margin-inline: auto; flex-shrink: 0; padding: 8px 32px 12px; }
+/* Width/gutter come from the composed .chat-col (see Composer markup). */
+.composer { position: relative; flex-shrink: 0; padding-block: 8px 12px; }
 /* Caret that rides the end of the animated placeholder as it types/backspaces,
    matching the real textarea caret (color + blink) so the handoff is seamless. */
 .ph-caret {

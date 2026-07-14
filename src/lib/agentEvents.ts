@@ -8,10 +8,10 @@
 import { get } from "svelte/store";
 import { toolDetail, toolLabel } from "./agentMessage";
 import { notify, requestSuggestions, setModel, toggleConnector } from "./api";
+import { providerDisplay } from "./providers";
 import {
   appendCommentDelta,
   appendMessage,
-  authState,
   bumpGitRefresh,
   bumpUnread,
   clearActivity,
@@ -20,10 +20,12 @@ import {
   globalConnectorPrefs,
   maybeDrainQueued,
   modelByWorktree,
+  providerByWorktree,
   recentConversation,
   refreshUsage,
   selectedWorktree,
   setActivity,
+  setAuthState,
   setAvailableCommands,
   setAvailableModels,
   setCommentError,
@@ -42,24 +44,17 @@ import {
 import type { AgentMessage, Outbound } from "./types";
 import { basename } from "./utils";
 
-/** Does an agent/sidecar error text read like a Claude Code auth failure?
- *  Pure and deliberately loose — matching costs a friendlier message; a false
- *  negative costs the raw SDK error the user would have seen anyway. */
-export function isAuthError(text: string): boolean {
-  return /log ?in|logged|authenticat|oauth|api key|credential|401|unauthorized/i.test(text);
-}
-
-/** The friendly substitute for a raw auth-failure error (Welcome/Chat show the
- *  matching ambient banner via `authState`). */
-const AUTH_ERROR_MESSAGE =
-  "not signed in to Claude Code — run `claude` in a terminal, then click the worktree to restart";
-
 // Recognize an auth failure: swap the cryptic raw text for actionable copy and
 // flip the ambient auth state so the sign-in banner appears above the composer.
+// The matcher + copy are PER-PROVIDER (`providers.ts`) — this router must stay
+// provider-neutral, and errors reach it on two paths (in-band provider `error`
+// events AND Rust-side session-death stderr tails), so the lookup happens here,
+// keyed by the worktree's provider.
 function appendErrorMessage(worktree: string, raw: string) {
-  if (isAuthError(raw)) {
-    authState.set("missing");
-    appendMessage(worktree, { type: "error", error: AUTH_ERROR_MESSAGE });
+  const p = providerDisplay(get(providerByWorktree)[worktree]);
+  if (p.authErrorPattern.test(raw)) {
+    setAuthState("missing");
+    appendMessage(worktree, { type: "error", error: p.authErrorMessage });
   } else {
     appendMessage(worktree, { type: "error", error: raw });
   }
@@ -146,9 +141,9 @@ export function handleAgentEvent(worktree: string, evt: Outbound) {
     else if (evt.delta) appendCommentDelta(worktree, evt.id, evt.delta);
     if (evt.done && !evt.error) setCommentPending(worktree, evt.id, false);
   } else if (evt.kind === "commands") {
-    setAvailableCommands(evt.commands);
+    setAvailableCommands(worktree, evt.commands);
   } else if (evt.kind === "mcp_status") {
-    setMcpStatus(evt.servers);
+    setMcpStatus(worktree, evt.servers);
   } else if (evt.kind === "notification") {
     // Agent wants attention — raise an OS notification if it's not the
     // worktree currently on screen.
@@ -178,7 +173,7 @@ export function handleAgentEvent(worktree: string, evt: Outbound) {
       if (want !== isOn) toggleConnector(worktree, s.name, want);
     }
   } else if (evt.kind === "models") {
-    setAvailableModels(evt.models);
+    setAvailableModels(worktree, evt.models);
     // Each sidecar starts on the default model. If this worktree has a
     // persisted choice that differs (and is still offered), re-apply it;
     // otherwise adopt the sidecar's confirmed current as truth.
