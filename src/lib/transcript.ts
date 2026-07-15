@@ -228,7 +228,7 @@ export function indexToolResults(
 // folded into their call (indexToolResults) and don't render, but they DON'T break
 // a run. Everything else (assistant/user_local/system/error) is its own group.
 type ToolCallMsg = Extract<TranscriptMessage, { type: "tool_call" }>;
-export type RenderedGroup =
+type RenderedGroup =
   | { kind: "single"; key: string; message: TranscriptMessage }
   | { kind: "tools"; key: string; tools: ToolCallMsg[] };
 
