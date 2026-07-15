@@ -18,12 +18,25 @@
   import Download from "@lucide/svelte/icons/download";
   import RefreshCcwDot from "@lucide/svelte/icons/refresh-ccw-dot";
   import GitMerge from "@lucide/svelte/icons/git-merge";
+  import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import GitBranchPlus from "@lucide/svelte/icons/git-branch-plus";
+  import { Input } from "$lib/components/ui/input";
 
   let status = $state<GitStatus | null>(null);
   let selectedFile = $state<string | null>(null);
   let diff = $state("");
   let commitMsg = $state("");
   let busy = $state(false);
+  // AI commit-message generation runs its own subprocess; keep it off `busy` so
+  // it doesn't gate the git actions (and vice versa).
+  let generating = $state(false);
+  // Set when a push is refused as non-fast-forward, so the UI can offer Pull/Force
+  // (a rejected push doesn't fetch, so ahead/behind won't reveal the divergence).
+  let pushRejected = $state(false);
+  // Set when the remote BLOCKS a direct push (protected branch / ruleset): Pull &
+  // Force can't help — the commits must go through a PR from a branch instead.
+  let pushBlocked = $state(false);
   let error = $state("");
   // Success notice for actions with no visible effect in THIS panel (merge lands
   // in the main worktree). Cleared on the next action / refresh.
@@ -126,14 +139,93 @@
     busy = true;
     error = "";
     notice = "";
+    pushRejected = false;
+    pushBlocked = false;
     try {
       await fn();
     } catch (e) {
       error = String(e);
+      // Classify a push failure. A protected-branch/ruleset block is checked
+      // FIRST — GitHub's decline message also contains "rejected", but Pull/Force
+      // can't fix it (the branch needs a PR), so it must not fall into the
+      // non-fast-forward path below.
+      if (/protected branch|repository rule|required status check|GH006|GH013|push declined|cannot .*push/i.test(error)) {
+        pushBlocked = true;
+      } else if (/rejected|non-fast-forward|fetch first|\bbehind\b/i.test(error)) {
+        pushRejected = true;
+      }
     } finally {
       busy = false;
       await refresh();
     }
+  }
+
+  // Fill the commit box with an AI-written message from the working diff. Its
+  // own busy flag (not `run`) since it shells `claude`, not git.
+  async function generateCommit() {
+    const w = wt;
+    if (!w || generating) return;
+    generating = true;
+    error = "";
+    try {
+      commitMsg = (await api.generateCommitMessage(w)).trim();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      generating = false;
+    }
+  }
+
+  // One-click ship: stage everything if nothing is staged yet, commit, then push
+  // (publishing the branch when it has no upstream). The granular Stage all /
+  // Commit / Sync controls stay for finer control.
+  function commitAndPush() {
+    const w = wt;
+    const msg = commitMsg.trim();
+    if (!w || !msg) return;
+    run(async () => {
+      if (!hasStaged) await api.worktreeStage(w, []);
+      await api.worktreeCommit(w, msg);
+      commitMsg = "";
+      await api.worktreePush(w, !status?.has_upstream);
+      prRefreshNonce++;
+    });
+  }
+
+  // Recover from a rejected push: rebase onto the remote (autostash) then push.
+  function pullThenPush() {
+    const w = wt;
+    if (!w) return;
+    run(async () => {
+      await api.worktreePull(w);
+      await api.worktreePush(w, !status?.has_upstream);
+      prRefreshNonce++;
+    });
+  }
+
+  // ---- Protected-branch recovery: move commits to a new branch, then PR ----
+  let moveDialogOpen = $state(false);
+  let moveBranchName = $state("");
+
+  function openMoveDialog() {
+    moveBranchName = "";
+    moveDialogOpen = true;
+  }
+
+  // Move the stuck commits onto a new branch and publish it, so the (now-visible)
+  // PR block can open a pull request — the sanctioned path for a protected branch.
+  function moveToBranch() {
+    const w = wt;
+    const name = moveBranchName.trim();
+    if (!w || !name) return;
+    moveDialogOpen = false;
+    run(async () => {
+      await api.worktreeMoveToBranch(w, name);
+      // The switch put us on the new branch; publish it (no upstream yet).
+      await api.worktreePush(w, true);
+      prRefreshNonce++;
+      notice = `Moved your commits to "${name}" and pushed it — open a PR below.`;
+    });
   }
 
   // Guard on the selected worktree (matches commit/push below) instead of casting —
@@ -261,6 +353,37 @@
       {#if notice}
         <div class="git-notice notice-text">{notice}</div>
       {/if}
+      {#if pushRejected}
+        <div class="git-notice notice-text">
+          The remote has commits you don't. Pull &amp; push to integrate them, or Force to overwrite.
+        </div>
+        <div class="git-reject-actions">
+          <Button size="sm" variant="outline" class="h-7 text-xs" disabled={busy} onclick={pullThenPush}>
+            <Download class="size-3.5" /> Pull &amp; push
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            class="h-7 text-xs"
+            title="Overwrite the remote branch with your local one (--force-with-lease)"
+            disabled={busy}
+            onclick={forcePush}
+          >
+            <Upload class="size-3.5" /> Force
+          </Button>
+        </div>
+      {/if}
+      {#if pushBlocked}
+        <div class="git-notice notice-text">
+          The remote blocks direct pushes to <strong>{status?.branch}</strong> — it requires a pull
+          request. Move your commits to a new branch to open one.
+        </div>
+        <div class="git-reject-actions">
+          <Button size="sm" class="h-7 text-xs" disabled={busy} onclick={openMoveDialog}>
+            <GitBranchPlus class="size-3.5" /> Move to a new branch
+          </Button>
+        </div>
+      {/if}
 
       <div class="git-list">
         {#if !dirty}
@@ -354,15 +477,49 @@
             </Button>
           {/if}
         </div>
-        <Textarea
-          bind:value={commitMsg}
-          rows={2}
-          placeholder="Commit message…"
-          class="min-h-0 resize-none text-xs"
-        />
-        <Button size="sm" class="h-7 text-xs" disabled={busy || !hasStaged || !commitMsg.trim()} onclick={commit}>
-          Commit{hasStaged ? "" : " (stage files first)"}
-        </Button>
+        <div class="git-commit-box">
+          <Textarea
+            bind:value={commitMsg}
+            rows={2}
+            placeholder="Commit message…"
+            class="min-h-0 resize-none text-xs pr-8"
+          />
+          <Button
+            size="icon"
+            variant="ghost"
+            class="git-generate-btn size-6"
+            title="Generate a commit message from your changes"
+            aria-label="Generate commit message"
+            disabled={busy || generating || !dirty}
+            onclick={generateCommit}
+          >
+            {#if generating}
+              <LoaderCircle class="size-3.5 animate-spin" />
+            {:else}
+              <WandSparkles class="size-3.5" />
+            {/if}
+          </Button>
+        </div>
+        <div class="git-commit-row">
+          <Button
+            size="sm"
+            variant="outline"
+            class="h-7 flex-1 text-xs"
+            disabled={busy || !hasStaged || !commitMsg.trim()}
+            onclick={commit}
+          >
+            Commit
+          </Button>
+          <Button
+            size="sm"
+            class="h-7 flex-1 text-xs"
+            title="Stage everything (if needed), commit, and push"
+            disabled={busy || !dirty || !commitMsg.trim()}
+            onclick={commitAndPush}
+          >
+            <Upload class="size-3.5" /> Commit &amp; push
+          </Button>
+        </div>
       </div>
 
       <PrPanel
@@ -371,6 +528,7 @@
         defaultBranch={status?.default_branch ?? null}
         aheadOfDefault={status?.ahead_of_default ?? 0}
         behind={status?.behind ?? 0}
+        hasUpstream={status?.has_upstream ?? false}
         {busy}
         refreshNonce={prRefreshNonce}
       />
@@ -385,6 +543,31 @@
     </div>
   {/if}
 </div>
+
+<Dialog.Root bind:open={moveDialogOpen}>
+  <Dialog.Content>
+    <Dialog.Header>
+      <Dialog.Title>Move commits to a new branch</Dialog.Title>
+      <Dialog.Description>
+        Creates the branch at your current commits and rewinds
+        <strong>{status?.branch}</strong> back to its upstream, then publishes the new branch so you can open a PR.
+      </Dialog.Description>
+    </Dialog.Header>
+    <div class="panel-form">
+      <Input
+        placeholder="new-branch-name"
+        bind:value={moveBranchName}
+        onkeydown={(e: KeyboardEvent) => {
+          if (e.key === "Enter" && moveBranchName.trim()) moveToBranch();
+        }}
+      />
+    </div>
+    <Dialog.Footer>
+      <Button variant="secondary" onclick={() => (moveDialogOpen = false)}>Cancel</Button>
+      <Button disabled={busy || !moveBranchName.trim()} onclick={moveToBranch}>Move &amp; push</Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
 
 <Dialog.Root open={!!lineComment} onOpenChange={(open) => !open && (lineComment = null)}>
   <Dialog.Content>
@@ -503,6 +686,21 @@
   .git-commit-row {
     display: flex;
     gap: 6px;
+  }
+  .git-reject-actions {
+    display: flex;
+    gap: 6px;
+    padding: 0 12px 6px;
+  }
+  /* The commit textarea reserves top-right room (pr-8) for the generate wand,
+     which floats in that gutter. */
+  .git-commit-box {
+    position: relative;
+  }
+  .git-commit-box :global(.git-generate-btn) {
+    position: absolute;
+    top: 4px;
+    right: 4px;
   }
   .git-diff {
     flex: 1;

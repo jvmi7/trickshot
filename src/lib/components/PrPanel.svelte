@@ -15,6 +15,8 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import GitPullRequest from "@lucide/svelte/icons/git-pull-request";
   import Wrench from "@lucide/svelte/icons/wrench";
+  import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
 
   let {
     worktree,
@@ -22,6 +24,7 @@
     defaultBranch,
     aheadOfDefault,
     behind,
+    hasUpstream,
     busy,
     refreshNonce,
   }: {
@@ -32,6 +35,9 @@
     aheadOfDefault: number;
     /** Commits behind the upstream (drives the "Sync before PR" hint). */
     behind: number;
+    /** Whether the branch has an upstream — lets `createPr` push deterministically
+     *  (publish with `-u` when false) instead of guessing from the error string. */
+    hasUpstream: boolean;
     /** GitPanel's git-command busy flag — gates the agent handoff like its other actions. */
     busy: boolean;
     /** Bumped by GitPanel after a push/sync so the PR block refetches remote state. */
@@ -47,6 +53,8 @@
   let prBody = $state("");
   let prBase = $state("");
   let prDraft = $state(false);
+  // AI title/body generation (shells `claude`); own flag, separate from prBusy.
+  let generating = $state(false);
 
   const failingChecks = $derived(pr?.checks.filter((c) => c.status === "fail").length ?? 0);
 
@@ -90,17 +98,38 @@
     prDialogOpen = true;
   }
 
+  // Fill the dialog's title/body from the branch's commits via a one-shot
+  // `claude -p`. Best-effort — a failure just surfaces and leaves the fields.
+  async function generatePr() {
+    if (generating) return;
+    generating = true;
+    prError = "";
+    try {
+      const t = await api.generatePrText(worktree, prBase.trim() || undefined);
+      prTitle = t.title;
+      prBody = t.body;
+    } catch (e) {
+      prError = String(e);
+    } finally {
+      generating = false;
+    }
+  }
+
   async function createPr() {
     if (!prTitle.trim()) return;
     prBusy = true;
     prError = "";
     try {
-      // The branch must exist on the remote before `gh pr create`.
+      // The branch must exist on the remote before `gh pr create`. Publish with
+      // `-u` when it has no upstream yet; otherwise a plain push.
       try {
-        await api.worktreePush(worktree, false);
+        await api.worktreePush(worktree, !hasUpstream);
       } catch (e) {
-        if (/upstream/i.test(String(e))) await api.worktreePush(worktree, true);
-        else throw e;
+        // A non-fast-forward rejection isn't fixable here — the branch is behind.
+        if (/rejected|non-fast-forward|fetch first|behind/i.test(String(e))) {
+          throw new Error("Your branch is behind its upstream — Sync it first, then create the PR.");
+        }
+        throw e;
       }
       await api.prCreate(worktree, prTitle, prBody, prBase.trim() || undefined, prDraft);
       prDialogOpen = false;
@@ -204,6 +233,20 @@
       </Dialog.Description>
     </Dialog.Header>
     <div class="panel-form">
+      <Button
+        size="sm"
+        variant="outline"
+        class="h-7 text-xs"
+        title="Draft the title and description from your commits"
+        disabled={generating || prBusy}
+        onclick={generatePr}
+      >
+        {#if generating}
+          <LoaderCircle class="size-3.5 animate-spin" /> Generating…
+        {:else}
+          <WandSparkles class="size-3.5" /> Generate title &amp; body
+        {/if}
+      </Button>
       <Input placeholder="Title" bind:value={prTitle} />
       <Textarea rows={4} placeholder="Description (optional)" bind:value={prBody} class="resize-none text-xs" />
       <Input placeholder="Base branch (default: repo default)" bind:value={prBase} />

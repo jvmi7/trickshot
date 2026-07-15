@@ -373,26 +373,78 @@ fn parse_status(out: &str) -> (Option<String>, i32, i32, bool, Vec<FileStatus>) 
     (branch, ahead, behind, has_upstream, files)
 }
 
-/// The repo's default branch from `origin/HEAD` ("origin/main" → "main").
-/// Local-only lookup (no network); None when origin/HEAD is unset.
-fn default_branch(worktree_path: &str) -> Option<String> {
-    let out = git(
+/// Pick a default branch name from the probe results, most-authoritative first:
+/// `origin/HEAD` if set, then a well-known remote branch that exists, then a
+/// well-known local branch. Pure (takes booleans, does no git I/O) so the
+/// fallback ORDER is unit-testable; `default_branch` supplies the probes.
+fn pick_default_branch(
+    origin_head: Option<&str>,
+    origin_main: bool,
+    origin_master: bool,
+    local_main: bool,
+    local_master: bool,
+) -> Option<String> {
+    if let Some(name) = origin_head.map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(name.to_string());
+    }
+    if origin_main || local_main {
+        return Some("main".to_string());
+    }
+    if origin_master || local_master {
+        return Some("master".to_string());
+    }
+    None
+}
+
+/// The repo's default branch. Prefers `origin/HEAD` ("origin/main" → "main"),
+/// but that local ref is frequently unset (never written by `git init` + remote
+/// add, and not always after a clone), so it falls back to a well-known remote
+/// branch (origin/main|master) and finally a local one. Local-only (no network);
+/// None only when nothing resolves. Keeping this permissive is what lets the PR
+/// UI's `ahead_of_default` gate show the Create-PR button (see `ahead_of`).
+/// pub(crate): `generate.rs` reuses it to pick a PR base when none is given.
+pub(crate) fn default_branch(worktree_path: &str) -> Option<String> {
+    let origin_head = git(
         worktree_path,
         &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
     )
-    .ok()?;
-    out.trim().strip_prefix("origin/").map(str::to_string)
+    .ok()
+    .map(|s| s.trim().trim_start_matches("origin/").to_string())
+    .filter(|s| !s.is_empty());
+
+    pick_default_branch(
+        origin_head.as_deref(),
+        ref_exists(worktree_path, "refs/remotes/origin/main"),
+        ref_exists(worktree_path, "refs/remotes/origin/master"),
+        ref_exists(worktree_path, "refs/heads/main"),
+        ref_exists(worktree_path, "refs/heads/master"),
+    )
 }
 
-/// Commits on HEAD beyond `origin/<default>` (0 when the ref is unknown).
-fn ahead_of(worktree_path: &str, default: &str) -> i32 {
-    git(
+/// Whether a fully-qualified ref resolves in the repo (a status-only probe).
+fn ref_exists(worktree_path: &str, full_ref: &str) -> bool {
+    git_command(
         worktree_path,
-        &["rev-list", "--count", &format!("origin/{default}..HEAD")],
+        &["show-ref", "--verify", "--quiet", full_ref],
     )
-    .ok()
-    .and_then(|s| s.trim().parse().ok())
-    .unwrap_or(0)
+    .status()
+    .map(|s| s.success())
+    .unwrap_or(false)
+}
+
+/// Commits on HEAD beyond the default branch. Tries the remote-tracking ref
+/// `origin/<default>` first (what a PR would actually diff against), then falls
+/// back to the local `<default>` when the remote ref was never fetched — so a
+/// never-pushed branch still reports a truthful count. 0 when neither resolves.
+fn ahead_of(worktree_path: &str, default: &str) -> i32 {
+    let count = |range: String| -> Option<i32> {
+        git(worktree_path, &["rev-list", "--count", &range])
+            .ok()
+            .and_then(|s| s.trim().parse().ok())
+    };
+    count(format!("origin/{default}..HEAD"))
+        .or_else(|| count(format!("{default}..HEAD")))
+        .unwrap_or(0)
 }
 
 /// Parsed `git status --porcelain=v1 --branch` for a worktree. Async: this
@@ -579,10 +631,71 @@ pub async fn worktree_merge(repo_path: String, branch: String) -> Result<String,
     .map_err(|e| e.to_string())?
 }
 
+/// Move the current branch's commits onto a NEW branch, then rewind the current
+/// branch back to its upstream — the recovery for "committed to a protected
+/// branch that won't accept a direct push". Creates `branch` at HEAD, switches
+/// to it (so the existing push/PR commands then operate on it), and force-updates
+/// the former branch to its upstream (`origin/<default>` as a fallback) so it's
+/// clean again. Nothing is lost — the commits ride to the new branch (and remain
+/// in the reflog). Returns the new branch name. Requires a clean-enough tree; any
+/// uncommitted edits are carried across the switch by git.
+#[tauri::command]
+pub async fn worktree_move_to_branch(
+    worktree_path: String,
+    branch: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let branch = branch.trim().to_string();
+        validate_branch(&branch)?;
+        if branch_exists(&worktree_path, &branch)? {
+            return Err(format!("branch \"{branch}\" already exists"));
+        }
+        let current = git(&worktree_path, &["rev-parse", "--abbrev-ref", "HEAD"])?
+            .trim()
+            .to_string();
+        if current == branch {
+            return Err("already on that branch".into());
+        }
+
+        // Where to rewind the former branch to: its own upstream, else the
+        // remote default branch. None → leave it (commits stay safe on `branch`).
+        let target = git(
+            &worktree_path,
+            &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        )
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| default_branch(&worktree_path).map(|d| format!("origin/{d}")));
+
+        // Create + switch to the new branch at the current commit.
+        git(&worktree_path, &["switch", "-c", &branch])?;
+
+        // Rewind the former branch to its upstream (best-effort; only when the ref
+        // resolves and the branch isn't checked out in another worktree).
+        if current != "HEAD" && current != branch {
+            if let Some(target) = target {
+                let full = if target.contains('/') {
+                    format!("refs/remotes/{target}")
+                } else {
+                    format!("refs/heads/{target}")
+                };
+                if ref_exists(&worktree_path, &full) {
+                    let _ = git(&worktree_path, &["branch", "-f", &current, &target]);
+                }
+            }
+        }
+        Ok(branch)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_shortstat, parse_status, parse_worktree_list, validate_branch, worktree_path_for,
+        parse_shortstat, parse_status, parse_worktree_list, pick_default_branch, validate_branch,
+        worktree_path_for,
     };
 
     // ---- parse_worktree_list (git worktree list --porcelain) ----
@@ -710,6 +823,44 @@ mod tests {
         // Empty output (no HEAD / no changes) and unparseable text both yield (0, 0).
         assert_eq!(parse_shortstat(""), (0, 0));
         assert_eq!(parse_shortstat("not a shortstat line"), (0, 0));
+    }
+
+    // ---- pick_default_branch (the origin/HEAD fallback order) ----
+
+    #[test]
+    fn default_branch_prefers_origin_head() {
+        // origin/HEAD wins even when it disagrees with the well-known names.
+        let d = pick_default_branch(Some("develop"), true, false, true, false);
+        assert_eq!(d.as_deref(), Some("develop"));
+    }
+
+    #[test]
+    fn default_branch_falls_back_to_remote_then_local() {
+        // origin/HEAD unset → a well-known remote branch, then a local one.
+        assert_eq!(
+            pick_default_branch(None, true, false, false, false).as_deref(),
+            Some("main")
+        );
+        assert_eq!(
+            pick_default_branch(None, false, false, true, false).as_deref(),
+            Some("main")
+        );
+        assert_eq!(
+            pick_default_branch(None, false, true, false, false).as_deref(),
+            Some("master")
+        );
+        // main outranks master when both exist.
+        assert_eq!(
+            pick_default_branch(None, false, true, true, false).as_deref(),
+            Some("main")
+        );
+    }
+
+    #[test]
+    fn default_branch_none_when_nothing_resolves() {
+        // An empty origin/HEAD string must NOT be treated as a real name.
+        assert!(pick_default_branch(Some(""), false, false, false, false).is_none());
+        assert!(pick_default_branch(None, false, false, false, false).is_none());
     }
 
     // ---- parse_status (git status --porcelain=v1 --branch) ----

@@ -139,6 +139,12 @@ export interface PrInfo {
   checks: PrCheck[];
 }
 
+/** A generated pull-request title + body (mirrors the Rust `PrText`). */
+export interface PrText {
+  title: string;
+  body: string;
+}
+
 /** Envelope for a worktree-tagged script event on the `script-event` channel
  *  (mirrors the Rust `ScriptEvent` struct in scripts.rs — the scripts sibling
  *  of `AgentEnvelope`). `data` is the script name for `started`, an output line

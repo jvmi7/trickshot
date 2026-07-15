@@ -11,6 +11,7 @@ import type {
   Outbound,
   PermissionMode,
   PrInfo,
+  PrText,
   ScriptEnvelope,
   ScriptsConfig,
   SessionConfig,
@@ -88,6 +89,12 @@ export const worktreeMerge = (repoPath: string, branch: string) =>
 export const worktreePull = (worktreePath: string) =>
   invoke<string>("worktree_pull", { worktreePath });
 
+/** Move the current branch's commits onto a new `branch` and rewind the former
+ *  branch to its upstream — recovery for commits stuck on a protected branch.
+ *  Switches to the new branch; returns its name. */
+export const worktreeMoveToBranch = (worktreePath: string, branch: string) =>
+  invoke<string>("worktree_move_to_branch", { worktreePath, branch });
+
 // ---- Project scripts (.trickshot/settings.json) ---------------------------
 
 /** A repo's scripts config (setup / named run scripts / archive / run_mode). */
@@ -135,6 +142,18 @@ export const prCreate = (
   base?: string,
   draft = false,
 ) => invoke<string>("pr_create", { worktreePath, title, body, base: base ?? null, draft });
+
+// ---- AI text generation (one-shot `claude -p`) ----------------------------
+
+/** Generate a commit message from the working diff (staged if any, else vs HEAD).
+ *  Rejects when there's nothing to describe or `claude` is unavailable. */
+export const generateCommitMessage = (worktreePath: string) =>
+  invoke<string>("generate_commit_message", { worktreePath });
+
+/** Generate a PR title + body from the commits over `base` (default: repo
+ *  default branch). Rejects when there are no commits to propose. */
+export const generatePrText = (worktreePath: string, base?: string) =>
+  invoke<PrText>("generate_pr_text", { worktreePath, base: base ?? null });
 
 // ---- Integrated terminal (one PTY per worktree) ---------------------------
 

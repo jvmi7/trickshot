@@ -70,7 +70,9 @@ fn is_valid_session_id(id: &str) -> bool {
 /// LOGIN shell with fixed strings (no interpolation — nothing user-controlled
 /// enters these commands). The PATH is exported into the CLI's PTY so claude's
 /// own subprocesses (its Bash tool) see the user's real environment.
-fn claude_cli() -> Result<(String, String), String> {
+/// pub(crate): `generate.rs` reuses it to run one-shot `claude -p` generations
+/// rather than re-resolving the binary.
+pub(crate) fn claude_cli() -> Result<(String, String), String> {
     #[cfg(not(unix))]
     {
         return Err("CLI chat mode is not supported on this platform yet".to_string());
