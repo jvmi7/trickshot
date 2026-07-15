@@ -10,15 +10,14 @@
 // read from the repo's settings file on disk here — the frontend can never
 // execute an arbitrary string via this module.
 
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::sync::{Mutex, MutexGuard};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager};
+
+use crate::worktree_map::{next_generation, WorktreeEvent, WorktreeMap};
 
 /// One named run script (the Run button's menu entries), in file order.
 #[derive(Serialize, Clone)]
@@ -39,27 +38,17 @@ pub struct ScriptsConfig {
     pub run_mode: String,
 }
 
-/// One running script process per worktree, keyed by worktree path. Mirrors
-/// agent.rs's `Sessions` (same poison-safe lock rationale).
-#[derive(Default)]
-pub struct ScriptProcs(Mutex<HashMap<String, Child>>);
-
-impl ScriptProcs {
-    pub(crate) fn lock(&self) -> MutexGuard<'_, HashMap<String, Child>> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner())
-    }
+/// One live script process. `generation` disambiguates a respawned script at
+/// the same key so a stale waiter thread can't reap (or report the exit of)
+/// its successor — the same identity check as agent.rs/terminal.rs, stronger
+/// than the old pid compare, which could alias on pid reuse.
+pub(crate) struct ScriptEntry {
+    child: Child,
+    generation: u64,
 }
 
-/// Event relayed from a worktree's script to the webview on the `script-event`
-/// channel — the scripts sibling of agent.rs's `AgentEvent` (mirrored by the TS
-/// `ScriptEnvelope`; the conformance test pins the seam).
-#[derive(Clone, Serialize)]
-struct ScriptEvent {
-    worktree: String,
-    /// "started" | "stdout" | "stderr" | "exit"
-    kind: String,
-    data: Option<String>,
-}
+/// One running script process per worktree (poison-safe lock via WorktreeMap).
+pub type ScriptProcs = WorktreeMap<ScriptEntry>;
 
 /// Parse the `scripts` section from a repo's `.trickshot/settings.json` text.
 /// Pure (no I/O) so it's unit-testable; `load_scripts` wraps it with the read.
@@ -124,13 +113,23 @@ pub fn get_scripts(repo_path: String) -> Result<ScriptsConfig, String> {
     load_scripts(&repo_path)
 }
 
+/// FNV-1a (64-bit), inlined. `DefaultHasher`'s algorithm is explicitly NOT
+/// guaranteed stable across Rust releases, and "same worktree path → same
+/// port" must survive a toolchain bump — so hash with a spec-fixed function.
+fn fnv1a(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
 /// Deterministic per-worktree port block: 10 consecutive ports starting at
 /// `TRICKSHOT_PORT`, derived from the worktree path so it's stable across
 /// launches with no allocation state. Range 10000–59990, stepping by 10.
 fn port_base(worktree: &str) -> u16 {
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    worktree.hash(&mut h);
-    10_000 + ((h.finish() % 5_000) as u16) * 10
+    10_000 + ((fnv1a(worktree) % 5_000) as u16) * 10
 }
 
 /// Resolve `name` against the repo's config: the reserved names "setup" and
@@ -190,20 +189,42 @@ fn script_command(repo_path: &str, worktree: &str, command: &str) -> Command {
 /// Kill a script process AND its children: the shell we spawned is its own
 /// process group (see `script_command`'s `process_group(0)`), so signal the
 /// whole group first, then reap. Best-effort — a dead process is the desired
-/// end state. pub(crate): the lib.rs exit handler drains ScriptProcs through
-/// this too.
+/// end state. Blocks up to the brief SIGTERM grace, so call it off the main
+/// thread. pub(crate): the lib.rs exit handler drains ScriptProcs through
+/// this too (via kill_all).
 pub(crate) fn kill_script(mut child: Child) {
     #[cfg(unix)]
     {
         // `kill -- -<pid>` signals the process GROUP (the shell + everything it
         // spawned). Plain child.kill() would orphan a dev server started by the
         // script. Shelling out avoids a libc dependency for one syscall.
-        let _ = Command::new("kill")
-            .args(["--", &format!("-{}", child.id())])
-            .status();
+        let group = format!("-{}", child.id());
+        let _ = Command::new("kill").args(["--", &group]).status();
+        // Brief grace for the group to exit on SIGTERM (a well-behaved shell is
+        // gone within a poll or two), then escalate: SIGKILL the group
+        // unconditionally, because a TERM-ignoring grandchild survives the
+        // SIGTERM even when the shell itself exits. Signalling an already-empty
+        // group just errors, which we ignore.
+        for _ in 0..6 {
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let _ = Command::new("kill").args(["-9", "--", &group]).status();
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// Kill every running script (the lib.rs exit handler — so quitting the app
+/// never orphans a dev server a run script started). Drains under the lock,
+/// kills outside it.
+pub(crate) fn kill_all(state: &ScriptProcs) {
+    let entries: Vec<ScriptEntry> = state.lock().drain().map(|(_, e)| e).collect();
+    for entry in entries {
+        kill_script(entry.child);
+    }
 }
 
 /// Launch a script by NAME for a worktree. The command string comes from the
@@ -211,113 +232,126 @@ pub(crate) fn kill_script(mut child: Child) {
 /// worktree — starting a new one stops the old; `run_mode: "nonconcurrent"`
 /// additionally stops every other worktree's script first. Output streams as
 /// `script-event`s; the exit is a final `exit` event with the status code.
+/// Async + spawn_blocking: the kill grace and process spawn must run off the
+/// main thread.
 #[tauri::command]
-pub fn run_script(
+pub async fn run_script(
     app: AppHandle,
     repo_path: String,
     worktree: String,
     name: String,
-    state: State<'_, ScriptProcs>,
 ) -> Result<(), String> {
-    let cfg = load_scripts(&repo_path)?;
-    let (command, is_run) = resolve_script(&cfg, &name)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = load_scripts(&repo_path)?;
+        let (command, is_run) = resolve_script(&cfg, &name)?;
 
-    {
+        let state = app.state::<ScriptProcs>();
+        // Hold the lock across the kill→spawn→insert (the same double-spawn
+        // guard as agent.rs's start_session): if it were dropped between the
+        // replace-check and the insert, two concurrent calls could both spawn
+        // and the displaced Child would be dropped UN-killed — an orphan the
+        // exit handler can't see. Killing before spawning (not on displace)
+        // also keeps the worktree's TRICKSHOT_PORT block free for the new run.
         let mut map = state.lock();
         // Replace this worktree's running script.
         if let Some(old) = map.remove(&worktree) {
-            kill_script(old);
+            kill_script(old.child);
         }
         // nonconcurrent: only one RUN script anywhere — stop the others too.
         if is_run && cfg.run_mode == "nonconcurrent" {
             for (_, old) in map.drain() {
-                kill_script(old);
+                kill_script(old.child);
             }
         }
-    }
 
-    let mut cmd = script_command(&repo_path, &worktree, &command);
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("failed to spawn script: {e}"))?;
-    let pid = child.id();
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    state.lock().insert(worktree.clone(), child);
+        let mut cmd = script_command(&repo_path, &worktree, &command);
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("failed to spawn script: {e}"))?;
+        let generation = next_generation();
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        map.insert(worktree.clone(), ScriptEntry { child, generation });
+        drop(map);
 
-    let _ = app.emit(
-        "script-event",
-        ScriptEvent {
-            worktree: worktree.clone(),
-            kind: "started".into(),
-            data: Some(name),
-        },
-    );
-
-    // One reader thread per stream, relaying lines verbatim (zero per-line work,
-    // matching the agent.rs relay rule). A third waiter thread reaps the exit.
-    fn relay(app: AppHandle, worktree: String, kind: &'static str, stream: impl Read + Send) {
-        let reader = BufReader::new(stream);
-        for line in reader.lines() {
-            let Ok(line) = line else { break };
-            let _ = app.emit(
-                "script-event",
-                ScriptEvent {
-                    worktree: worktree.clone(),
-                    kind: kind.into(),
-                    data: Some(line),
-                },
-            );
-        }
-    }
-    if let Some(out) = stdout {
-        let (app2, wt2) = (app.clone(), worktree.clone());
-        std::thread::spawn(move || relay(app2, wt2, "stdout", out));
-    }
-    if let Some(err) = stderr {
-        let (app2, wt2) = (app.clone(), worktree.clone());
-        std::thread::spawn(move || relay(app2, wt2, "stderr", err));
-    }
-
-    // Waiter: poll for exit WITHOUT holding a &mut into the map (stop_script
-    // needs the entry). try_wait via the map under short lock windows.
-    std::thread::spawn(move || {
-        let code: Option<i32> = loop {
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            let Some(procs) = app.try_state::<ScriptProcs>() else {
-                break None;
-            };
-            let mut map = procs.lock();
-            match map.get_mut(&worktree) {
-                // Replaced by a newer script (different pid) — this waiter is done;
-                // the new script's own waiter owns the exit event.
-                Some(c) if c.id() != pid => return,
-                Some(c) => match c.try_wait() {
-                    Ok(Some(status)) => {
-                        map.remove(&worktree);
-                        break status.code();
-                    }
-                    Ok(None) => continue,
-                    Err(_) => {
-                        map.remove(&worktree);
-                        break None;
-                    }
-                },
-                // stop_script removed it — it already emitted the exit event.
-                None => return,
-            }
-        };
         let _ = app.emit(
             "script-event",
-            ScriptEvent {
-                worktree,
-                kind: "exit".into(),
-                data: code.map(|c| c.to_string()),
+            WorktreeEvent {
+                worktree: worktree.clone(),
+                kind: "started".into(),
+                data: Some(name),
             },
         );
-    });
 
-    Ok(())
+        // One reader thread per stream, relaying lines verbatim (zero per-line
+        // work, matching the agent.rs relay rule). A third waiter thread reaps
+        // the exit.
+        fn relay(app: AppHandle, worktree: String, kind: &'static str, stream: impl Read + Send) {
+            let reader = BufReader::new(stream);
+            for line in reader.lines() {
+                let Ok(line) = line else { break };
+                let _ = app.emit(
+                    "script-event",
+                    WorktreeEvent {
+                        worktree: worktree.clone(),
+                        kind: kind.into(),
+                        data: Some(line),
+                    },
+                );
+            }
+        }
+        if let Some(out) = stdout {
+            let (app2, wt2) = (app.clone(), worktree.clone());
+            std::thread::spawn(move || relay(app2, wt2, "stdout", out));
+        }
+        if let Some(err) = stderr {
+            let (app2, wt2) = (app.clone(), worktree.clone());
+            std::thread::spawn(move || relay(app2, wt2, "stderr", err));
+        }
+
+        // Waiter: poll for exit WITHOUT holding a &mut into the map (stop_script
+        // needs the entry). try_wait via the map under short lock windows.
+        std::thread::spawn(move || {
+            let code: Option<i32> = loop {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                let Some(procs) = app.try_state::<ScriptProcs>() else {
+                    break None;
+                };
+                let mut map = procs.lock();
+                match map.get_mut(&worktree) {
+                    // Replaced by a newer script (different generation) — this
+                    // waiter is done; the new script's own waiter owns the exit
+                    // event.
+                    Some(e) if e.generation != generation => return,
+                    Some(e) => match e.child.try_wait() {
+                        Ok(Some(status)) => {
+                            map.remove(&worktree);
+                            break status.code();
+                        }
+                        Ok(None) => continue,
+                        Err(_) => {
+                            map.remove(&worktree);
+                            break None;
+                        }
+                    },
+                    // stop_script removed it — it already emitted the exit event.
+                    None => return,
+                }
+            };
+            let _ = app.emit(
+                "script-event",
+                WorktreeEvent {
+                    worktree,
+                    kind: "exit".into(),
+                    data: code.map(|c| c.to_string()),
+                },
+            );
+        });
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Run a script BY NAME to COMPLETION and return its stdout — the awaited
@@ -349,29 +383,32 @@ pub async fn run_script_blocking(
 
 /// Stop a worktree's running script (no-op if none). Emits the final `exit`
 /// event itself — the waiter thread sees the entry gone and stays silent.
+/// Async + spawn_blocking: kill_script's SIGTERM grace must not block the
+/// main thread.
 #[tauri::command]
-pub fn stop_script(
-    app: AppHandle,
-    worktree: String,
-    state: State<'_, ScriptProcs>,
-) -> Result<(), String> {
-    if let Some(child) = state.lock().remove(&worktree) {
-        kill_script(child);
-        let _ = app.emit(
-            "script-event",
-            ScriptEvent {
-                worktree,
-                kind: "exit".into(),
-                data: None,
-            },
-        );
-    }
-    Ok(())
+pub async fn stop_script(app: AppHandle, worktree: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let entry = app.state::<ScriptProcs>().lock().remove(&worktree);
+        if let Some(entry) = entry {
+            kill_script(entry.child);
+            let _ = app.emit(
+                "script-event",
+                WorktreeEvent {
+                    worktree,
+                    kind: "exit".into(),
+                    data: None,
+                },
+            );
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_scripts, port_base};
+    use super::{parse_scripts, port_base, resolve_script, RunScript, ScriptsConfig};
 
     #[test]
     fn parses_full_config() {
@@ -420,12 +457,64 @@ mod tests {
         assert!(parse_scripts("not json").is_err());
     }
 
+    // ---- resolve_script (the reserved-name / named-run 3-way branch) ----
+
+    fn sample_cfg() -> ScriptsConfig {
+        ScriptsConfig {
+            setup: Some("bun install".into()),
+            run: vec![RunScript {
+                name: "dev".into(),
+                command: "bun run dev".into(),
+            }],
+            archive: None,
+            run_mode: "concurrent".into(),
+        }
+    }
+
+    #[test]
+    fn resolve_reserved_names_map_to_their_scripts() {
+        let cfg = sample_cfg();
+        // Reserved scripts are NOT run scripts (is_run = false).
+        assert_eq!(
+            resolve_script(&cfg, "setup").unwrap(),
+            ("bun install".to_string(), false)
+        );
+        // A reserved name with no configured script is an error, not a fallthrough
+        // to a run script of the same name.
+        assert!(resolve_script(&cfg, "archive").is_err());
+    }
+
+    #[test]
+    fn resolve_named_run_script() {
+        let cfg = sample_cfg();
+        assert_eq!(
+            resolve_script(&cfg, "dev").unwrap(),
+            ("bun run dev".to_string(), true) // run scripts flag is_run = true
+        );
+    }
+
+    #[test]
+    fn resolve_unknown_name_is_an_error() {
+        assert!(resolve_script(&sample_cfg(), "nope").is_err());
+    }
+
+    // ---- port_base (FNV-1a-derived port block) ----
+
     #[test]
     fn port_base_is_stable_and_in_range() {
         let a = port_base("/tmp/wt-a");
         assert_eq!(a, port_base("/tmp/wt-a")); // deterministic
         assert!((10_000..60_000).contains(&a));
         assert_eq!(a % 10, 0); // block-aligned so +0..+9 stays inside the block
+    }
+
+    #[test]
+    fn port_base_uses_the_spec_fixed_fnv1a() {
+        // Pin the hash to the FNV-1a spec (via its known test vector for "a":
+        // 0xaf63dc4c8601ec8c) so a future "simplification" can't silently move
+        // every repo's ports. 0xaf63dc4c8601ec8c % 5000 = 1996.
+        assert_eq!(super::fnv1a("a"), 0xaf63_dc4c_8601_ec8c);
+        assert_eq!(port_base("a"), 10_000 + 1_996 * 10);
     }
 
     // ---- live process behavior (spawn/env/group-kill) ----
@@ -449,40 +538,58 @@ mod tests {
 
     use std::io::BufRead;
 
+    /// Spawn `script` via script_command, read the first stdout line as a pid,
+    /// kill_script the shell, and return whether that pid survived (polling
+    /// briefly — signal delivery is async but fast).
+    fn spawn_kill_and_probe(script: &str) -> bool {
+        let dir = std::env::temp_dir();
+        let dir = dir.to_string_lossy();
+        let mut cmd = super::script_command(&dir, &dir, script);
+        let mut child = cmd.spawn().expect("spawn sh");
+        let stdout = child.stdout.take().expect("stdout piped");
+        let mut line = String::new();
+        std::io::BufReader::new(stdout)
+            .read_line(&mut line)
+            .expect("read pid line");
+        let probed: i32 = line.trim().parse().expect("pid");
+
+        super::kill_script(child);
+        let mut alive = true;
+        for _ in 0..20 {
+            alive = kill_zero_probe(probed);
+            if !alive {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        alive
+    }
+
     #[test]
     fn kill_script_kills_the_whole_process_group() {
         // Spawn a shell whose CHILD outlives it unless the group is signalled:
         // the script prints the grandchild's pid, then sleeps. After
         // kill_script, that pid must be gone — this is the "Stop kills the dev
         // server, not just the shell" guarantee.
-        let dir = std::env::temp_dir();
-        let dir = dir.to_string_lossy();
-        let mut cmd = super::script_command(&dir, &dir, "sleep 30 & echo $!; sleep 30");
-        let mut child = cmd.spawn().expect("spawn sh");
-        // Read the grandchild pid off the first stdout line.
-        let stdout = child.stdout.take().expect("stdout piped");
-        let mut line = String::new();
-        std::io::BufReader::new(stdout)
-            .read_line(&mut line)
-            .expect("read pid line");
-        let grandchild: i32 = line.trim().parse().expect("pid");
+        assert!(
+            !spawn_kill_and_probe("sleep 30 & echo $!; sleep 30"),
+            "grandchild sleep survived the group kill"
+        );
+    }
 
-        super::kill_script(child);
-        // Poll briefly: signal delivery is async but fast.
-        let mut alive = true;
-        for _ in 0..20 {
-            alive = unsafe { libc_kill_probe(grandchild) };
-            if !alive {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-        assert!(!alive, "grandchild sleep survived the group kill");
+    #[test]
+    fn kill_script_escalates_past_a_term_ignoring_grandchild() {
+        // The grandchild ignores SIGTERM, so the group TERM alone would leave
+        // it running; the SIGKILL escalation must reach it.
+        assert!(
+            !spawn_kill_and_probe("sh -c 'trap \"\" TERM; sleep 30' & echo $!; sleep 30"),
+            "TERM-ignoring grandchild survived the SIGKILL escalation"
+        );
     }
 
     /// `kill -0`-style liveness probe via the `kill` binary (no libc dep, same
     /// approach as kill_script itself).
-    unsafe fn libc_kill_probe(pid: i32) -> bool {
+    fn kill_zero_probe(pid: i32) -> bool {
         std::process::Command::new("kill")
             .args(["-0", &pid.to_string()])
             .status()

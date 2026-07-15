@@ -9,13 +9,37 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import * as api from "./api";
+// CIRCULAR-IMPORT CONTRACT: session.ts imports claudeTermKey/getTerminal from
+// here while this module imports handleCliExit/ensureClaudeOpen from
+// session.ts — safe because every cross-module access is a CALL-time function
+// invocation (all hoisted function declarations), never a module-eval
+// dereference.
+import { ensureClaudeOpen, handleCliExit } from "./session";
 import type { TermEnvelope } from "./types";
+
+/** PTY slot suffix for the dedicated Claude CLI terminal (the chat pane's CLI
+ *  mode). NUL can't occur in a filesystem path, so the composite key can't
+ *  collide with a real worktree. Hand-mirrored by `CLAUDE_SLOT` in
+ *  src-tauri/src/terminal.rs — keep the pair in sync (see ARCHITECTURE.md). */
+const CLAUDE_SLOT = "\u0000claude";
+/** The claude-slot PTY key for a worktree (see CLAUDE_SLOT). */
+export function claudeTermKey(worktree: string): string {
+  return worktree + CLAUDE_SLOT;
+}
+/** The real worktree path behind a PTY key (identity for shell keys). */
+function keyWorktree(key: string): string {
+  return key.endsWith(CLAUDE_SLOT) ? key.slice(0, -CLAUDE_SLOT.length) : key;
+}
 
 interface TermInstance {
   term: Terminal;
   fit: FitAddon;
   /** Whether the PTY behind this xterm is alive (reset by `exit` events). */
   open: boolean;
+  /** Which program the PTY runs (derived from the cache key). The claude slot
+   *  skips the keystroke auto-reconnect: reopening it as a SHELL would be
+   *  wrong, and handleCliExit has already returned the user to the GUI chat. */
+  slot: "shell" | "claude";
 }
 
 // The cache lives on globalThis, NOT at module scope: a vite HMR update clones
@@ -42,10 +66,12 @@ export function themeColors() {
   };
 }
 
-/** Get (or lazily create) the persistent xterm instance for a worktree. */
-export function getTerminal(worktree: string): TermInstance {
-  let inst = instances.get(worktree);
+/** Get (or lazily create) the persistent xterm instance for a PTY key (a
+ *  worktree path, or its claude-slot composite — see claudeTermKey). */
+export function getTerminal(key: string): TermInstance {
+  let inst = instances.get(key);
   if (!inst) {
+    const slot: TermInstance["slot"] = key.endsWith(CLAUDE_SLOT) ? "claude" : "shell";
     const term = new Terminal({
       fontSize: 12,
       fontFamily: "ui-monospace, Menlo, monospace",
@@ -57,24 +83,29 @@ export function getTerminal(worktree: string): TermInstance {
     term.loadAddon(fit);
     // Keystrokes → PTY. If the write fails the PTY is gone (killed, or the Rust
     // core restarted under a dev rebuild — no `exit` event reaches us then), so
-    // RECONNECT: reopen the PTY and replay this keystroke. Without this, typing
-    // into a dead terminal is silently swallowed with zero feedback.
+    // RECONNECT: reopen the PTY — as the login shell for the shell slot, as the
+    // Claude CLI (resuming the newest session) for the claude slot — and replay
+    // this keystroke. Without this, typing into a dead terminal is silently
+    // swallowed with zero feedback; under CLI-first chat it's also the natural
+    // "type to revive" path after a /exit.
     term.onData((data) => {
-      api.termWrite(worktree, data).catch(async () => {
+      api.termWrite(key, data).catch(async () => {
+        const i = instances.get(key);
+        if (!i) return;
         try {
-          const i = instances.get(worktree);
-          if (i) {
-            await api.termOpen(worktree, i.term.rows, i.term.cols);
+          if (i.slot === "claude") await ensureClaudeOpen(keyWorktree(key));
+          else {
+            await api.termOpen(key, i.term.rows, i.term.cols);
             i.open = true;
-            await api.termWrite(worktree, data);
           }
+          await api.termWrite(key, data);
         } catch {
           term.write("\r\n\x1b[2m[terminal not connected — reopen the tab]\x1b[0m\r\n");
         }
       });
     });
-    inst = { term, fit, open: false };
-    instances.set(worktree, inst);
+    inst = { term, fit, open: false, slot };
+    instances.set(key, inst);
   }
   return inst;
 }
@@ -89,13 +120,14 @@ export async function ensureOpen(worktree: string) {
 }
 
 /** Route one `term-event` into the cached xterm. No-op when no instance exists:
- *  a PTY is only opened via `getTerminal` (`ensureOpen`/the pane/the reconnect
- *  path), so an instance always precedes any event — EXCEPT after
- *  `disposeTerminal` (worktree removed/archived) with the PTY's final events
- *  still in flight. Recreating one here would leak an xterm that is never
- *  re-attached (a removed worktree can't be selected) nor disposed again. */
-export function handleTermEvent(worktree: string, kind: TermEnvelope["kind"], data: string | null) {
-  const inst = instances.get(worktree);
+ *  a PTY is only opened via `getTerminal` (`ensureOpen`/`ensureClaudeOpen`/the
+ *  pane/the reconnect path), so an instance always precedes any event — EXCEPT
+ *  after `disposeTerminal` (worktree removed/archived) with the PTY's final
+ *  events still in flight. Recreating one here would leak an xterm that is never
+ *  re-attached (a removed worktree can't be selected) nor disposed again.
+ *  `key` is the PTY key (a worktree path, or its claude-slot composite). */
+export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: string | null) {
+  const inst = instances.get(key);
   if (!inst) return;
   switch (kind) {
     case "data":
@@ -103,7 +135,16 @@ export function handleTermEvent(worktree: string, kind: TermEnvelope["kind"], da
       break;
     case "exit":
       inst.open = false;
-      inst.term.write("\r\n\x1b[2m[session ended — reopen the tab to restart]\x1b[0m\r\n");
+      if (inst.slot === "claude") {
+        // The CLI ended (/exit, crash, or our own termClose). session.ts
+        // decides what that means per chat surface (CLI-first: mark stopped,
+        // type-to-revive; legacy toggle: adopt the forked id + restart the
+        // sidecar). Call-time import per the CIRCULAR-IMPORT CONTRACT.
+        inst.term.write("\r\n\x1b[2m[claude exited — type here to restart it]\x1b[0m\r\n");
+        handleCliExit(keyWorktree(key));
+      } else {
+        inst.term.write("\r\n\x1b[2m[session ended — reopen the tab to restart]\x1b[0m\r\n");
+      }
       break;
     default: {
       // Exhaustiveness guard (SYNC RULE): a new TermEnvelope kind is a compile error.
@@ -113,12 +154,111 @@ export function handleTermEvent(worktree: string, kind: TermEnvelope["kind"], da
   }
 }
 
-/** Kill the PTY and drop the cached xterm (worktree removal/archive). */
+/** Kill the PTYs and drop the cached xterms (worktree removal/archive) — BOTH
+ *  slots, so an archived worktree's CLI terminal can't linger. */
 export function disposeTerminal(worktree: string) {
-  api.termClose(worktree).catch(() => {});
-  const inst = instances.get(worktree);
-  if (inst) {
-    inst.term.dispose();
-    instances.delete(worktree);
+  for (const key of [worktree, claudeTermKey(worktree)]) {
+    api.termClose(key).catch(() => {});
+    const inst = instances.get(key);
+    if (inst) {
+      inst.term.dispose();
+      instances.delete(key);
+    }
   }
+}
+
+/** Attach a cached xterm to a pane element and keep it fitted — the ONE
+ *  attach/fit implementation shared by TerminalPane and ClaudeTerminalPane.
+ *  Re-parents the persistent terminal (xterm's open() is once-per-instance),
+ *  re-syncs the theme snapshot, runs the settle loop + ResizeObserver with
+ *  rAF-coalesced fits, and calls `onOpen` to (re)open the PTY. Returns the
+ *  cleanup for the caller's `$effect`.
+ *
+ *  WHY the settle loop: xterm's cell metrics are wrong until the renderer
+ *  measures the real font — a fit in that window computes a badly narrow grid
+ *  (a full-width pane at ~20 cols) and NOTHING re-fires later because the
+ *  pane's own size never changes. For ~3s after (re)attach we keep
+ *  re-proposing; only REAL dimension changes are pushed to the PTY, so once
+ *  metrics settle further polls are no-ops. */
+export function attachTerminal(
+  key: string,
+  el: HTMLElement,
+  opts: { onOpen: () => Promise<void>; onError?: (e: unknown) => void },
+): () => void {
+  const inst = getTerminal(key);
+  el.replaceChildren(); // drop a previous worktree's terminal DOM
+  if (inst.term.element) el.appendChild(inst.term.element);
+  else inst.term.open(el);
+  // Re-sync the theme snapshot to the LIVE CSS vars so xterm's background is
+  // pixel-identical to the pane behind it (also picks up theme switches).
+  inst.term.options.theme = themeColors();
+  inst.term.focus();
+
+  // Fit AFTER layout settles, coalesced to one rAF per burst. Fitting
+  // synchronously inside the ResizeObserver callback mutates layout and
+  // re-triggers the observer, which can thrash xterm down to a tiny rows/cols
+  // render (a black pane).
+  let raf = 0;
+  let disposed = false;
+  const fitNow = () => {
+    raf = 0;
+    if (disposed || !el.clientHeight) return;
+    // Basic garbage guard (renderer not measured at all yet).
+    const dims = inst.fit.proposeDimensions();
+    if (
+      !dims ||
+      !Number.isFinite(dims.cols) ||
+      !Number.isFinite(dims.rows) ||
+      dims.cols < 4 ||
+      dims.rows < 2
+    ) {
+      return;
+    }
+    const before = { rows: inst.term.rows, cols: inst.term.cols };
+    inst.fit.fit();
+    // The DOM renderer rounds each row to device pixels, so the PAINTED grid
+    // can end up a few px taller than fit's fractional math — clipping the
+    // bottom row (where TUI status bars live). If the painted screen overflows
+    // the host, give a row back.
+    const screen = el.querySelector(".xterm-screen");
+    if (screen && screen.getBoundingClientRect().height > el.clientHeight && inst.term.rows > 2) {
+      inst.term.resize(inst.term.cols, inst.term.rows - 1);
+    }
+    const { rows, cols } = inst.term;
+    if (rows !== before.rows || cols !== before.cols) {
+      api.termResize(key, rows, cols).catch(() => {});
+    }
+  };
+  const scheduleFit = () => {
+    if (!raf) raf = requestAnimationFrame(fitNow);
+  };
+  (async () => {
+    for (let i = 0; i < 15 && !disposed; i++) {
+      scheduleFit();
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  })();
+
+  opts
+    .onOpen()
+    .then(() => {
+      // Sync the PTY to the xterm's CURRENT grid unconditionally: the PTY may
+      // have just spawned with dims read BEFORE the first fit landed (the
+      // 80×24 xterm default), and fitNow only pushes on a CHANGE — so without
+      // this, a fit that settled while the open was in flight never reaches
+      // the PTY and a TUI keeps painting a small grid inside a big pane.
+      api.termResize(key, inst.term.rows, inst.term.cols).catch(() => {});
+      scheduleFit();
+      inst.term.focus();
+    })
+    .catch((e) => opts.onError?.(e));
+
+  const ro = new ResizeObserver(scheduleFit);
+  ro.observe(el);
+  scheduleFit();
+  return () => {
+    disposed = true;
+    ro.disconnect();
+    if (raf) cancelAnimationFrame(raf);
+  };
 }

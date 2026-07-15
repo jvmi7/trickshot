@@ -146,7 +146,11 @@ export type Inbound =
   // supersede). A no-op if nothing is running for that id.
   | { kind: "comment_cancel"; id: string };
 
-/** Provider-neutral permission modes (mirrors the Claude SDK's `PermissionMode`).
+/** The HARNESS's tool-permission vocabulary. Historically identical to the
+ *  Claude SDK's `PermissionMode`, but the contract runs the other way: these four
+ *  modes are trickshot's own protocol values, and every provider adapter MAPS its
+ *  native permission semantics onto them (a provider without a native "plan" mode
+ *  approximates or rejects it — it must not invent new wire values).
  *  `bypassPermissions` runs every tool without prompting (the historical
  *  default); the others route tool use through `canUseTool` → a
  *  `permission_request` the UI answers with `permission_reply`. */

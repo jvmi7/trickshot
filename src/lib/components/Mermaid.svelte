@@ -8,6 +8,8 @@
   // live from the `--app-*`/`--base-*` palette so diagrams follow the active
   // theme (re-rendered when `<html data-theme>` flips, via a MutationObserver).
   import { escapeHtml } from "$lib/highlight";
+  import { fitSvg, recolorSource } from "$lib/mermaidTheme";
+  import { THEMES } from "$lib/themes";
   import * as Dialog from "$lib/components/ui/dialog";
   import IconButton from "./IconButton.svelte";
   import Plus from "@lucide/svelte/icons/plus";
@@ -51,72 +53,6 @@
     return got || fallback;
   }
 
-  // Rewrite the diagram author's color directives so the BACKGROUND is always
-  // neutral while the author's accent moves to the BORDER + TEXT. We do this at
-  // the source rather than in CSS because mermaid compiles `classDef`/`style`
-  // into id-scoped `#mermaid-… .cls { fill:… !important }` rules — an ID selector
-  // a class-based CSS override can't beat — so the only reliable lever is the
-  // declarations themselves. `:::cls` references inherit the rewrite; a
-  // `linkStyle` is dropped (edges stay neutral) and a theme-overriding
-  // `%%{init}%%` block is removed so our neutral base always wins.
-  function recolorSource(src: string): string {
-    const neutralFill = v("--app-panel", "#1a1a1a");
-    function isColor(x: string | undefined): boolean {
-      return !!x && !/^(none|transparent)$/i.test(x.trim());
-    }
-    const withoutThemeInit = src.replace(/%%\{[\s\S]*?\}%%/g, (m) =>
-      /theme/i.test(m) ? "" : m,
-    );
-    return withoutThemeInit
-      .split("\n")
-      .filter((line) => !/^\s*linkStyle\b/.test(line))
-      .map((line) => {
-        const t = line.trim();
-        // `classDef <name> …` / `style <node(s)> …` — head + comma-separated decls.
-        const m = t.match(/^((?:classDef|style)\s+\S+)\s+(.+)$/);
-        const head = m?.[1];
-        const body = m?.[2];
-        if (!head || !body) return line;
-        const decls: Record<string, string> = {};
-        for (const d of body.split(",")) {
-          const i = d.indexOf(":");
-          if (i !== -1) decls[d.slice(0, i).trim().toLowerCase()] = d.slice(i + 1).trim();
-        }
-        // Not a styling statement (e.g. a node literally named "style") — leave it.
-        if (Object.keys(decls).length === 0) return line;
-        // Accent = whatever color the author meant (fill first, then stroke/text).
-        const accent = [decls.fill, decls.stroke, decls.color].find(isColor);
-        const out = [`fill:${neutralFill}`];
-        if (accent) out.push(`stroke:${accent}`, `color:${accent}`);
-        // Preserve non-color decls (stroke-width, stroke-dasharray, …).
-        for (const [k, val] of Object.entries(decls)) {
-          if (k !== "fill" && k !== "stroke" && k !== "color") out.push(`${k}:${val}`);
-        }
-        return line.replace(t, `${head} ${out.join(",")}`);
-      })
-      .join("\n");
-  }
-
-  // Give the svg explicit intrinsic width/height from its viewBox and strip
-  // mermaid's `width="100%"` + inline `max-width` (its useMaxWidth behavior).
-  // Without this, every diagram is forced to full width, so a tall/narrow one
-  // scales up to an absurd height while a wide one collapses short. With numeric
-  // intrinsic dims + viewBox, the CSS max-width/max-height "contain" it into one
-  // bounded box — tall diagrams cap on height, wide ones on width, both keeping
-  // their aspect ratio.
-  function fitSvg(svgText: string): string {
-    const vb = svgText.match(/viewBox="\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)/);
-    const w = vb?.[1];
-    const h = vb?.[2];
-    if (!w || !h) return svgText;
-    return svgText.replace(/<svg\b[^>]*?>/, (tag) => {
-      const stripped = tag
-        .replace(/\s(?:width|height)="[^"]*"/g, "")
-        .replace(/max-width:\s*[^;"]*;?\s*/g, "");
-      return stripped.replace(/^<svg/, `<svg width="${w}" height="${h}"`);
-    });
-  }
-
   async function render(src: string) {
     if (!src.trim()) {
       svg = "";
@@ -126,12 +62,16 @@
     try {
       const mermaid = await getMermaid();
       // Resolve the neutral palette once per render so it tracks the live theme.
-      const bg = v("--app-bg", "#000");
-      const panel = v("--app-panel", "#1a1a1a");
-      const panel2 = v("--app-panel-2", "#222");
-      const border = v("--app-border", "#333");
-      const text = v("--app-text", "#fff");
-      const dim = v("--app-dim", "#888");
+      // Fallbacks come from the DEFAULT theme's palette (the same source of truth
+      // as the CSS static fallback) so they can never drift into stale hexes —
+      // a data-only import, so this stays a store-free primitive.
+      const P = THEMES[0]!.palette;
+      const bg = v("--app-bg", P.bg);
+      const panel = v("--app-panel", P.surface);
+      const panel2 = v("--app-panel-2", P.surfaceRaised);
+      const border = v("--app-border", P.border);
+      const text = v("--app-text", P.text);
+      const dim = v("--app-dim", P.textMuted);
       // Fully MONOCHROME: mermaid's `base` theme derives node/edge/note/actor
       // colors from these vars, so every color-bearing var is pinned to a neutral
       // grey from the app palette — no hues. Set per diagram type (flowchart,
@@ -185,7 +125,10 @@
           activationBorderColor: border,
         },
       });
-      const out = await mermaid.render(id, recolorSource(src));
+      // Author color directives are rewritten at the source, and the svg gets
+      // intrinsic dims so CSS can "contain" it — see mermaidTheme.ts for why
+      // both must happen in the string, not in CSS.
+      const out = await mermaid.render(id, recolorSource(src, panel));
       svg = fitSvg(out.svg);
       failed = false;
     } catch {
@@ -343,15 +286,15 @@
     margin: 0 0 8px;
     padding: 8px;
     border: 1px solid transparent;
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     background: none;
     text-align: center;
     cursor: pointer;
     font: inherit;
     color: inherit;
     transition:
-      border-color 0.12s ease,
-      background 0.12s ease;
+      border-color var(--app-duration-fast) ease,
+      background var(--app-duration-fast) ease;
   }
   .mm-trigger:hover,
   .mm-trigger:focus-visible {
@@ -383,12 +326,12 @@
     justify-content: center;
     width: 24px;
     height: 24px;
-    border-radius: 6px;
+    border-radius: var(--radius-xs);
     background: var(--app-panel-2);
     border: 1px solid var(--app-border);
     color: var(--app-dim);
     opacity: 0;
-    transition: opacity 0.12s ease;
+    transition: opacity var(--app-duration-fast) ease;
     pointer-events: none;
   }
   .mm-trigger:hover .mm-hint,
@@ -435,7 +378,7 @@
     padding: 4px;
     background: var(--app-panel);
     border: 1px solid var(--app-border);
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
   }
 
   /* ---- neutral palette, shared by the preview AND the modal (.mm-diagram) ----

@@ -6,7 +6,7 @@
   import {
     activeQueued,
     selectedWorktree,
-    removeQueuedAt,
+    removeQueued,
     clearQueued,
     sendQueuedNow,
   } from "../stores";
@@ -19,14 +19,15 @@
 </script>
 
 {#if wt && items.length > 0}
-  <div class="queued">
+  <!-- .chat-col (app.css): the composer's reading column (max-width + gutter). -->
+  <div class="chat-col">
     <div class="queued-inner">
       <div class="queued-head">
-        <span class="queued-label">Queued · {items.length}</span>
+        <span class="section-label">Queued · {items.length}</span>
         <div class="queued-actions">
           <button
             type="button"
-            class="queued-action"
+            class="text-action"
             onclick={() => sendQueuedNow(wt)}
             title="Interrupt the agent and send the next queued message now"
           >
@@ -34,7 +35,7 @@
           </button>
           <button
             type="button"
-            class="queued-action"
+            class="text-action"
             onclick={() => clearQueued(wt)}
             title="Remove all queued messages"
           >
@@ -43,12 +44,12 @@
         </div>
       </div>
       <ul class="queued-list">
-        {#each items as text, i (i)}
+        {#each items as q, i (q.id)}
           <li class="queued-item">
             <span class="queued-num">{i + 1}</span>
-            <span class="queued-text" title={text}>{text}</span>
+            <span class="queued-text" title={q.text}>{q.text}</span>
             <IconButton
-              onclick={() => removeQueuedAt(wt, i)}
+              onclick={() => removeQueued(wt, q.id)}
               title="Remove"
               aria-label="Remove queued message"
             >
@@ -62,21 +63,14 @@
 {/if}
 
 <style>
-  /* Align with the composer's reading column (same max-width + horizontal gutter). */
-  .queued {
-    width: 100%;
-    max-width: var(--chat-col);
-    margin-inline: auto;
-    padding: 0 32px;
-  }
   .queued-inner {
     display: flex;
     flex-direction: column;
     gap: 4px;
     padding: 6px 8px 8px;
-    border: 1px solid var(--app-border, var(--border));
+    border: 1px solid var(--app-border);
     border-radius: calc(var(--radius) - 4px);
-    background: var(--app-panel, var(--muted));
+    background: var(--app-panel);
   }
   .queued-head {
     display: flex;
@@ -85,32 +79,9 @@
     gap: 8px;
     padding: 2px 4px;
   }
-  .queued-label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--app-dim, var(--muted-foreground));
-  }
   .queued-actions {
     display: flex;
     gap: 12px;
-  }
-  .queued-action {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--app-dim, var(--muted-foreground));
-    cursor: pointer;
-    transition: color 0.12s ease;
-  }
-  .queued-action:hover {
-    color: var(--app-text, var(--foreground));
   }
   .queued-list {
     margin: 0;
@@ -125,20 +96,20 @@
     align-items: center;
     gap: 8px;
     padding: 1px 4px;
-    border-radius: 6px;
+    border-radius: var(--radius-xs);
   }
   .queued-num {
     flex-shrink: 0;
     width: 16px;
     text-align: center;
-    font-size: 11px;
-    color: var(--app-dim, var(--muted-foreground));
+    font-size: var(--text-xs);
+    color: var(--app-dim);
   }
   .queued-text {
     flex: 1;
     min-width: 0;
-    font-size: 13px;
-    color: var(--app-text, var(--foreground));
+    font-size: var(--text-md);
+    color: var(--app-text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

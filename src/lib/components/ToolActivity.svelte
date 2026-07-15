@@ -8,7 +8,9 @@
   import type { AgentMessage } from "../types";
   import { toolLabel, toolDetail } from "../agentMessage";
   import { toolResultsById } from "../stores";
+  import { detectTable } from "../tabular";
   import Collapsible from "./Collapsible.svelte";
+  import TextTable from "./TextTable.svelte";
   import * as Disclosure from "$lib/components/ui/collapsible";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Check from "@lucide/svelte/icons/check";
@@ -23,8 +25,12 @@
   const isError = $derived(result?.isError ?? false);
   const resultLines = $derived(result ? result.content.split("\n").length : 0);
   const inputJson = $derived(JSON.stringify(m.input, null, 2));
+  // Strictly-tabular results (TSV / outer-piped — tabular.ts) render as a real
+  // table with a raw fallback toggle; errors always render raw.
+  const table = $derived(result && !result.isError ? detectTable(result.content) : null);
 
   let open = $state(false);
+  let showRaw = $state(false);
 </script>
 
 <div class="tool-row" class:error={isError}>
@@ -51,7 +57,17 @@
       {#if result}
         <div class="tool-block">
           <div class="tool-block-label">result · {resultLines} line{resultLines === 1 ? "" : "s"}</div>
-          <Collapsible text={result.content} />
+          {#if table && !showRaw}
+            <TextTable {table} />
+            <button type="button" class="text-action" onclick={() => (showRaw = true)}>show raw</button>
+          {:else}
+            <!-- Results are terminal-flavored (Bash output, logs) → ANSI-styled;
+                 inputs stay plain JSON (never ANSI), so no `ansi` there. -->
+            <Collapsible text={result.content} ansi />
+            {#if table}
+              <button type="button" class="text-action" onclick={() => (showRaw = false)}>show table</button>
+            {/if}
+          {/if}
         </div>
       {/if}
     </Disclosure.Content>

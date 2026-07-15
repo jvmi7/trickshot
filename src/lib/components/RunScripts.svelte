@@ -7,7 +7,7 @@
     activeRepo,
     activeScriptRun,
     activeScripts,
-    mainView,
+    setMainView,
     refreshScripts,
     selectedWorktree,
   } from "../stores";
@@ -39,7 +39,7 @@
     error = "";
     try {
       await api.runScript(repo.path, w, name);
-      mainView.set("run"); // surface the output as it starts
+      setMainView("run"); // surface the output as it starts
     } catch (e) {
       error = String(e);
     }
@@ -124,14 +124,8 @@
     </DropdownMenu.Root>
   {/if}
   {#if error}
-    <span class="run-error" title={error}>script failed to start</span>
+    <!-- whitespace-nowrap: a header row label must not wrap (overrides the shared
+         .error-text pre-wrap). -->
+    <span class="error-text whitespace-nowrap" title={error}>script failed to start</span>
   {/if}
 {/if}
-
-<style>
-  .run-error {
-    color: var(--destructive);
-    font-size: 11px;
-    white-space: nowrap;
-  }
-</style>

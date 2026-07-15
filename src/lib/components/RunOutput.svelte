@@ -4,6 +4,7 @@
   // auto-follows unless the user scrolled up. Feature component (reads stores),
   // sibling of GitPanel in the mainView switch.
   import { activeScriptRun } from "../stores";
+  import AnsiText from "./AnsiText.svelte";
 
   const run = $derived($activeScriptRun);
 
@@ -24,7 +25,7 @@
 
 <div class="run-pane">
   {#if !run}
-    <div class="run-empty">No script has been run for this workspace.</div>
+    <div class="run-empty empty-state">No script has been run for this workspace.</div>
   {:else}
     <div class="run-head">
       <span class="run-name">{run.name}</span>
@@ -37,7 +38,10 @@
       {/if}
     </div>
     <div class="run-body" bind:this={pane} onscroll={onScroll}>
-      <pre class="run-log">{run.output.join("\n")}</pre>
+      <!-- Each bounded-tail line renders through AnsiText (build logs are the
+           ANSI-heaviest surface); the explicit {"\n"} joiners preserve the exact
+           pre-wrap layout the old join("\n") produced. -->
+      <pre class="run-log">{#each run.output as line, i}{#if i > 0}{"\n"}{/if}<AnsiText text={line} />{/each}</pre>
     </div>
   {/if}
 </div>
@@ -61,18 +65,18 @@
     flex-shrink: 0;
   }
   .run-name {
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 600;
   }
   .run-status {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--app-dim);
   }
   .run-status.running {
     color: var(--base-success);
   }
   .run-status.failed {
-    color: var(--destructive);
+    color: var(--app-danger);
   }
   .run-body {
     flex: 1;
@@ -82,15 +86,13 @@
   }
   .run-log {
     margin: 0;
-    font-size: 11px;
+    font-size: var(--text-xs);
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;
   }
+  /* Text styling is the shared .empty-state (app.css); spacing stays per-site. */
   .run-empty {
-    color: var(--app-dim);
-    font-size: 12px;
-    text-align: center;
     margin-top: 32px;
     padding: 0 16px;
   }

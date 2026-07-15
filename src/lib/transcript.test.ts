@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { get } from "svelte/store";
 import {
   appendMessage,
@@ -6,9 +6,14 @@ import {
   groupMessages,
   hiddenCount,
   indexToolResults,
+  loadTranscripts,
+  migrateTranscriptsV2,
   RENDER_WINDOW,
   resetTranscript,
+  saveDirtyTranscripts,
   summarizeConversation,
+  type TranscriptStorage,
+  transcriptKey,
   transcripts,
   windowTail,
 } from "./transcript";
@@ -158,5 +163,152 @@ describe("resetTranscript", () => {
     expect(get(transcripts)[wt]).toHaveLength(1);
     resetTranscript(wt);
     expect(get(transcripts)[wt]).toEqual([]);
+  });
+});
+
+// ---- Per-worktree persistence (the v3 key-per-worktree scheme) ----
+// bun test has no localStorage, so the pure migrate/load/save helpers are
+// exercised against this in-memory shim; the end-to-end wiring tests install it
+// as `globalThis.localStorage`, which works because transcript.ts resolves
+// storage at CALL time (see the `storage()` comment there).
+type MemoryStorage = TranscriptStorage & { data: Map<string, string>; setCalls: string[] };
+function memoryStorage(failKeys: Set<string> = new Set()): MemoryStorage {
+  const data = new Map<string, string>();
+  const setCalls: string[] = [];
+  return {
+    data,
+    setCalls,
+    getItem: (k) => data.get(k) ?? null,
+    setItem: (k, v) => {
+      setCalls.push(k);
+      if (failKeys.has(k)) throw new Error("quota exceeded");
+      data.set(k, v);
+    },
+    removeItem: (k) => {
+      data.delete(k);
+    },
+    key: (i) => [...data.keys()][i] ?? null,
+    get length() {
+      return data.size;
+    },
+  };
+}
+
+describe("migrateTranscriptsV2", () => {
+  const V2_KEY = "trickshot.transcripts.v2";
+
+  test("splits the old whole-map blob into per-worktree keys and removes it", () => {
+    const s = memoryStorage();
+    const a = [{ type: "user_local", text: "hi", __key: 1 }] as TranscriptMessage[];
+    s.data.set(V2_KEY, JSON.stringify({ "/a": a, "/empty": [], "/junk": "not-a-list" }));
+    migrateTranscriptsV2(s);
+    expect(s.data.has(V2_KEY)).toBe(false);
+    expect(JSON.parse(s.data.get(transcriptKey("/a")) ?? "null")).toEqual(a);
+    // Empty and malformed worktree entries are dropped, not given keys.
+    expect(s.data.has(transcriptKey("/empty"))).toBe(false);
+    expect(s.data.has(transcriptKey("/junk"))).toBe(false);
+  });
+
+  test("is quota-tolerant: one failing write drops only that worktree", () => {
+    const s = memoryStorage(new Set([transcriptKey("/big")]));
+    s.data.set(
+      V2_KEY,
+      JSON.stringify({
+        "/big": [{ type: "assistant", text: "x", __key: 1 }],
+        "/ok": [{ type: "assistant", text: "y", __key: 2 }],
+      }),
+    );
+    migrateTranscriptsV2(s); // must not throw
+    expect(s.data.has(transcriptKey("/big"))).toBe(false);
+    expect(s.data.has(transcriptKey("/ok"))).toBe(true);
+    expect(s.data.has(V2_KEY)).toBe(false); // removed even after a partial split
+  });
+
+  test("a corrupt v2 blob is removed without migrating anything", () => {
+    const s = memoryStorage();
+    s.data.set(V2_KEY, "{not json");
+    migrateTranscriptsV2(s); // must not throw
+    expect(s.data.has(V2_KEY)).toBe(false);
+    expect(s.data.size).toBe(0);
+  });
+
+  test("no v2 key → no-op", () => {
+    const s = memoryStorage();
+    migrateTranscriptsV2(s);
+    expect(s.data.size).toBe(0);
+  });
+});
+
+describe("loadTranscripts", () => {
+  test("loads only prefixed keys, skipping corrupt/non-list entries", () => {
+    const s = memoryStorage();
+    const a = [{ type: "user_local", text: "hi", __key: 3 }] as TranscriptMessage[];
+    s.data.set(transcriptKey("/a"), JSON.stringify(a));
+    s.data.set(transcriptKey("/corrupt"), "{not json");
+    s.data.set(transcriptKey("/not-a-list"), JSON.stringify({ nope: true }));
+    s.data.set("trickshot.theme", '"dark"'); // unrelated key, ignored
+    expect(loadTranscripts(s)).toEqual({ "/a": a });
+  });
+});
+
+describe("saveDirtyTranscripts", () => {
+  test("writes ONLY the dirty worktrees (per-worktree save granularity)", () => {
+    const s = memoryStorage();
+    const map = {
+      "/a": [{ type: "user_local", text: "a" } as TranscriptMessage],
+      "/b": [{ type: "user_local", text: "b" } as TranscriptMessage],
+    };
+    saveDirtyTranscripts(s, map, ["/a"]);
+    expect(s.setCalls).toEqual([transcriptKey("/a")]);
+    expect(s.data.has(transcriptKey("/b"))).toBe(false);
+  });
+
+  test("skips a dirty worktree with an empty transcript and swallows quota errors", () => {
+    const s = memoryStorage(new Set([transcriptKey("/full")]));
+    const map = {
+      "/empty": [] as TranscriptMessage[],
+      "/full": [{ type: "user_local", text: "x" } as TranscriptMessage],
+    };
+    saveDirtyTranscripts(s, map, ["/empty", "/full", "/absent"]); // must not throw
+    expect(s.data.size).toBe(0);
+  });
+});
+
+describe("persistence wiring (shimmed localStorage)", () => {
+  // > the 600ms idle-save debounce (plus the 16ms flush).
+  const idle = () => new Promise((r) => setTimeout(r, 700));
+  const shim = memoryStorage();
+  (globalThis as { localStorage?: unknown }).localStorage = shim;
+  afterAll(() => {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  });
+
+  test("the idle save writes per-worktree keys, and only DIRTY ones on later saves", async () => {
+    const wa = `/wiring-a-${Math.random()}`;
+    const wb = `/wiring-b-${Math.random()}`;
+    appendMessage(wa, { type: "user_local", text: "a1" });
+    appendMessage(wb, { type: "user_local", text: "b1" });
+    await idle();
+    expect(shim.data.has(transcriptKey(wa))).toBe(true);
+    expect(shim.data.has(transcriptKey(wb))).toBe(true);
+
+    // Second burst touches ONLY wa → the save must not re-serialize wb.
+    shim.setCalls.length = 0;
+    appendMessage(wa, { type: "user_local", text: "a2" });
+    await idle();
+    expect(shim.setCalls).toEqual([transcriptKey(wa)]);
+    expect(JSON.parse(shim.data.get(transcriptKey(wa)) ?? "[]")).toHaveLength(2);
+  });
+
+  test("resetTranscript removes the worktree's key immediately", async () => {
+    const wt = `/wiring-reset-${Math.random()}`;
+    appendMessage(wt, { type: "user_local", text: "gone" });
+    await idle();
+    expect(shim.data.has(transcriptKey(wt))).toBe(true);
+    resetTranscript(wt);
+    expect(shim.data.has(transcriptKey(wt))).toBe(false);
+    // …and the pending idle save must not resurrect it (the un-dirty guard).
+    await idle();
+    expect(shim.data.has(transcriptKey(wt))).toBe(false);
   });
 });

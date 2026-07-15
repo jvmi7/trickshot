@@ -8,27 +8,111 @@
 import { writable } from "svelte/store";
 import type { TranscriptMessage } from "./types";
 
-const hasLS = typeof localStorage !== "undefined";
-
 // ---- Per-worktree transcripts (batched appends, persisted) ----
 // A burst of streamed lines coalesces into one store write per 16ms across all
 // worktrees. Each message gets a stable `__key` for identity-keyed {#each}.
 // Transcripts persist to localStorage so chat history survives restarts (resume
 // restores agent context but not the rendered messages — see CLAUDE.md).
-// `.v2` because the persisted message shape changed (raw SDK messages -> the
-// neutral AgentMessage schema). Bumping the key drops pre-v2 transcripts on
-// upgrade rather than rendering them blank; resume still restores agent context.
-const TRANSCRIPTS_KEY = "trickshot.transcripts.v2";
-function loadTranscripts(): Record<string, TranscriptMessage[]> {
-  if (!hasLS) return {};
+// `.v3`: ONE key PER WORKTREE (`trickshot.transcript.v3.<worktree path>`)
+// replaces the old v2 whole-map blob, so the idle save serializes only the
+// worktrees that changed since the last save (dirty-tracked below) — O(changed
+// transcripts) per save instead of O(total history) against the shared ~5MB
+// quota. The v2 blob is split into per-worktree keys once on load and removed
+// (best-effort, quota-tolerant); `.v2` itself had bumped the message shape (raw
+// SDK messages -> the neutral AgentMessage schema), so anything older is dropped.
+const V3_PREFIX = "trickshot.transcript.v3.";
+const LEGACY_V2_KEY = "trickshot.transcripts.v2";
+
+/** The per-worktree localStorage key (exported for the persistence tests). */
+export function transcriptKey(worktree: string): string {
+  return V3_PREFIX + worktree;
+}
+
+/** The slice of the Storage API the persistence here uses. The migrate/load/save
+ *  helpers take it as a parameter so they're unit-testable against an in-memory
+ *  shim — `bun test` has no localStorage (see transcript.test.ts). */
+export type TranscriptStorage = Pick<
+  Storage,
+  "getItem" | "setItem" | "removeItem" | "key" | "length"
+>;
+
+/** localStorage, resolved at CALL time — deliberately NOT captured at module eval
+ *  like the persisted-store template (persist.ts): the save/reset wiring below
+ *  must pick up the shim transcript.test.ts installs after this module loads. */
+function storage(): TranscriptStorage | null {
+  return typeof localStorage !== "undefined" ? localStorage : null;
+}
+
+/** One-time v2 → v3 migration: split the old whole-map blob into per-worktree
+ *  keys and remove it. Best-effort and quota-tolerant — a worktree whose write
+ *  fails is dropped (the old quota behavior, per transcript instead of all-or-
+ *  nothing); the v2 key is removed regardless so the split never re-runs against
+ *  half-migrated state. */
+export function migrateTranscriptsV2(storage: TranscriptStorage): void {
+  const raw = storage.getItem(LEGACY_V2_KEY);
+  if (raw === null) return;
   try {
-    const v = JSON.parse(localStorage.getItem(TRANSCRIPTS_KEY) ?? "{}");
-    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+    const v = JSON.parse(raw);
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      for (const [wt, list] of Object.entries(v)) {
+        if (!Array.isArray(list) || list.length === 0) continue;
+        try {
+          storage.setItem(transcriptKey(wt), JSON.stringify(list));
+        } catch {
+          /* quota — drop this worktree's history, keep migrating the rest */
+        }
+      }
+    }
   } catch {
-    return {};
+    /* corrupt v2 blob — nothing to migrate */
+  }
+  storage.removeItem(LEGACY_V2_KEY);
+}
+
+/** Load every persisted transcript by enumerating the per-worktree key prefix.
+ *  A corrupt entry is skipped — guard and fall back, never throw (the persisted-
+ *  store template's rule). */
+export function loadTranscripts(storage: TranscriptStorage): Record<string, TranscriptMessage[]> {
+  const out: Record<string, TranscriptMessage[]> = {};
+  // Collect keys first: mutating during an index walk would skew `key(i)`.
+  const keys: string[] = [];
+  for (let i = 0; i < storage.length; i++) {
+    const k = storage.key(i);
+    if (k?.startsWith(V3_PREFIX)) keys.push(k);
+  }
+  for (const k of keys) {
+    try {
+      const v = JSON.parse(storage.getItem(k) ?? "null");
+      if (Array.isArray(v)) out[k.slice(V3_PREFIX.length)] = v;
+    } catch {
+      /* corrupt entry — skip just this worktree */
+    }
+  }
+  return out;
+}
+
+/** Write each dirty worktree's transcript under its own key. Each setItem is
+ *  individually quota-guarded so one over-quota transcript can't block the rest
+ *  from persisting. */
+export function saveDirtyTranscripts(
+  storage: TranscriptStorage,
+  map: Record<string, TranscriptMessage[]>,
+  dirty: Iterable<string>,
+): void {
+  for (const wt of dirty) {
+    const list = map[wt];
+    if (!list || list.length === 0) continue;
+    try {
+      storage.setItem(transcriptKey(wt), JSON.stringify(list));
+    } catch {
+      /* ignore quota errors — history just won't persist past the limit */
+    }
   }
 }
-const _loaded = loadTranscripts();
+
+const _boot = storage();
+if (_boot) migrateTranscriptsV2(_boot);
+const _loaded = _boot ? loadTranscripts(_boot) : {};
 export const transcripts = writable<Record<string, TranscriptMessage[]>>(_loaded);
 
 // Continue keys above any rehydrated __key so identity-keyed {#each} stays unique
@@ -41,23 +125,24 @@ for (const list of Object.values(_loaded)) {
   }
 }
 
-// Persist on idle (debounced, reset on each change) so we never serialize the
-// whole map mid-stream — only ~600ms after a burst settles.
-if (hasLS) {
-  let _latest = _loaded;
-  let _saveTimer: ReturnType<typeof setTimeout> | null = null;
-  transcripts.subscribe((t) => {
-    _latest = t;
-    if (_saveTimer !== null) clearTimeout(_saveTimer);
-    _saveTimer = setTimeout(() => {
-      _saveTimer = null;
-      try {
-        localStorage.setItem(TRANSCRIPTS_KEY, JSON.stringify(_latest));
-      } catch {
-        /* ignore quota errors — history just won't persist past the limit */
-      }
-    }, 600);
-  });
+// Persist on idle (debounced, reset on each change) so we never serialize
+// mid-stream — only ~600ms after a burst settles — and save ONLY the worktrees
+// whose transcripts changed since the last save (`_dirty`, marked by flush()).
+const SAVE_IDLE_MS = 600;
+let _latest = _loaded;
+transcripts.subscribe((t) => {
+  _latest = t;
+});
+const _dirty = new Set<string>();
+let _saveTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleSave() {
+  if (_saveTimer !== null) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => {
+    _saveTimer = null;
+    const s = storage();
+    if (s) saveDirtyTranscripts(s, _latest, _dirty);
+    _dirty.clear();
+  }, SAVE_IDLE_MS);
 }
 
 const _buffers: Record<string, TranscriptMessage[]> = {};
@@ -74,9 +159,11 @@ function flush() {
       if (!batch) continue;
       next[k] = (next[k] ?? []).concat(batch);
       delete _buffers[k];
+      _dirty.add(k);
     }
     return next;
   });
+  scheduleSave();
 }
 
 /** Append a message to a worktree's transcript (stable key + batched write). */
@@ -86,9 +173,14 @@ export function appendMessage(worktree: string, msg: TranscriptMessage) {
   if (_flushTimer === null) _flushTimer = setTimeout(flush, 16);
 }
 
-/** Clear a worktree's transcript and drop any buffered (un-flushed) messages. */
+/** Clear a worktree's transcript and drop any buffered (un-flushed) messages.
+ *  Also removes the worktree's persisted key immediately (and un-dirties it, so a
+ *  pending idle save can't resurrect it) — a recreated worktree at the same path
+ *  must not rehydrate the stale history. */
 export function resetTranscript(worktree: string) {
   delete _buffers[worktree];
+  _dirty.delete(worktree);
+  storage()?.removeItem(transcriptKey(worktree));
   transcripts.update((t) => ({ ...t, [worktree]: [] }));
 }
 
@@ -167,7 +259,7 @@ export function groupMessages(msgs: TranscriptMessage[]): RenderedGroup[] {
 /** Build a compact recent-conversation string (user + assistant turns only) from
  *  a message list, to seed suggestion generation. Caps length so the cheap suggest
  *  model stays cheap. Callers pass transcript + un-flushed buffer so the just-ended
- *  turn is present (see `recentConversation` in stores.ts). */
+ *  turn is present (see `recentConversation` in session.ts). */
 export function summarizeConversation(
   all: TranscriptMessage[],
   maxMessages = 8,

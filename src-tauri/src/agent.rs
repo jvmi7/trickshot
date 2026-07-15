@@ -1,37 +1,35 @@
-use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
-use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-/// One sidecar process per worktree, keyed by worktree path. Worktrees run
-/// concurrently — each keeps its own live agent.
-#[derive(Default)]
-pub struct Sessions(Mutex<HashMap<String, CommandChild>>);
+use crate::worktree_map::{lock_ignore_poison, next_generation, WorktreeEvent, WorktreeMap};
 
-impl Sessions {
-    /// Lock, recovering from poisoning. The map of children is plain data and
-    /// is safe to use even if a thread panicked while holding the lock; without
-    /// this, one panic-under-lock would brick the whole agent subsystem. The ONE
-    /// way to lock `Sessions` — every caller (including the lib.rs exit handler)
-    /// goes through here so the poison-recovery is never re-hand-rolled.
-    pub(crate) fn lock(&self) -> MutexGuard<'_, HashMap<String, CommandChild>> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner())
+/// One live sidecar session. The child sits behind its own Arc'd lock so
+/// stdin writes happen WITHOUT holding the Sessions map lock — one
+/// backpressured sidecar must not stall every other worktree's send. `Option`
+/// because CommandChild::kill consumes self: killing takes the child out,
+/// leaving a tombstone any in-flight writer sees as "session not running".
+/// `generation` disambiguates a respawned session at the same key so a stale
+/// reader task can't clean up its successor.
+pub(crate) struct SessionEntry {
+    child: Arc<Mutex<Option<CommandChild>>>,
+    generation: u64,
+}
+
+impl SessionEntry {
+    /// Take and kill the child (no-op if already killed). pub(crate): the
+    /// lib.rs exit handler kills all sidecars on quit through this too.
+    pub(crate) fn kill(&self) {
+        if let Some(child) = lock_ignore_poison(&self.child).take() {
+            let _ = child.kill();
+        }
     }
 }
 
-/// Event relayed from a worktree's sidecar to the webview, tagged with the
-/// worktree it belongs to so the UI can route it to the right transcript.
-/// Emitted on a single `agent-event` channel.
-#[derive(Clone, Serialize)]
-struct AgentEvent {
-    worktree: String,
-    /// "stdout" | "stderr" | "error" | "terminated"
-    kind: String,
-    data: Option<String>,
-}
+/// One sidecar process per worktree (poison-safe lock via WorktreeMap).
+pub type Sessions = WorktreeMap<SessionEntry>;
 
 /// Start a sidecar for `worktree` (cwd = the worktree path). Idempotent: a
 /// no-op if one is already running for that worktree.
@@ -69,10 +67,16 @@ pub fn start_session(
     }
 
     let (mut rx, child) = command.spawn().map_err(|e| e.to_string())?;
-    // Capture this child's pid so the reader task can prove it still owns the map
-    // entry before removing it on exit (see the identity-checked cleanup below).
-    let pid = child.pid();
-    map.insert(worktree.clone(), child);
+    // Stamp this spawn so the reader task can prove it still owns the map entry
+    // before removing it on exit (see the identity-checked cleanup below).
+    let generation = next_generation();
+    map.insert(
+        worktree.clone(),
+        SessionEntry {
+            child: Arc::new(Mutex::new(Some(child))),
+            generation,
+        },
+    );
     drop(map);
 
     let handle = app.clone();
@@ -81,17 +85,17 @@ pub fn start_session(
         let mut exit_code: Option<String> = None;
         while let Some(event) = rx.recv().await {
             let evt = match event {
-                CommandEvent::Stdout(bytes) => AgentEvent {
+                CommandEvent::Stdout(bytes) => WorktreeEvent {
                     worktree: key.clone(),
                     kind: "stdout".into(),
                     data: Some(String::from_utf8_lossy(&bytes).to_string()),
                 },
-                CommandEvent::Stderr(bytes) => AgentEvent {
+                CommandEvent::Stderr(bytes) => WorktreeEvent {
                     worktree: key.clone(),
                     kind: "stderr".into(),
                     data: Some(String::from_utf8_lossy(&bytes).to_string()),
                 },
-                CommandEvent::Error(err) => AgentEvent {
+                CommandEvent::Error(err) => WorktreeEvent {
                     worktree: key.clone(),
                     kind: "error".into(),
                     data: Some(err),
@@ -107,18 +111,18 @@ pub fn start_session(
         }
         // Clean up on ANY loop exit (Terminated OR channel close), so a dead
         // session never leaves a stale key that would block restarting it. Remove
-        // ONLY if our child still owns the entry: a stop_session + start_session
-        // race can replace it with a fresh child (different pid) before we reach
-        // here, and an unconditional remove would orphan that live sidecar.
+        // ONLY if our spawn still owns the entry: a stop_session + start_session
+        // race can replace it with a fresh child (different generation) before we
+        // reach here, and an unconditional remove would orphan that live sidecar.
         if let Some(state) = handle.try_state::<Sessions>() {
             let mut map = state.lock();
-            if map.get(&key).map(|c| c.pid()) == Some(pid) {
+            if map.get(&key).map(|e| e.generation) == Some(generation) {
                 map.remove(&key);
             }
         }
         let _ = handle.emit(
             "agent-event",
-            AgentEvent {
+            WorktreeEvent {
                 worktree: key,
                 kind: "terminated".into(),
                 data: exit_code,
@@ -136,8 +140,18 @@ pub fn send_to_session(
     payload: String,
     state: State<'_, Sessions>,
 ) -> Result<(), String> {
-    let mut map = state.lock();
-    let child = map.get_mut(&worktree).ok_or("session not running")?;
+    // Clone the entry's Arc under a brief map lock, then write OUTSIDE it: a
+    // blocking (backpressured) stdin write must only stall THIS worktree's
+    // sends, never the whole fleet.
+    let child = {
+        let map = state.lock();
+        map.get(&worktree)
+            .ok_or("session not running")?
+            .child
+            .clone()
+    };
+    let mut guard = lock_ignore_poison(&child);
+    let child = guard.as_mut().ok_or("session not running")?;
     let mut bytes = payload.into_bytes();
     bytes.push(b'\n'); // sidecar reads stdin line-by-line
     child.write(&bytes).map_err(|e| e.to_string())
@@ -159,8 +173,124 @@ pub fn notify(app: AppHandle, title: String, body: String) -> Result<(), String>
 /// Kill a worktree's sidecar (no-op if it isn't running).
 #[tauri::command]
 pub fn stop_session(worktree: String, state: State<'_, Sessions>) -> Result<(), String> {
-    if let Some(child) = state.lock().remove(&worktree) {
-        child.kill().map_err(|e| e.to_string())?;
+    let entry = state.lock().remove(&worktree);
+    if let Some(entry) = entry {
+        entry.kill();
     }
     Ok(())
+}
+
+/// Kill every sidecar (the lib.rs exit handler — without this the app quit
+/// would orphan the ~279MB-resident per-worktree agent processes).
+pub(crate) fn kill_all(state: &Sessions) {
+    for (_, entry) in state.lock().drain() {
+        entry.kill();
+    }
+}
+
+/// Encode a worktree path the way Claude Code names its per-project session
+/// dir under `~/.claude/projects/`: every non-alphanumeric byte becomes `-`
+/// (verified against the live store — e.g. `/a/b.c` → `-a-b-c`). Pure so it's
+/// unit-testable.
+fn encode_claude_project_dir(path: &str) -> String {
+    path.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+/// The newest session id in `dir` by file mtime (session transcripts are
+/// `<session-id>.jsonl`). `None` when the dir doesn't exist or holds no
+/// sessions — not an error. Pure over a directory path so it's unit-testable.
+fn newest_session_in(dir: &std::path::Path) -> Option<String> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut newest: Option<(std::time::SystemTime, String)> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) else {
+            continue;
+        };
+        if newest.as_ref().is_none_or(|(t, _)| mtime > *t) {
+            newest = Some((mtime, stem.to_string()));
+        }
+    }
+    newest.map(|(_, id)| id)
+}
+
+/// The most recent Claude Code session id for a worktree — the resume target
+/// after a CLI chat-mode handoff. Resuming FORKS a new session id (both in the
+/// CLI and the SDK), so after the user chats in the terminal the app's
+/// persisted id is stale; the newest `.jsonl` in the project's session dir is
+/// the live thread. Provider-gated like `get_usage`/`check_auth`: the session
+/// store layout is Claude-specific.
+#[tauri::command]
+pub async fn latest_session_id(
+    worktree: String,
+    provider: Option<String>,
+) -> Result<Option<String>, String> {
+    crate::usage::ensure_known_provider(provider.as_deref())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+        let dir = std::path::PathBuf::from(home)
+            .join(".claude")
+            .join("projects")
+            .join(encode_claude_project_dir(&worktree));
+        Ok(newest_session_in(&dir))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{encode_claude_project_dir, newest_session_in};
+
+    #[test]
+    fn encodes_every_non_alphanumeric_byte_as_dash() {
+        assert_eq!(
+            encode_claude_project_dir("/Users/me/proj.name"),
+            "-Users-me-proj-name"
+        );
+        // `/.` produces a double dash (verified against the live store, e.g.
+        // `…/gamma-interview/.claude/…` → `…-gamma-interview--claude-…`).
+        assert_eq!(
+            encode_claude_project_dir("/a/.claude/worktrees/x_1"),
+            "-a--claude-worktrees-x-1"
+        );
+        assert_eq!(encode_claude_project_dir("plain123"), "plain123");
+    }
+
+    #[test]
+    fn newest_session_scan_picks_latest_jsonl_and_ignores_noise() {
+        let dir = std::env::temp_dir().join(format!("trickshot-scan-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("older.jsonl"), "{}").unwrap();
+        std::fs::write(dir.join("not-a-session.txt"), "x").unwrap();
+        // Ensure a strictly newer mtime on the second file (fs mtime
+        // granularity can be 1s on some filesystems).
+        let newer = dir.join("newer.jsonl");
+        std::fs::write(&newer, "{}").unwrap();
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        let f = std::fs::File::options().write(true).open(&newer).unwrap();
+        f.set_modified(later).unwrap();
+
+        assert_eq!(newest_session_in(&dir).as_deref(), Some("newer"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn newest_session_scan_handles_missing_or_empty_dir() {
+        let missing = std::env::temp_dir().join("trickshot-scan-definitely-missing");
+        assert_eq!(newest_session_in(&missing), None);
+        let empty =
+            std::env::temp_dir().join(format!("trickshot-scan-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&empty).unwrap();
+        assert_eq!(newest_session_in(&empty), None);
+        std::fs::remove_dir_all(&empty).unwrap();
+    }
 }

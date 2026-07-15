@@ -44,6 +44,7 @@ entire UI follows.
 | `info` / `warning` / `special` | `--base-info` / `-warning` / `-special` | chart accents + syntax/state hues | `--chart-3/4/5`† | — (`warning`→`.wt-pending`/`.hljs-number`; `special`→`.hljs-keyword`) |
 | `overlay` | `--base-overlay` | modal scrim | — (`[data-slot=dialog-overlay]`) | — |
 | `selection` | `--base-selection` | text-selection highlight *fill* (rendered at 20%); selected text recolors to `--base-accent` (`::selection`, `.ph-sel`) | — | `--app-selection-bg` |
+| `termGlow` | `--base-term-glow` | terminal glyph glow — a full `text-shadow` value (`none` disables); `currentColor` layers glow each glyph in its own ANSI color | — | — (`.term-host .xterm-rows`) |
 
 \* In a dark theme `onAccent` and `bg` often share a value; they're separate keys so a
 light theme can decouple them.
@@ -107,12 +108,20 @@ with no implicit inheritance. To **remove** a theme, delete its entry. To change
 
 ## Notes & caveats
 
-- **Stay in the dark family.** The app keeps `class="dark"` on `<html>` because the
-  shadcn primitives use `dark:` variant utilities (e.g. `dark:bg-input/30`) tuned for a
-  dark surface. Themes are palette swaps *within* dark mode. A genuinely light theme would
-  need those `dark:` variants revisited; out of scope.
+- **`class="dark"` is a permanent token-activation artifact, not a mode.** It selects
+  the `.dark` block whose values ALL derive from `--base-*`, and the `dark:` variant
+  utilities inside `ui/*` are opacity tints over tokens (`dark:bg-input/30`) — value-
+  relative, so they stay correct over any palette. Themes — **including a light-valued
+  one** — are plain palette swaps under it: adding "light" is just a `THEMES` entry with
+  light `bg`/`surface`s, dark `text`, a decoupled `onAccent`, a lighter `overlay` scrim,
+  and a `selection` tone that reads over white. See DESIGN_SYSTEM.md → "Add a
+  light-valued theme" for the recipe + verification checklist. Never remove the class
+  (that would revert shadcn tokens to their stock defaults and silence the tints).
 - **No hardcoded colors.** Every color flows through a `--base-*` var (and thus the
   themes.ts palette). Never inline a hex in a component or token block; add/extend a
   palette key instead (`ThemePalette` + `PALETTE_VARS` + every theme + the consumer).
-- The unused shadcn **light** (`:root`, oklch) values are the stock shadcn baseline;
-  they're inert while `class="dark"` is active.
+  This is now machine-checked by `conformance.test.ts` (no hex/rgb literals in
+  components; no value-bound `dark:` colors in `ui/*`).
+- The stock shadcn light-oklch `:root` baseline that used to sit in app.css was inert
+  (nothing ever removes `.dark`) and has been **removed** so it can't masquerade as a
+  light mode; only `--radius` remains at `:root`.

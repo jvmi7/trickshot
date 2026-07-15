@@ -1,16 +1,18 @@
 import { derived, get, type Readable, type Writable, writable } from "svelte/store";
 import * as api from "./api";
-import { buildCommentPrompt, type CommentMessage, type CommentThread } from "./comments";
-import { MINIMAL_DIRECTIVE } from "./minimal";
+import { createPersisted, createPersistedString, isPlainObject, parseJsonObject } from "./persist";
+import { DEFAULT_PROVIDER_ID } from "./providers";
+// Sibling store modules (threads.ts / session.ts) and stores.ts import each other
+// — safe under ESM live bindings because every cross-module access happens at
+// CALL time (see the CIRCULAR-IMPORT CONTRACT note in each sibling); these two
+// mutators are used by selectWorktree / removeRepo below.
+import { clearQueued } from "./session";
 import { DEFAULT_THEME, THEMES as THEME_DEFS } from "./themes";
+import { closeComment } from "./threads";
 import {
-  appendMessage,
-  bufferedMessages,
   groupMessages,
   hiddenCount,
   indexToolResults,
-  resetTranscript,
-  summarizeConversation,
   transcripts,
   windowTail,
 } from "./transcript";
@@ -26,7 +28,6 @@ import type {
   UsageInfo,
   Worktree,
 } from "./types";
-import { basename } from "./utils";
 
 export interface PermissionReq {
   id: string;
@@ -47,70 +48,9 @@ export interface QuestionReq {
  *  - `stopped` — no live sidecar (never started, terminated, or errored) */
 export type SessionStatus = "starting" | "ready" | "busy" | "stopped";
 
-const hasLS = typeof localStorage !== "undefined";
-
 // ---- Persistence primitive (the ONE template) ----
-// A localStorage-backed writable: load() with a shape guard + fallback, then a
-// subscribe() write-back that swallows quota errors, under a `trickshot.<name>`
-// key. Every persisted store below is built from this — the guard/quota invariant
-// is structural here instead of hand-copied per store (see CLAUDE.md). `parse`
-// turns the stored string into T and MAY throw or return the fallback for bad
-// data (load() catches and falls back); `serialize` defaults to JSON.
-function createPersisted<T>(
-  key: string,
-  fallback: T,
-  opts: { parse?: (raw: string) => T; serialize?: (value: T) => string } = {},
-): Writable<T> {
-  const serialize = opts.serialize ?? ((v: T) => JSON.stringify(v));
-  const parse = opts.parse ?? ((raw: string) => JSON.parse(raw) as T);
-  const load = (): T => {
-    if (!hasLS) return fallback;
-    const raw = localStorage.getItem(key);
-    if (raw === null) return fallback;
-    try {
-      return parse(raw);
-    } catch {
-      return fallback;
-    }
-  };
-  const store = writable<T>(load());
-  store.subscribe((v) => {
-    if (!hasLS) return;
-    try {
-      localStorage.setItem(key, serialize(v));
-    } catch {
-      /* ignore quota errors */
-    }
-  });
-  return store;
-}
-
-/** A persisted store of a raw string (identity parse/serialize) — the JSON
- *  helpers' string counterpart. Optional `validate` clamps a stored value to a
- *  known set (e.g. theme/font ids), falling back when it doesn't match. */
-function createPersistedString(
-  key: string,
-  fallback = "",
-  validate?: (raw: string) => string,
-): Writable<string> {
-  return createPersisted<string>(key, fallback, {
-    parse: validate ?? ((raw) => raw),
-    serialize: (v) => v,
-  });
-}
-
-/** The shape guard shared by every "is this a plain JSON object?" check
- *  (object, not null, not array). */
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return !!v && typeof v === "object" && !Array.isArray(v);
-}
-
-/** `createPersisted` parse fn for "a JSON object map of V" with the standard
- *  shape guard. Anything else → the empty map. */
-function parseJsonObject<V>(raw: string): Record<string, V> {
-  const v = JSON.parse(raw);
-  return isPlainObject(v) ? (v as Record<string, V>) : {};
-}
+// Lives in `persist.ts` (the canonical home of createPersisted /
+// createPersistedString / isPlainObject / parseJsonObject); imported above.
 
 /** Parse a free-text JSON config blob (MCP servers / agent defs) into an object,
  *  or undefined if empty/invalid. The single parser behind getMcpServers/getAgents. */
@@ -133,7 +73,7 @@ function parseConfigBlob(raw: string): Record<string, unknown> | undefined {
  *  per-worktree state is a single call, not a re-derived trio (CLAUDE.md). Pass
  *  `persistKey` to back it with the persisted template; mutators that need custom
  *  logic (merge, no-op guard, +1) build on `.store`/`.update` instead of `.set`. */
-interface WorktreeMap<T> {
+export interface WorktreeMap<T> {
   store: Writable<Record<string, T>>;
   /** Set a worktree's value (replaces). */
   set(worktree: string, value: T): void;
@@ -145,7 +85,11 @@ interface WorktreeMap<T> {
   /** Derived view of the selected worktree's value, or `fallback` when none. */
   active<F>(fallback: F): Readable<T | F>;
 }
-function createWorktreeMap<T>(
+/** Exported for the SIBLING STORE MODULES (threads.ts / session.ts) to build
+ *  their per-worktree maps — never import it from a component. It must stay a
+ *  hoisted `function` declaration (not a const): the siblings call it at their
+ *  module eval, which under the circular import runs BEFORE this module's body. */
+export function createWorktreeMap<T>(
   opts: { persistKey?: string; parse?: (raw: string) => Record<string, T> } = {},
 ): WorktreeMap<T> {
   const store = opts.persistKey
@@ -155,6 +99,19 @@ function createWorktreeMap<T>(
         { parse: opts.parse ?? parseJsonObject },
       )
     : writable<Record<string, T>>({});
+  function active<F>(fallback: F): Readable<T | F> {
+    // Built lazily on FIRST SUBSCRIBE, not at the .active() call: the sibling
+    // store modules call .active() at module eval, before this module's body has
+    // initialized `selectedWorktree` — an eager derived() there would hit the
+    // const's TDZ. Memoized so all subscribers still share ONE derived.
+    let inner: Readable<T | F> | null = null;
+    return {
+      subscribe: (run, invalidate) =>
+        (inner ??= derived([store, selectedWorktree], ([$m, $sel]) =>
+          $sel ? ($m[$sel] ?? fallback) : fallback,
+        )).subscribe(run, invalidate),
+    };
+  }
   return {
     store,
     set: (worktree, value) => store.update((m) => ({ ...m, [worktree]: value })),
@@ -166,16 +123,16 @@ function createWorktreeMap<T>(
         delete next[worktree];
         return next;
       }),
-    active: (fallback) =>
-      derived([store, selectedWorktree], ([$m, $sel]) =>
-        $sel ? ($m[$sel] ?? fallback) : fallback,
-      ),
+    active,
   };
 }
 
 // ---- UI state ----
 /** Whether the left sidebar is visible. Toggled from the global header. */
 export const sidebarOpen = writable<boolean>(true);
+export function toggleSidebar() {
+  sidebarOpen.update((v) => !v);
+}
 
 /** What the center pane shows: the active chat, or the full Settings page.
  *  Ephemeral (always starts on `chat`). Set via `setCenterView`; selecting a
@@ -204,18 +161,15 @@ export function setSidebarWidth(w: number) {
 /** Which view the main pane shows for the selected worktree: the chat transcript,
  *  the git "changes" (diff) panel, the script "run" output, or the integrated
  *  terminal. Ephemeral UI state. */
-export const mainView = writable<"chat" | "changes" | "run" | "term">("chat");
-
-/** Which inline-comment thread popup is open (its id), or null. Ephemeral, global
- *  (the selection is always within the on-screen chat); cleared on worktree switch. */
-export const activeCommentId = writable<string | null>(null);
-/** Open a comment thread's popup. */
-export function openComment(id: string) {
-  activeCommentId.set(id);
+export type MainView = "chat" | "changes" | "run" | "term";
+export const mainView = writable<MainView>("chat");
+/** Set the main pane's view (the one mutator — see the store-mutator rule). */
+export function setMainView(v: MainView) {
+  mainView.set(v);
 }
-/** Close the open comment popup (no cancel — the caller aborts any in-flight turn). */
-export function closeComment() {
-  activeCommentId.set(null);
+/** Toggle between a view and the chat (the header tabs' click behavior). */
+export function toggleMainView(v: Exclude<MainView, "chat">) {
+  mainView.update((cur) => (cur === v ? "chat" : v));
 }
 
 /** Bumped to ask an open GitPanel to re-fetch status/diff (e.g. after a turn that
@@ -230,6 +184,9 @@ export function bumpGitRefresh() {
 export const commandPaletteOpen = writable<boolean>(false);
 export function toggleCommandPalette() {
   commandPaletteOpen.update((v) => !v);
+}
+export function closeCommandPalette() {
+  commandPaletteOpen.set(false);
 }
 
 /** Bumped to ask the sidebar to open its inline new-worktree field (⌘⇧N / the
@@ -329,7 +286,7 @@ export const selectedWorktree = createPersisted<string | null>("trickshot.select
 export function selectWorktree(path: string | null) {
   selectedWorktree.set(path);
   // Close any open comment popup — it belongs to the chat we're leaving.
-  activeCommentId.set(null);
+  closeComment();
 }
 
 // ---- Per-worktree session status ----
@@ -338,6 +295,13 @@ export const sessionStatus = _status.store;
 export const setStatus = _status.set;
 /** Drop a worktree's status entry entirely (e.g. on removal). */
 export const clearStatus = _status.remove;
+/** Whether the SELECTED worktree's session is alive (ready or busy) — the shared
+ *  "can I talk to this session?" gate for the composer, model/permission
+ *  selectors, and connector panel (previously copy-pasted in each). */
+export const activeSessionAlive = derived(
+  [sessionStatus, selectedWorktree],
+  ([$st, $sel]) => !!$sel && ($st[$sel] === "ready" || $st[$sel] === "busy"),
+);
 
 /** Remove a repo from trickshot's sidebar. Does NOT delete the git repo on disk —
  *  it just drops it from the app: stops any running sessions for its worktrees,
@@ -520,19 +484,30 @@ export const turnSummary = _summary.store;
 export const setTurnSummary = _summary.set;
 
 // ---- Models ----
-// The switchable-model catalog is the same across worktrees (one Claude binary),
-// so it's a single global list; the *current* model is per-worktree.
-export const availableModels = writable<ModelInfo[]>([]);
-export function setAvailableModels(models: ModelInfo[]) {
-  availableModels.set(models);
+// Session catalogs are PER-WORKTREE: each session reports its own model list,
+// slash commands, and MCP statuses (they differ by repo `.claude/commands` today
+// and by provider tomorrow), so a global list would let concurrent sessions
+// clobber each other — whichever emitted last would win for every chat. The
+// `available*` exports are the selected worktree's view, so component reads
+// keep their old shape.
+const _availableModels = createWorktreeMap<ModelInfo[]>();
+export const modelsByWorktree = _availableModels.store;
+export function setAvailableModels(worktree: string, models: ModelInfo[]) {
+  _availableModels.set(worktree, models);
 }
+/** The selected worktree's switchable-model catalog (empty until its session
+ *  reports a `models` event). */
+export const availableModels = _availableModels.active<ModelInfo[]>([]);
 
-// Available slash commands for the selected worktree's session (provider-supplied
-// via the `commands` event). Global list; refreshed on session ready / get_commands.
-export const availableCommands = writable<SlashCommandInfo[]>([]);
-export function setAvailableCommands(commands: SlashCommandInfo[]) {
-  availableCommands.set(commands);
+// Slash commands, per worktree (provider-supplied via the `commands` event);
+// refreshed on session ready / get_commands.
+const _availableCommands = createWorktreeMap<SlashCommandInfo[]>();
+export const commandsByWorktree = _availableCommands.store;
+export function setAvailableCommands(worktree: string, commands: SlashCommandInfo[]) {
+  _availableCommands.set(worktree, commands);
 }
+/** The selected worktree's slash commands (empty until reported). */
+export const availableCommands = _availableCommands.active<SlashCommandInfo[]>([]);
 
 // ---- MCP integrations ----
 // MCP server config is a JSON object (same shape as `.mcp.json`'s `mcpServers`),
@@ -542,11 +517,15 @@ export const mcpServersJson = createPersistedString("trickshot.mcpServersJson");
 export function getMcpServers(): Record<string, unknown> | undefined {
   return parseConfigBlob(get(mcpServersJson));
 }
-/** Latest MCP server statuses for the selected session (via the `mcp_status` event). */
-export const mcpStatus = writable<McpStatusInfo[]>([]);
-export function setMcpStatus(servers: McpStatusInfo[]) {
-  mcpStatus.set(servers);
+// MCP server statuses, per worktree (via each session's `mcp_status` event) —
+// same per-session ownership as the model/command catalogs above.
+const _mcpStatus = createWorktreeMap<McpStatusInfo[]>();
+export const mcpStatusByWorktree = _mcpStatus.store;
+export function setMcpStatus(worktree: string, servers: McpStatusInfo[]) {
+  _mcpStatus.set(worktree, servers);
 }
+/** The selected worktree's MCP server statuses (empty until reported). */
+export const mcpStatus = _mcpStatus.active<McpStatusInfo[]>([]);
 
 // ---- Subagent definitions ----
 // Optional user-defined subagents as JSON (Record<name, {description, prompt,
@@ -587,6 +566,71 @@ export function setGlobalConnectorPref(name: string, enabled: boolean) {
   globalConnectorPrefs.update((m) => ({ ...m, [name]: enabled }));
 }
 
+// ---- Per-worktree provider (persisted) ----
+// Which provider adapter a worktree's session runs (see `providers.ts` for the
+// display registry and `sidecar/providers/` for the behavior). Applied at session
+// start via the SESSION_CONFIG blob (`config.provider`, see ensureSession). There
+// is no picker yet (Claude is the only adapter); the store exists so every
+// provider-scoped consumer (auth/usage probes, error copy, resume/model
+// invalidation) already reads through it instead of assuming Claude.
+const _provider = createWorktreeMap<string>({ persistKey: "trickshot.providerByWorktree" });
+export const providerByWorktree = _provider.store;
+/** Switch a worktree's provider. A REAL change also drops the worktree's
+ *  persisted model + session id — they're provider-specific (a Claude session id
+ *  is meaningless to another adapter's resume, and its model ids aren't in the
+ *  new catalog), so carrying them over would corrupt the next session start. */
+export function setWorktreeProvider(worktree: string, id: string) {
+  if ((get(providerByWorktree)[worktree] ?? DEFAULT_PROVIDER_ID) === id) return;
+  _provider.set(worktree, id);
+  _model.remove(worktree);
+  forgetWorktreeSession(worktree);
+  // A CLI chat mode is meaningless to a provider without one (see providers.ts
+  // › cliChat) — same invalidation family as the model/session id above.
+  _chatMode.remove(worktree);
+}
+/** The selected worktree's provider id (default provider when unset). */
+export const activeProvider = _provider.active<string>(DEFAULT_PROVIDER_ID);
+
+// ---- The chat surface (CLI-first deprecation switch) ----
+// "cli": the REAL Claude Code TUI is the primary chat pane — selecting a
+// worktree opens its claude PTY (no sidecar spawn; one session, one owner) and
+// the GUI chat (Chat/Composer + suggestions/queue/threads/minimal) is
+// deprecated-but-preserved, reachable only by flipping this back to "gui".
+// ONE flag so the deprecation is greppable and reversible in one line; every
+// fork it gates cites it. NOT a store — changing surfaces is a build decision,
+// not runtime state.
+export const CHAT_SURFACE: "cli" | "gui" = "cli";
+
+// ---- Per-worktree chat mode (persisted): our GUI chat vs the real CLI ----
+// DEPRECATED with CHAT_SURFACE === "cli" (the toggle UI is unwired); kept so
+// the legacy GUI⇄CLI handoff (session.ts enterCliMode/exitCliMode) still works
+// if the GUI surface returns.
+// "cli" swaps the chat pane for a PTY running the provider's interactive CLI
+// (Claude Code), resuming the same conversation — see session.ts ›
+// enterCliMode/exitCliMode for the handoff choreography (the sidecar and the
+// CLI must never hold the session concurrently). Gated per provider by
+// providers.ts › cliChat; App.svelte falls back to "gui" when the provider has
+// no CLI.
+export type ChatMode = "gui" | "cli";
+const CHAT_MODES: ChatMode[] = ["gui", "cli"];
+const _chatMode = createWorktreeMap<ChatMode>({
+  persistKey: "trickshot.chatModeByWorktree",
+  // Drop any stored value outside the known set (shape guard for the template).
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    if (!isPlainObject(v)) return {};
+    const out: Record<string, ChatMode> = {};
+    for (const [k, mode] of Object.entries(v)) {
+      if (CHAT_MODES.includes(mode as ChatMode)) out[k] = mode as ChatMode;
+    }
+    return out;
+  },
+});
+export const chatModeByWorktree = _chatMode.store;
+export const setChatMode = _chatMode.set;
+/** The selected worktree's chat mode (GUI when unset). */
+export const activeChatMode = _chatMode.active<ChatMode>("gui");
+
 // ---- Subscription usage windows (account-global, throttled fetch) ----
 // The rolling ~5-hour session window + the weekly window from `get_usage` (the
 // undocumented /usage endpoint). Account-wide, NOT per-worktree. The endpoint is
@@ -597,7 +641,9 @@ const USAGE_REFRESH_MS = 90_000;
 export const usageLimits = createPersisted<UsageInfo | null>("trickshot.usageLimits", null, {
   parse: (raw) => {
     const v = JSON.parse(raw);
-    return v && typeof v === "object" && !Array.isArray(v) ? (v as UsageInfo) : null;
+    // Shape guard for the CURRENT windows-list shape; the old five_hour/seven_day
+    // object (pre-neutralization) fails it and falls back to null (re-fetched).
+    return isPlainObject(v) && Array.isArray(v.windows) ? (v as unknown as UsageInfo) : null;
   },
 });
 /** Last fetch error (stale token, rate limit, offline), shown in the tooltip. */
@@ -614,7 +660,9 @@ export async function refreshUsage(force = false) {
   if (!force && Date.now() - usageLastFetch < USAGE_REFRESH_MS) return;
   usageInFlight = true;
   try {
-    usageLimits.set(await api.getUsage());
+    // Probe the ACTIVE chat's provider account (the chip describes the session
+    // the user is looking at); no selection falls back to the default provider.
+    usageLimits.set(await api.getUsage(get(activeProvider)));
     usageError.set(null);
   } catch (e) {
     usageError.set(e instanceof Error ? e.message : String(e));
@@ -627,18 +675,24 @@ export async function refreshUsage(force = false) {
   }
 }
 
-// ---- Claude Code login presence (ambient app state, not persisted) ----
-// Drives the first-run "sign in" notice (Welcome + the composer banner). Only a
-// DEFINITIVE "no credentials anywhere" flips to `missing`; ambiguous check
-// failures (keychain/HOME errors) leave the state alone so we never false-alarm.
+// ---- Provider login presence (ambient app state, not persisted) ----
+// Drives the first-run "sign in" notice (Welcome + the composer banner, see
+// AuthNotice). Only a DEFINITIVE "no credentials anywhere" flips to `missing`;
+// ambiguous check failures (keychain/HOME errors) leave the state alone so we
+// never false-alarm.
 export const authState = writable<"unknown" | "ok" | "missing">("unknown");
+/** Set the ambient auth state (the one mutator — agentEvents flips it to
+ *  `missing` on a recognized auth failure; refreshAuth settles it). */
+export function setAuthState(v: "unknown" | "ok" | "missing") {
+  authState.set(v);
+}
 
-/** Re-probe the Claude Code login (local credential read, no network). Called on
- *  launch, on window focus while `missing` (the sign-in-in-a-terminal round trip),
- *  and by the notice's retry button. */
+/** Re-probe the active provider's login (local credential read, no network).
+ *  Called on launch, on window focus while `missing` (the sign-in-in-a-terminal
+ *  round trip), and by the notice's retry button. */
 export async function refreshAuth() {
   try {
-    authState.set((await api.checkAuth()) ? "ok" : "missing");
+    authState.set((await api.checkAuth(get(activeProvider))) ? "ok" : "missing");
   } catch {
     // ambiguous (keychain spawn failure, HOME unset) — stay silent
   }
@@ -716,6 +770,26 @@ export function setFont(id: string) {
 // summary, and Chat renders ONLY those summaries + the user's messages. The full
 // response stays in the transcript — toggling off reveals everything again.
 export const minimalMode = createPersisted<boolean>("trickshot.minimalMode", false);
+export function setMinimalMode(on: boolean) {
+  minimalMode.set(on);
+}
+
+// ---- Chat skin (global, persisted) ----
+// Visual style of the GUI chat: the default bubble look, or a terminal-like
+// skin (mono prompt-line turns, flattened bubbles — see app.css
+// `[data-chat-skin="terminal"]`). A string (not a boolean) so a future third
+// skin is an entry, not a migration. Global on purpose — aesthetic preferences
+// (theme/font/minimal) are app-wide, never per-worktree.
+export type ChatSkin = "default" | "terminal";
+export const chatSkin = createPersisted<ChatSkin>("trickshot.chatSkin", "default", {
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    return v === "terminal" ? "terminal" : "default";
+  },
+});
+export function setChatSkin(skin: ChatSkin) {
+  chatSkin.set(skin);
+}
 
 // ---- Custom system-prompt append (global, persisted) ----
 // Appended to the `claude_code` preset system prompt at session start (applies to
@@ -737,188 +811,41 @@ export function setWorktreeSession(worktree: string, id: string) {
  *  so a recreated worktree at the same path starts clean). */
 export const forgetWorktreeSession = _session.remove;
 
+export type { QueuedMessage } from "./session";
+
+// ---- Session/turn orchestration + queued follow-ups ----
+// Submitting a user turn, the queued-message drain, ensureSession's config bag,
+// and the repo/worktree activation paths live in `session.ts` (the transcript.ts
+// precedent); re-export so `import { submitUserTurn } from "./stores"` keeps working.
+export {
+  activateWorktree,
+  activeQueued,
+  clearQueued,
+  consumeSuppressDrain,
+  enqueueMessage,
+  ensureClaudeOpen,
+  ensureSession,
+  enterCliMode,
+  exitCliMode,
+  handleCliExit,
+  maybeDrainQueued,
+  openRepository,
+  queuedByWorktree,
+  recentConversation,
+  removeQueued,
+  requestOnce,
+  sendQueuedNow,
+  sendToCli,
+  submitTurnToChat,
+  submitUserTurn,
+  suppressNextDrain,
+} from "./session";
 // ---- Per-worktree transcripts ----
 // The batching / persistence / windowing / grouping engine lives in
 // `transcript.ts` (a self-contained subsystem with its own invariants); re-export
 // the mutators so `import { appendMessage } from "./stores"` keeps working and
 // transcript writes still have ONE home (see CLAUDE.md).
-export { appendMessage, resetTranscript, transcripts };
-
-/** Send a user turn to a worktree's agent: optimistically render the `user_local`
- *  bubble, mark the session busy, clear any stale suggestions, then fire the IPC
- *  (unsticking the UI if it's rejected). The ONE place a user turn is submitted —
- *  the Composer and the suggestion chips both route through here. Callers guard
- *  against sending while busy / with empty text. */
-export async function submitUserTurn(worktree: string, text: string) {
-  const t = text.trim();
-  if (!t) return;
-  appendMessage(worktree, { type: "user_local", text: t });
-  setStatus(worktree, "busy");
-  startActivity(worktree);
-  clearSuggestions(worktree);
-  try {
-    // The transcript echo (above) stays clean; only the wire copy carries the
-    // minimal-mode directive so the agent appends its one-sentence summary.
-    await api.sendUserTurn(worktree, get(minimalMode) ? t + MINIMAL_DIRECTIVE : t);
-  } catch (e) {
-    appendMessage(worktree, { type: "error", error: `failed to send: ${e}` });
-    setStatus(worktree, "ready");
-    clearActivity(worktree);
-  }
-}
-
-// ---- Per-worktree queued follow-up messages (ephemeral; NOT persisted) ----
-// Messages typed while the agent is busy. They drain ONE per turn: each natural
-// `turn_end` (see agentEvents.ts) pops the front and submits it as the next turn.
-// `sendQueuedNow` interrupts the in-flight turn and sends the front immediately.
-// Built purely on `submitUserTurn` + `interrupt` — no new wire protocol.
-const _queued = createWorktreeMap<string[]>();
-export const queuedByWorktree = _queued.store;
-/** The selected worktree's queued follow-ups (empty when none). */
-export const activeQueued = _queued.active<string[]>([]);
-/** Append a follow-up to a worktree's queue (no-op on blank text). */
-export function enqueueMessage(worktree: string, text: string) {
-  const t = text.trim();
-  if (!t) return;
-  _queued.update(worktree, (cur) => [...(cur ?? []), t]);
-}
-/** Drop one queued message by index (the per-item remove). */
-export function removeQueuedAt(worktree: string, index: number) {
-  _queued.update(worktree, (cur) => (cur ?? []).filter((_, i) => i !== index));
-}
-/** Clear a worktree's whole queue. Same no-op identity guard as clearSuggestions. */
-export function clearQueued(worktree: string) {
-  _queued.store.update((m) => (m[worktree]?.length ? { ...m, [worktree]: [] } : m));
-}
-/** Pop the FRONT queued message and submit it as a normal turn. Returns whether one
- *  was sent — the `turn_end` drain uses this to skip the "finished" side-effects when
- *  a follow-up is starting. */
-export function maybeDrainQueued(worktree: string): boolean {
-  const [next, ...rest] = get(queuedByWorktree)[worktree] ?? [];
-  if (next === undefined) return false;
-  _queued.set(worktree, rest);
-  void submitUserTurn(worktree, next); // sets busy + optimistic bubble + IPC
-  return true;
-}
-/** Interrupt the in-flight turn and send the next queued message now. An interrupt
- *  itself emits a `result` → `turn_end` (the SDK aborts the turn, see claudeMapping),
- *  and the `turn_end` drain then sends the front — so while busy we ONLY interrupt and
- *  let that path run (no double-send, no mid-turn status flip). When already idle there
- *  is no turn to interrupt (and thus no `turn_end`), so send directly. */
-export function sendQueuedNow(worktree: string) {
-  if (!(get(queuedByWorktree)[worktree] ?? []).length) return;
-  if (get(sessionStatus)[worktree] === "busy") api.interruptAgent(worktree);
-  else maybeDrainQueued(worktree);
-}
-
-// One-shot, per-worktree "the next turn_end is from a Stop — don't drain" flag.
-// An interrupt emits a `turn_end`; the queue drain runs on `turn_end`, so Stop would
-// otherwise fire a queued follow-up. The Stop path sets this; the resulting `turn_end`
-// consumes it and skips the drain (leaving the queue intact). `sendQueuedNow`
-// deliberately does NOT set it — its interrupt's `turn_end` SHOULD drain.
-const _suppressDrain = new Set<string>();
-export function suppressNextDrain(worktree: string) {
-  _suppressDrain.add(worktree);
-}
-/** Returns whether a Stop-suppression was pending (and clears it). */
-export function consumeSuppressDrain(worktree: string): boolean {
-  return _suppressDrain.delete(worktree);
-}
-
-/** Start (or no-op, if already running) a worktree's agent session with the
- *  standard config assembled from the stores. The ONE place the `start_session`
- *  option bag is built — App's launch-resume, the Worktrees select, and the
- *  Settings-page open all route through here so they can't drift. Returns the
- *  start promise so callers flip status / handle errors at their call site. */
-export function ensureSession(worktree: string): Promise<void> {
-  return api.startSession(worktree, {
-    resumeSessionId: get(sessionByWorktree)[worktree],
-    permissionMode: get(permissionModeByWorktree)[worktree] ?? DEFAULT_PERMISSION_MODE,
-    systemPromptAppend: get(systemPromptAppend),
-    mcpServers: getMcpServers(),
-    agents: getAgents(),
-  });
-}
-
-/** Activate a worktree: select it, return the center pane to the chat, clear
- *  its unread badge, and (re)start its session. The ONE activation path — the
- *  sidebar row and the command palette both route through here. Throws on a
- *  session-start failure so callers surface it in their local error state. */
-/** Pick a folder and open it as a repo: validate it's a git repo FIRST (so a
- *  bad pick never persists a junk entry), then add it, cache its worktrees, and
- *  activate the main worktree so the user lands in a live chat. The ONE add-repo
- *  path — the Welcome CTA and the sidebar's FolderPlus both route through here.
- *  Returns false when the picker is cancelled; throws on failure so callers
- *  surface it in their local error state. */
-export async function openRepository(): Promise<boolean> {
-  const p = await api.pickDirectory();
-  if (!p) return false;
-  const wts = await api.listWorktrees(p); // validate before persisting
-  // A bare entry has no working files, so it can't host an agent session. Land
-  // on the first non-bare worktree; a repo with ONLY bare entries is rejected
-  // before anything persists.
-  const usable = wts.filter((w) => !w.is_bare);
-  if (usable.length === 0) {
-    throw new Error("that's a bare repository — pick a working checkout");
-  }
-  addRepo({ path: p, name: basename(p) });
-  setWorktrees(p, wts);
-  const main = usable.find((w) => w.is_main) ?? usable[0];
-  if (main) await activateWorktree(main.path);
-  return true;
-}
-
-export async function activateWorktree(path: string) {
-  selectWorktree(path);
-  setCenterView("chat");
-  clearUnread(path);
-  // Show the boot gap ONLY when a sidecar will actually spawn: an already-live
-  // session (ready/busy) re-emits no `ready` event, so blindly setting
-  // `starting` on a plain worktree switch would stick forever. The sidecar's
-  // `ready` event — not spawn success — is what flips the status to ready.
-  const st = get(sessionStatus)[path];
-  if (!st || st === "stopped") setStatus(path, "starting");
-  try {
-    await ensureSession(path);
-  } catch (e) {
-    setStatus(path, "stopped");
-    throw e;
-  }
-}
-
-/** Fire `request(worktree)` at most once per (worktree, key) pair within the
- *  lifetime of the caller-owned `seen` Set — the resilient "(re-)request when the
- *  list is still empty" pattern shared by the model / command / connector fetchers
- *  (the ready-time broadcast can race the listener). The Set is passed IN (one per
- *  component instance) on purpose: scoping it to the component means it resets when
- *  the component remounts or its session restarts, so a lost broadcast recovers on
- *  the next mount. A module-global Set would latch the request for the whole app
- *  lifetime and never re-fire. */
-export function requestOnce(
-  seen: Set<string>,
-  worktree: string,
-  key: string,
-  request: (wt: string) => void,
-) {
-  const id = `${key} ${worktree}`;
-  if (seen.has(id)) return;
-  seen.add(id);
-  request(worktree);
-}
-
-/** Build a compact recent-conversation string for a worktree to seed suggestion
- *  generation. Combines the persisted transcript with the un-flushed buffer so the
- *  just-ended turn is present, then defers to the pure `summarizeConversation`. */
-export function recentConversation(
-  worktree: string,
-  maxMessages?: number,
-  maxChars?: number,
-): string {
-  const all = (get(transcripts)[worktree] ?? []).concat(bufferedMessages(worktree));
-  // Pass through (undefined falls back to summarizeConversation's own defaults) so
-  // the message/char caps live in ONE place, not duplicated here.
-  return summarizeConversation(all, maxMessages, maxChars);
-}
+export { appendMessage, resetTranscript, transcripts } from "./transcript";
 
 // ---- Per-worktree pending permission (dormant under bypassPermissions) ----
 const _pendingPerm = createWorktreeMap<PermissionReq | null>();
@@ -933,149 +860,25 @@ export const pendingQuestion = _pendingQuestion.store;
 export const setPendingQuestion = _pendingQuestion.set;
 
 // ---- Per-worktree threads (Slack-style, one per agent message; persisted) ----
-// A thread is an OUT-OF-BAND side-conversation (see comments.ts) anchored to one
-// agent message's `__key`: turns are answered by an isolated sidecar query seeded
-// with the full conversation up to that message, and NEVER enter the main
-// session/transcript. Persisted so threads survive a restart. `pending`/`error`
-// are runtime-only — the load guard resets them so a mid-stream crash can't leave
-// a thread stuck pending. (`.v2`: the row shape changed from the old highlight-
-// anchored model, so old threads are dropped on load.)
-const _comments = createWorktreeMap<CommentThread[]>({
-  persistKey: "trickshot.commentsByWorktree.v2",
-  parse: (raw) => {
-    const v = JSON.parse(raw);
-    if (!isPlainObject(v)) return {};
-    const out: Record<string, CommentThread[]> = {};
-    for (const [wt, list] of Object.entries(v)) {
-      if (!Array.isArray(list)) continue;
-      out[wt] = list
-        .filter(
-          (t): t is CommentThread =>
-            isPlainObject(t) && typeof t.id === "string" && typeof t.messageKey === "number",
-        )
-        // Drop transient state: an answer can't still be streaming across a reload.
-        .map((t) => ({ ...t, pending: false, error: undefined }));
-    }
-    return out;
-  },
-});
-export const commentsByWorktree = _comments.store;
-/** The selected worktree's comment threads (empty when none). */
-export const activeComments = _comments.active<CommentThread[]>([]);
-
-/** Update one thread in a worktree's list (no-op if absent). */
-function updateThread(worktree: string, id: string, fn: (t: CommentThread) => CommentThread) {
-  _comments.update(worktree, (cur) => (cur ?? []).map((t) => (t.id === id ? fn(t) : t)));
-}
-/** Add a new comment thread to a worktree. */
-export function addComment(worktree: string, thread: CommentThread) {
-  _comments.update(worktree, (cur) => [...(cur ?? []), thread]);
-}
-/** Remove a comment thread (e.g. an empty draft closed without sending). */
-export function removeComment(worktree: string, id: string) {
-  _comments.update(worktree, (cur) => (cur ?? []).filter((t) => t.id !== id));
-}
-/** Append a finished message (user question / agent answer) to a thread. */
-export function appendCommentMessage(worktree: string, id: string, msg: CommentMessage) {
-  updateThread(worktree, id, (t) => ({ ...t, messages: [...t.messages, msg] }));
-}
-/** Append a streamed answer delta: extend the current turn's assistant message, or
- *  start one if the last message is the user's question (no answer yet this turn). */
-export function appendCommentDelta(worktree: string, id: string, text: string) {
-  updateThread(worktree, id, (t) => {
-    const last = t.messages[t.messages.length - 1];
-    if (last && last.role === "assistant") {
-      const messages = t.messages.slice(0, -1).concat({ ...last, text: last.text + text });
-      return { ...t, messages };
-    }
-    return { ...t, messages: [...t.messages, { role: "assistant", text }] };
-  });
-}
-/** Mark a thread's answer as streaming / settled. Stamps `pendingSince` when the
- *  turn starts so the thinking indicator's elapsed timer counts from the right t0. */
-export function setCommentPending(worktree: string, id: string, pending: boolean) {
-  updateThread(worktree, id, (t) => ({
-    ...t,
-    pending,
-    pendingSince: pending ? Date.now() : t.pendingSince,
-  }));
-}
-/** Record a failed comment turn (also clears pending). */
-export function setCommentError(worktree: string, id: string, error: string) {
-  updateThread(worktree, id, (t) => ({ ...t, pending: false, error }));
-}
-/** Drop ALL comments for a worktree (on transcript reset / worktree removal so
- *  orphaned anchors don't linger). Same no-op identity guard as the map factory. */
-export const removeComments = _comments.remove;
-
-/** Open the thread for an agent message (by its transcript `__key`), creating an
- *  empty one if none exists yet. The single entry point the chat uses, so Message
- *  stays a store-free primitive (it just calls a handler). */
-export function openThreadFor(worktree: string, messageKey: number) {
-  const existing = (get(commentsByWorktree)[worktree] ?? []).find(
-    (t) => t.messageKey === messageKey,
-  );
-  if (existing) {
-    openComment(existing.id);
-    return;
-  }
-  const id =
-    typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `t-${messageKey}`;
-  addComment(worktree, { id, messageKey, messages: [], pending: false, createdAt: Date.now() });
-  openComment(id);
-}
-
-/** The full text of an anchored transcript message (for prompt context), or "". */
-function anchoredMessageText(worktree: string, messageKey: number): string {
-  for (const m of get(transcripts)[worktree] ?? []) {
-    if (m.__key !== messageKey) continue;
-    if (m.type === "assistant" || m.type === "user_local") return m.text ?? "";
-    return "";
-  }
-  return "";
-}
-
-/** The main-chat conversation UP TO AND INCLUDING the anchored message, as prompt
- *  context for a thread (so the agent has the full thread of the discussion, not a
- *  blank slate). High caps honor "full context" while bounding pathological chats;
- *  `buildCommentPrompt` clamps the total again. Reuses `summarizeConversation`. */
-function conversationUpTo(worktree: string, messageKey: number): string {
-  const all = (get(transcripts)[worktree] ?? []).concat(bufferedMessages(worktree));
-  const idx = all.findIndex((m) => m.__key === messageKey);
-  const slice = idx >= 0 ? all.slice(0, idx + 1) : all;
-  return summarizeConversation(slice, 1000, 4000);
-}
-
-/** Submit one turn of a thread (the ONE submit path). Appends the user's question,
- *  marks the thread pending, assembles the out-of-band prompt (full conversation up
- *  to the anchored message + the anchored message itself + prior thread Q&A + the
- *  new question) and fires the isolated IPC. NEVER touches the main transcript or
- *  session status — threads are out-of-band. The streamed answer arrives via
- *  `comment_reply` (see agentEvents.ts). */
-export async function submitCommentTurn(worktree: string, id: string, question: string) {
-  const q = question.trim();
-  if (!q) return;
-  const thread = (get(commentsByWorktree)[worktree] ?? []).find((t) => t.id === id);
-  if (!thread) return;
-  // Prior turns BEFORE we append the new question (the thread's memory).
-  const priorMessages = thread.messages.slice();
-  appendCommentMessage(worktree, id, { role: "user", text: q });
-  setCommentPending(worktree, id, true);
-  try {
-    // Full context: the conversation up to the anchored message + that message in
-    // full. Inside the try so any assembly failure surfaces as a thread error
-    // (clears pending) instead of an unhandled rejection that hangs on "Thinking…".
-    const prompt = buildCommentPrompt({
-      conversation: conversationUpTo(worktree, thread.messageKey),
-      anchoredMessage: anchoredMessageText(worktree, thread.messageKey),
-      priorMessages,
-      newQuestion: q,
-    });
-    await api.sendCommentTurn(worktree, id, prompt);
-  } catch (e) {
-    setCommentError(worktree, id, `failed to send: ${e}`);
-  }
-}
+// The thread subsystem — state, mutators, and the one submit path — lives in
+// `threads.ts` (the transcript.ts precedent; the pure data model stays in
+// comments.ts); re-export so `import { openThreadFor } from "./stores"` keeps working.
+export {
+  activeCommentId,
+  activeComments,
+  addComment,
+  appendCommentDelta,
+  appendCommentMessage,
+  closeComment,
+  commentsByWorktree,
+  openComment,
+  openThreadFor,
+  removeComment,
+  removeComments,
+  setCommentError,
+  setCommentPending,
+  submitCommentTurn,
+} from "./threads";
 
 // ---- Derived views for the currently selected worktree ----
 export const activeMessages = derived([transcripts, selectedWorktree], ([$t, $sel]) =>
