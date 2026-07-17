@@ -257,21 +257,28 @@ async function resumeIdFor(worktree: string): Promise<string | undefined> {
  *  IS the session; busy/idle then comes from the PTY's output flow
  *  (terminal.ts › noteCliActivity). */
 export async function ensureClaudeOpen(worktree: string): Promise<void> {
-  const inst = getTerminal(claudeTermKey(worktree));
+  const key = claudeTermKey(worktree);
+  const inst = getTerminal(key);
   const { rows, cols } = inst.term;
   const resumeId = await resumeIdFor(worktree);
-  // Cold launch + a session to resume: the TUI does NOT repaint earlier turns,
-  // so a fresh (never-written) terminal would read as a blank "new" chat while
-  // the agent's context is actually intact. Say so, once, before the TUI
-  // paints. (A revive-after-exit terminal already has content — no banner.)
   const buf = inst.term.buffer.active;
   const untouched = buf.cursorX === 0 && buf.cursorY === 0;
-  if (resumeId && untouched) {
+  const spawned = await api.termOpen(worktree, rows, cols, "claude", resumeId);
+  if (spawned && resumeId && untouched) {
+    // Cold spawn + a session to resume: the TUI does NOT repaint earlier
+    // turns, so a fresh terminal would read as a blank "new" chat while the
+    // agent's context is intact. Say so once. (Written just after the open —
+    // the TUI's first output trails the process boot by far more.)
     inst.term.write(
       "\x1b[2m↻ resuming previous session — earlier turns aren't shown here; the agent's context is intact\x1b[0m\r\n",
     );
+  } else if (!spawned && untouched) {
+    // The PTY survived a webview reload: this xterm is empty and the live TUI
+    // has no reason to repaint — blank pane. A resize wiggle (SIGWINCH twice)
+    // makes the TUI redraw its full frame into the fresh buffer.
+    await api.termResize(key, rows, Math.max(2, cols - 1)).catch(() => {});
+    await api.termResize(key, rows, cols).catch(() => {});
   }
-  await api.termOpen(worktree, rows, cols, "claude", resumeId);
   inst.open = true;
   setStatus(worktree, "ready");
 }

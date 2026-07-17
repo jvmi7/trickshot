@@ -175,7 +175,9 @@ export const generatePrText = (worktreePath: string, base?: string) =>
  *  `resumeSessionId`) on a SEPARATE PTY keyed by the claude slot (see
  *  `claudeTermKey` in terminal.ts) — the CLI chat mode. The launch value is a
  *  fixed whitelist name; Rust resolves the actual binary (never a command
- *  string from here). */
+ *  string from here). Returns whether a PTY was SPAWNED (false = one was
+ *  already alive — a reloaded webview must force a repaint, no fresh TUI
+ *  paint is coming). */
 export const termOpen = (
   worktree: string,
   rows: number,
@@ -183,7 +185,7 @@ export const termOpen = (
   launch?: "claude",
   resumeSessionId?: string,
 ) =>
-  invoke<void>("term_open", {
+  invoke<boolean>("term_open", {
     worktree,
     rows,
     cols,

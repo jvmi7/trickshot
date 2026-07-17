@@ -159,11 +159,19 @@ export function getTerminal(key: string): TermInstance {
 }
 
 /** Open the PTY behind a worktree's terminal if it isn't running (idempotent
- *  on both ends — Rust no-ops while one is alive). */
+ *  on both ends — Rust no-ops while one is alive). When the PTY survived a
+ *  webview reload (already alive, fresh empty xterm), wiggle the size so the
+ *  shell/TUI repaints into the new buffer instead of showing a blank pane. */
 export async function ensureOpen(worktree: string) {
   const inst = getTerminal(worktree);
   const { rows, cols } = inst.term;
-  await api.termOpen(worktree, rows, cols);
+  const buf = inst.term.buffer.active;
+  const untouched = buf.cursorX === 0 && buf.cursorY === 0;
+  const spawned = await api.termOpen(worktree, rows, cols);
+  if (!spawned && untouched) {
+    await api.termResize(worktree, rows, Math.max(2, cols - 1)).catch(() => {});
+    await api.termResize(worktree, rows, cols).catch(() => {});
+  }
   inst.open = true;
 }
 

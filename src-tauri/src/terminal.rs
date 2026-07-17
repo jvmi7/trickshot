@@ -188,7 +188,7 @@ pub async fn term_open(
     cols: u16,
     launch: Option<String>,
     resume_session_id: Option<String>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let launch = parse_launch(launch.as_deref())?;
     if let Some(id) = &resume_session_id {
         if !is_valid_session_id(id) {
@@ -212,7 +212,9 @@ pub async fn term_open(
         // start_session).
         let mut map = state.lock();
         if map.contains_key(&key) {
-            return Ok(());
+            // Already alive — report it so the webview knows no fresh TUI
+            // paint is coming (a reloaded webview must force a repaint).
+            return Ok(false);
         }
 
         let pair = native_pty_system()
@@ -307,7 +309,7 @@ pub async fn term_open(
             );
         });
 
-        Ok(())
+        Ok(true)
     })
     .await
     .map_err(|e| e.to_string())?
