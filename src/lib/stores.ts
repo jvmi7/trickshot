@@ -240,6 +240,17 @@ export function setTheme(id: string) {
   theme.set(id);
 }
 
+/** Which action the git panel's split commit button performs by default. */
+export type CommitMode = "commit" | "commit-push";
+/** Persisted so the user's chosen commit action sticks across sessions. */
+export const commitMode = createPersistedString("trickshot.commitMode", "commit-push", (raw) =>
+  raw === "commit" || raw === "commit-push" ? raw : "commit-push",
+);
+/** Set the default commit action (validated by the store's parse). */
+export function setCommitMode(mode: CommitMode) {
+  commitMode.set(mode);
+}
+
 // ---- Persisted repos ----
 /** Repos added to the sidebar. Persisted to localStorage. */
 export const repos = createPersisted<Repo[]>("trickshot.repos", [], {

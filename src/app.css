@@ -366,7 +366,7 @@
   --base-special: #b57fd9;        /* chart / extra */
   --base-overlay: rgb(0 0 0 / 0.5); /* modal scrim */
   --base-selection: #837c7c; /* text-selection highlight fill (rendered at 20%); selected text uses --base-accent */
-  --base-term-glow: 0 0 4px color-mix(in srgb, currentColor 55%, transparent), 0 0 12px color-mix(in srgb, currentColor 50%, transparent); /* terminal glyph glow (a full text-shadow) */
+  --base-term-glow: 0 0 3px color-mix(in srgb, currentColor 30%, transparent), 0 0 8px color-mix(in srgb, currentColor 22%, transparent); /* terminal glyph glow (a full text-shadow) */
 }
 
 /* Named themes are NO LONGER hand-written here. They live in `src/lib/themes.ts`

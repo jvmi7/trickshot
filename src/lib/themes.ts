@@ -105,9 +105,9 @@ export const THEMES: Theme[] = [
       special: "#b57fd9",
       overlay: "rgb(0 0 0 / 0.5)",
       selection: "#837c7c",
-      // Warm ember: a bright core plus a wide halo.
+      // Warm ember: a soft core plus a gentle halo.
       termGlow:
-        "0 0 4px color-mix(in srgb, currentColor 55%, transparent), 0 0 12px color-mix(in srgb, currentColor 50%, transparent)",
+        "0 0 3px color-mix(in srgb, currentColor 30%, transparent), 0 0 8px color-mix(in srgb, currentColor 22%, transparent)",
     },
   },
   {
@@ -129,9 +129,9 @@ export const THEMES: Theme[] = [
       special: "#9b8cf0",
       overlay: "rgb(0 0 0 / 0.5)",
       selection: "#837c7c",
-      // Cool CRT: a tight core plus a wide halo (crisper than terracotta's).
+      // Cool CRT: a tight core plus a soft halo (crisper than terracotta's).
       termGlow:
-        "0 0 3px color-mix(in srgb, currentColor 50%, transparent), 0 0 14px color-mix(in srgb, currentColor 45%, transparent)",
+        "0 0 2px color-mix(in srgb, currentColor 28%, transparent), 0 0 9px color-mix(in srgb, currentColor 20%, transparent)",
     },
   },
   {
@@ -155,7 +155,7 @@ export const THEMES: Theme[] = [
       selection: "#837c7c",
       // Phosphor: the strongest glow of the set — green-terminal nostalgia.
       termGlow:
-        "0 0 4px color-mix(in srgb, currentColor 60%, transparent), 0 0 16px color-mix(in srgb, currentColor 50%, transparent)",
+        "0 0 3px color-mix(in srgb, currentColor 35%, transparent), 0 0 10px color-mix(in srgb, currentColor 26%, transparent)",
     },
   },
 ];

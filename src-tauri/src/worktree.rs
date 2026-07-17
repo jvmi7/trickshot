@@ -452,7 +452,17 @@ fn ahead_of(worktree_path: &str, default: &str) -> i32 {
 #[tauri::command]
 pub async fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let out = git(&worktree_path, &["status", "--porcelain=v1", "--branch"])?;
+        // `--untracked-files=all` lists individual files inside a new/untracked
+        // directory instead of collapsing it to `newdir/` — the UI needs each file.
+        let out = git(
+            &worktree_path,
+            &[
+                "status",
+                "--porcelain=v1",
+                "--branch",
+                "--untracked-files=all",
+            ],
+        )?;
         let (branch, ahead, behind, has_upstream, files) = parse_status(&out);
         let (insertions, deletions) = diff_shortstat(&worktree_path);
         let default = default_branch(&worktree_path);

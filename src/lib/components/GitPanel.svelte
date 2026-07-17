@@ -3,12 +3,22 @@
   // unstage/commit/push. Refreshes on mount, on worktree change, and whenever
   // gitRefreshNonce bumps (App.svelte bumps it on turn_end). App-specific layout
   // (no shadcn counterpart) so the rows are hand-styled; controls use shadcn.
-  import { selectedWorktree, gitRefreshNonce, activeRepo, submitTurnToChat, setMainView } from "../stores";
+  import {
+    selectedWorktree,
+    gitRefreshNonce,
+    activeRepo,
+    submitTurnToChat,
+    setMainView,
+    commitMode,
+    setCommitMode,
+  } from "../stores";
   import * as api from "../api";
   import type { GitFileStatus, GitStatus } from "../types";
   import { Button } from "$lib/components/ui/button";
   import { Textarea } from "$lib/components/ui/textarea";
   import * as Dialog from "$lib/components/ui/dialog";
+  import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import DiffView from "./DiffView.svelte";
   import PrPanel from "./PrPanel.svelte";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
@@ -18,7 +28,6 @@
   import Download from "@lucide/svelte/icons/download";
   import RefreshCcwDot from "@lucide/svelte/icons/refresh-ccw-dot";
   import GitMerge from "@lucide/svelte/icons/git-merge";
-  import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import GitBranchPlus from "@lucide/svelte/icons/git-branch-plus";
   import { Input } from "$lib/components/ui/input";
@@ -26,7 +35,6 @@
   let status = $state<GitStatus | null>(null);
   let selectedFile = $state<string | null>(null);
   let diff = $state("");
-  let commitMsg = $state("");
   let busy = $state(false);
   // AI commit-message generation runs its own subprocess; keep it off `busy` so
   // it doesn't gate the git actions (and vice versa).
@@ -160,35 +168,31 @@
     }
   }
 
-  // Fill the commit box with an AI-written message from the working diff. Its
-  // own busy flag (not `run`) since it shells `claude`, not git.
-  async function generateCommit() {
-    const w = wt;
-    if (!w || generating) return;
+  // The commit message is ALWAYS written by Claude from the diff — there's no
+  // message box. `generating` drives the buttons' "Writing…" state. Runs inside
+  // `run()`, so a failure surfaces there.
+  async function writeCommitMessage(w: string): Promise<string> {
     generating = true;
-    error = "";
     try {
-      commitMsg = (await api.generateCommitMessage(w)).trim();
-    } catch (e) {
-      error = String(e);
+      return (await api.generateCommitMessage(w)).trim();
     } finally {
       generating = false;
     }
   }
 
-  // One-click ship: stage everything if nothing is staged yet, commit, then push
-  // (publishing the branch when it has no upstream). The granular Stage all /
-  // Commit / Sync controls stay for finer control.
+  // One-click ship: stage everything, have Claude write the message, commit, then
+  // push (publishing the branch when it has no upstream). Staging is implicit —
+  // there's no separate stage step.
   function commitAndPush() {
     const w = wt;
-    const msg = commitMsg.trim();
-    if (!w || !msg) return;
+    if (!w || !dirty) return;
     run(async () => {
-      if (!hasStaged) await api.worktreeStage(w, []);
+      await api.worktreeStage(w, []);
+      const msg = await writeCommitMessage(w);
       await api.worktreeCommit(w, msg);
-      commitMsg = "";
       await api.worktreePush(w, !status?.has_upstream);
       prRefreshNonce++;
+      notice = `Committed & pushed: ${msg.split("\n")[0]}`;
     });
   }
 
@@ -203,17 +207,25 @@
     });
   }
 
-  // ---- Protected-branch recovery: move commits to a new branch, then PR ----
+  // ---- Move changes to a new branch ----
+  // Two entry points share one dialog + command (`worktree_move_to_branch`):
+  //  • protected-branch recovery (movePush = true): move + publish, then PR.
+  //  • proactive "get off main" (movePush = false): just branch off + checkout.
   let moveDialogOpen = $state(false);
   let moveBranchName = $state("");
+  let movePush = $state(false);
 
   function openMoveDialog() {
     moveBranchName = "";
+    movePush = true;
+    moveDialogOpen = true;
+  }
+  function openBranchOffDialog() {
+    moveBranchName = "";
+    movePush = false;
     moveDialogOpen = true;
   }
 
-  // Move the stuck commits onto a new branch and publish it, so the (now-visible)
-  // PR block can open a pull request — the sanctioned path for a protected branch.
   function moveToBranch() {
     const w = wt;
     const name = moveBranchName.trim();
@@ -221,10 +233,15 @@
     moveDialogOpen = false;
     run(async () => {
       await api.worktreeMoveToBranch(w, name);
-      // The switch put us on the new branch; publish it (no upstream yet).
-      await api.worktreePush(w, true);
+      if (movePush) {
+        // The switch put us on the new branch; publish it (no upstream yet) so
+        // the PR block can open a pull request.
+        await api.worktreePush(w, true);
+        notice = `Moved your commits to "${name}" and pushed it — open a PR below.`;
+      } else {
+        notice = `Moved your changes to "${name}" and checked it out.`;
+      }
       prRefreshNonce++;
-      notice = `Moved your commits to "${name}" and pushed it — open a PR below.`;
     });
   }
 
@@ -240,19 +257,26 @@
     if (!w) return;
     run(() => api.worktreeUnstage(w, [f.path]));
   }
-  function stageAll() {
-    const w = wt;
-    if (!w) return;
-    run(() => api.worktreeStage(w, []));
+
+  // The split button runs whichever action is the persisted default.
+  function runCommit() {
+    if ($commitMode === "commit-push") commitAndPush();
+    else commit();
+  }
+  // Persist the choice from the dropdown (RadioGroup hands back a string).
+  function pickCommitMode(v: string) {
+    setCommitMode(v === "commit" ? "commit" : "commit-push");
   }
 
+  // Stage everything, have Claude write the message, and commit (no push).
   function commit() {
     const w = wt;
-    const msg = commitMsg.trim();
-    if (!w || !msg) return;
+    if (!w || !dirty) return;
     run(async () => {
+      await api.worktreeStage(w, []);
+      const msg = await writeCommitMessage(w);
       await api.worktreeCommit(w, msg);
-      commitMsg = "";
+      notice = `Committed: ${msg.split("\n")[0]}`;
     });
   }
 
@@ -316,15 +340,18 @@
     });
   }
 
-  const hasStaged = $derived(status?.files.some((f) => f.staged) ?? false);
   const dirty = $derived((status?.files.length ?? 0) > 0);
+  // On the main worktree with work to move (uncommitted edits or unpushed
+  // commits), offer a one-click "branch off" so changes don't pile up on main.
+  const canBranchOff = $derived(isMain && (dirty || (status?.ahead ?? 0) > 0));
 </script>
 
 <div class="git-panel">
   {#if !wt}
     <div class="git-empty empty-state">No workspace selected.</div>
   {:else}
-    <div class="git-files">
+    <!-- Top: control panel — branch state + every action (sync, commit, PR, merge). -->
+    <div class="git-controls">
       <div class="git-head">
         <span class="git-branch">{status?.branch ?? "—"}</span>
         {#if status && (status.ahead > 0 || status.behind > 0)}
@@ -385,54 +412,33 @@
         </div>
       {/if}
 
-      <div class="git-list">
-        {#if !dirty}
-          <div class="git-empty empty-state">Working tree clean.</div>
-        {/if}
-        {#each status?.files ?? [] as f (f.path)}
-          <div class="wt-file" class:active={selectedFile === f.path}>
-            <button class="wt-file-main" onclick={() => select(f)} title={f.path}>
-              <span class="wt-badge" class:staged={f.staged}>{badge(f)}</span>
-              <span class="wt-path">{f.path}</span>
-            </button>
-            {#if f.staged}
-              <Button
-                size="icon"
-                variant="ghost"
-                class="size-6"
-                title="Unstage"
-                aria-label="Unstage"
-                disabled={busy}
-                onclick={() => unstage(f)}
-              >
-                <Minus class="size-3.5" />
-              </Button>
-            {:else}
-              <Button
-                size="icon"
-                variant="ghost"
-                class="size-6"
-                title="Stage"
-                aria-label="Stage"
-                disabled={busy}
-                onclick={() => stage(f)}
-              >
-                <Plus class="size-3.5" />
-              </Button>
-            {/if}
-          </div>
-        {/each}
-      </div>
+      <PrPanel
+        worktree={wt}
+        branch={status?.branch ?? null}
+        defaultBranch={status?.default_branch ?? null}
+        aheadOfDefault={status?.ahead_of_default ?? 0}
+        behind={status?.behind ?? 0}
+        hasUpstream={status?.has_upstream ?? false}
+        {busy}
+        refreshNonce={prRefreshNonce}
+      />
 
-      <div class="panel-section">
+      <div class="panel-section git-actions">
+        {#if canBranchOff}
+          <div class="git-action-slot">
+            <Button
+              size="sm"
+              variant="outline"
+              class="h-7 w-full text-xs"
+              title="Create a new branch, move your changes onto it, and check it out"
+              disabled={busy}
+              onclick={openBranchOffDialog}
+            >
+              <GitBranchPlus class="size-3.5" /> Move changes to a new branch
+            </Button>
+          </div>
+        {/if}
         <div class="git-commit-row">
-          <Button
-            size="sm"
-            variant="outline"
-            class="h-7 text-xs"
-            disabled={busy || !dirty}
-            onclick={stageAll}>Stage all</Button
-          >
           {#if syncAction.kind === "publish"}
             <Button size="sm" variant="outline" class="h-7 text-xs" title="Push -u origin (first publish)" disabled={busy} onclick={doSync}>
               <Upload class="size-3.5" /> Publish branch
@@ -477,69 +483,97 @@
             </Button>
           {/if}
         </div>
-        <div class="git-commit-box">
-          <Textarea
-            bind:value={commitMsg}
-            rows={2}
-            placeholder="Commit message…"
-            class="min-h-0 resize-none text-xs pr-8"
-          />
-          <Button
-            size="icon"
-            variant="ghost"
-            class="git-generate-btn size-6"
-            title="Generate a commit message from your changes"
-            aria-label="Generate commit message"
-            disabled={busy || generating || !dirty}
-            onclick={generateCommit}
-          >
-            {#if generating}
-              <LoaderCircle class="size-3.5 animate-spin" />
-            {:else}
-              <WandSparkles class="size-3.5" />
-            {/if}
-          </Button>
-        </div>
         <div class="git-commit-row">
-          <Button
-            size="sm"
-            variant="outline"
-            class="h-7 flex-1 text-xs"
-            disabled={busy || !hasStaged || !commitMsg.trim()}
-            onclick={commit}
-          >
-            Commit
-          </Button>
-          <Button
-            size="sm"
-            class="h-7 flex-1 text-xs"
-            title="Stage everything (if needed), commit, and push"
-            disabled={busy || !dirty || !commitMsg.trim()}
-            onclick={commitAndPush}
-          >
-            <Upload class="size-3.5" /> Commit &amp; push
-          </Button>
+          <div class="git-commit-split">
+            <Button
+              size="sm"
+              class="h-7 flex-1 rounded-r-none text-xs"
+              title="Claude writes the message from the diff"
+              disabled={busy || !dirty}
+              onclick={runCommit}
+            >
+              {#if generating}
+                <LoaderCircle class="size-3.5 animate-spin" /> Writing…
+              {:else if $commitMode === "commit-push"}
+                <Upload class="size-3.5" /> Commit &amp; push
+              {:else}
+                Commit
+              {/if}
+            </Button>
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger>
+                {#snippet child({ props })}
+                  <Button
+                    {...props}
+                    size="sm"
+                    class="h-7 rounded-l-none border-l border-l-black/20 px-1.5"
+                    aria-label="Choose commit action"
+                    disabled={busy || !dirty}
+                  >
+                    <ChevronDown class="size-3.5" />
+                  </Button>
+                {/snippet}
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Content align="end">
+                <DropdownMenu.RadioGroup value={$commitMode} onValueChange={pickCommitMode}>
+                  <DropdownMenu.RadioItem value="commit">Commit</DropdownMenu.RadioItem>
+                  <DropdownMenu.RadioItem value="commit-push">Commit &amp; push</DropdownMenu.RadioItem>
+                </DropdownMenu.RadioGroup>
+              </DropdownMenu.Content>
+            </DropdownMenu.Root>
+          </div>
         </div>
       </div>
-
-      <PrPanel
-        worktree={wt}
-        branch={status?.branch ?? null}
-        defaultBranch={status?.default_branch ?? null}
-        aheadOfDefault={status?.ahead_of_default ?? 0}
-        behind={status?.behind ?? 0}
-        hasUpstream={status?.has_upstream ?? false}
-        {busy}
-        refreshNonce={prRefreshNonce}
-      />
     </div>
 
-    <div class="git-diff">
-      {#if selectedFile}
-        <DiffView {diff} path={selectedFile} onLineComment={openLineComment} />
-      {:else}
-        <div class="git-empty empty-state">Select a file to view its diff.</div>
-      {/if}
+    <!-- Bottom: working tree — changed files (left) and the selected file's diff (right). -->
+    <div class="git-work">
+      <div class="git-list">
+        {#if !dirty}
+          <div class="git-empty empty-state">Working tree clean.</div>
+        {/if}
+        {#each status?.files ?? [] as f (f.path)}
+          <div class="wt-file" class:active={selectedFile === f.path}>
+            <button class="wt-file-main" onclick={() => select(f)} title={f.path}>
+              <span class="wt-badge" class:staged={f.staged}>{badge(f)}</span>
+              <span class="wt-path">{f.path}</span>
+            </button>
+            {#if f.staged}
+              <Button
+                size="icon"
+                variant="ghost"
+                class="size-6"
+                title="Unstage"
+                aria-label="Unstage"
+                disabled={busy}
+                onclick={() => unstage(f)}
+              >
+                <Minus class="size-3.5" />
+              </Button>
+            {:else}
+              <Button
+                size="icon"
+                variant="ghost"
+                class="size-6"
+                title="Stage"
+                aria-label="Stage"
+                disabled={busy}
+                onclick={() => stage(f)}
+              >
+                <Plus class="size-3.5" />
+              </Button>
+            {/if}
+          </div>
+        {/each}
+      </div>
+
+      <div class="git-diff">
+        {#if selectedFile}
+          <DiffView {diff} path={selectedFile} onLineComment={openLineComment} />
+        {:else}
+          <div class="git-empty empty-state">Select a file to view its diff.</div>
+        {/if}
+      </div>
     </div>
   {/if}
 </div>
@@ -547,10 +581,12 @@
 <Dialog.Root bind:open={moveDialogOpen}>
   <Dialog.Content>
     <Dialog.Header>
-      <Dialog.Title>Move commits to a new branch</Dialog.Title>
+      <Dialog.Title>Move changes to a new branch</Dialog.Title>
       <Dialog.Description>
-        Creates the branch at your current commits and rewinds
-        <strong>{status?.branch}</strong> back to its upstream, then publishes the new branch so you can open a PR.
+        Creates the branch at your current changes, checks it out, and rewinds
+        <strong>{status?.branch}</strong> back to its upstream.{movePush
+          ? " Then publishes the new branch so you can open a PR."
+          : ""}
       </Dialog.Description>
     </Dialog.Header>
     <div class="panel-form">
@@ -564,7 +600,9 @@
     </div>
     <Dialog.Footer>
       <Button variant="secondary" onclick={() => (moveDialogOpen = false)}>Cancel</Button>
-      <Button disabled={busy || !moveBranchName.trim()} onclick={moveToBranch}>Move &amp; push</Button>
+      <Button disabled={busy || !moveBranchName.trim()} onclick={moveToBranch}>
+        {movePush ? "Move & push" : "Create branch"}
+      </Button>
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>
@@ -598,17 +636,30 @@
 
 <style>
   .git-panel {
+    /* flex:1 claims the full width of `.content` (a flex ROW); without it a
+       COLUMN panel would shrink-to-fit its widest child instead of filling. */
+    flex: 1;
     display: flex;
+    flex-direction: column;
+    min-width: 0;
     height: 100%;
     min-height: 0;
   }
-  .git-files {
+  /* Top control panel: sizes to its content but is capped so the working tree
+     below always keeps room; scrolls internally if the actions overflow. */
+  .git-controls {
     display: flex;
     flex-direction: column;
-    width: 280px;
     flex-shrink: 0;
-    border-right: 1px solid var(--app-border);
+    max-height: 55%;
+    overflow-y: auto;
+    border-bottom: 1px solid var(--app-border);
+  }
+  /* Bottom working tree: changed-files list (left) beside the diff (right). */
+  .git-work {
+    flex: 1;
     min-height: 0;
+    display: flex;
   }
   .git-head {
     display: flex;
@@ -635,10 +686,12 @@
     padding: 6px 12px;
   }
   .git-list {
-    flex: 1;
+    width: 280px;
+    flex-shrink: 0;
     overflow-y: auto;
     min-height: 0;
     padding: 4px;
+    border-right: 1px solid var(--app-border);
   }
   .wt-file {
     display: flex;
@@ -687,20 +740,27 @@
     display: flex;
     gap: 6px;
   }
+  /* The commit actions sit directly under the PR block — drop the shared
+     .panel-section top divider so there's no line between the two. */
+  .git-actions {
+    border-top: none;
+  }
+  /* Split button: the primary action (flex-1) joined to its dropdown caret.
+     Capped so it doesn't stretch across the full-width control panel. */
+  .git-commit-split {
+    display: flex;
+    flex: 1;
+    max-width: 240px;
+  }
+  /* Same 240px cap for the standalone "move to a branch" action, so it lines up
+     with the commit split button above it. */
+  .git-action-slot {
+    max-width: 240px;
+  }
   .git-reject-actions {
     display: flex;
     gap: 6px;
     padding: 0 12px 6px;
-  }
-  /* The commit textarea reserves top-right room (pr-8) for the generate wand,
-     which floats in that gutter. */
-  .git-commit-box {
-    position: relative;
-  }
-  .git-commit-box :global(.git-generate-btn) {
-    position: absolute;
-    top: 4px;
-    right: 4px;
   }
   .git-diff {
     flex: 1;
