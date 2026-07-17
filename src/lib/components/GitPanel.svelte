@@ -59,11 +59,24 @@
   const owningRepo = $derived($activeRepo);
   const isMain = $derived(!!wt && owningRepo?.path === wt);
 
-  async function loadDiff(file: string) {
+  // "Diff updated" pill: an auto-refresh (turn end) can swap the diff under a
+  // reader — the swap itself is unavoidable (the content is truth), but it
+  // shouldn't be SILENT. Only announced reloads (refresh), never a user's own
+  // file selection, flash it.
+  let diffUpdated = $state(false);
+  let diffUpdatedTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function loadDiff(file: string, announce = false) {
     const w = wt;
     if (!w) return;
     try {
-      diff = await api.worktreeDiff(w, file);
+      const next = await api.worktreeDiff(w, file);
+      if (announce && diff && next !== diff) {
+        diffUpdated = true;
+        if (diffUpdatedTimer) clearTimeout(diffUpdatedTimer);
+        diffUpdatedTimer = setTimeout(() => (diffUpdated = false), 2500);
+      }
+      diff = next;
     } catch (e) {
       diff = "";
       error = String(e);
@@ -84,7 +97,7 @@
         selectedFile = null;
         diff = "";
       } else if (selectedFile) {
-        await loadDiff(selectedFile);
+        await loadDiff(selectedFile, true);
       }
     } catch (e) {
       status = null;
@@ -659,6 +672,9 @@
       </div>
 
       <div class="git-diff">
+        {#if diffUpdated}
+          <span class="diff-updated-pill">diff updated</span>
+        {/if}
         {#if selectedFile}
           <DiffView {diff} path={selectedFile} onLineComment={openLineComment} />
         {:else}
@@ -894,9 +910,24 @@
     padding: 0 12px 6px;
   }
   .git-diff {
+    position: relative; /* anchors the diff-updated pill */
     flex: 1;
     min-width: 0;
     overflow: hidden;
+  }
+  /* Transient "content changed under you" announcement (auto-refresh only). */
+  .diff-updated-pill {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    z-index: var(--app-z-float);
+    padding: 2px 8px;
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    border-radius: 999px;
+    background: color-mix(in oklch, var(--app-accent) 18%, var(--app-panel));
+    color: var(--app-text);
+    border: 1px solid color-mix(in oklch, var(--app-accent) 40%, transparent);
   }
   .line-quote {
     font-family: ui-monospace, monospace;

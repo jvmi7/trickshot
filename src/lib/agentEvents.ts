@@ -21,6 +21,7 @@ import {
   maybeDrainQueued,
   modelByWorktree,
   providerByWorktree,
+  pushAppNotification,
   recentConversation,
   refreshUsage,
   selectedWorktree,
@@ -111,6 +112,7 @@ export function handleAgentEvent(worktree: string, evt: Outbound) {
       if (worktree !== get(selectedWorktree)) {
         bumpUnread(worktree);
         void notify("Agent finished", basename(worktree));
+        pushAppNotification(worktree, "Agent finished", basename(worktree));
       } else {
         // Offer suggested next replies for the on-screen chat only — it's a
         // cheap extra model call, so don't spend it on background worktrees.
@@ -149,6 +151,7 @@ export function handleAgentEvent(worktree: string, evt: Outbound) {
     // worktree currently on screen.
     if (worktree !== get(selectedWorktree)) {
       void notify(basename(worktree), evt.message);
+      pushAppNotification(worktree, basename(worktree), evt.message);
     }
   } else if (evt.kind === "error") {
     // Surface only. Status is deliberately NOT reset here: this channel is

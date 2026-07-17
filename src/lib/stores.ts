@@ -462,6 +462,39 @@ export function clearUnread(worktree: string) {
   _unread.store.update((m) => (m[worktree] ? { ...m, [worktree]: 0 } : m));
 }
 
+// ---- In-app notification history (the header bell) ----
+// A session-only ring buffer of cross-worktree events (agent finished / needs
+// attention), fed by the SAME call sites that raise OS notifications
+// (agentEvents.ts turn_end, terminal.ts noteCliActivity). The bell lists them
+// with click-to-jump; `notificationsSeenAt` drives the unseen count.
+export interface AppNotification {
+  id: number;
+  worktree: string;
+  title: string;
+  body: string;
+  at: number;
+}
+const NOTIFICATION_CAP = 50;
+let nextNotificationId = 1;
+export const appNotifications = writable<AppNotification[]>([]);
+export const notificationsSeenAt = writable<number>(0);
+/** Record an event in the bell's history (newest first, capped). */
+export function pushAppNotification(worktree: string, title: string, body: string) {
+  appNotifications.update((list) =>
+    [{ id: nextNotificationId++, worktree, title, body, at: Date.now() }, ...list].slice(
+      0,
+      NOTIFICATION_CAP,
+    ),
+  );
+}
+/** Mark everything currently in the list as seen (the bell was opened). */
+export function markNotificationsSeen() {
+  notificationsSeenAt.set(Date.now());
+}
+export function clearAppNotifications() {
+  appNotifications.set([]);
+}
+
 // ---- Per-worktree agent activity (verbose loading state while a turn runs) ----
 export interface AgentActivity {
   label: string; // current action, e.g. "Running command", "Thinking"

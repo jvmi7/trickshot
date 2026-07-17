@@ -55,6 +55,7 @@
   import TerminalPane from "./lib/components/TerminalPane.svelte";
   import Settings from "./lib/components/Settings.svelte";
   import Welcome from "./lib/components/Welcome.svelte";
+  import NotificationBell from "./lib/components/NotificationBell.svelte";
   import UsageIndicator from "./lib/components/UsageIndicator.svelte";
   import { Button } from "./lib/components/ui/button";
   import { Toaster } from "./lib/components/ui/sonner";
@@ -357,6 +358,7 @@
              CLI-first chat. -->
         {#if $centerView !== "settings" && $repos.length > 0}
           <UsageIndicator />
+          <NotificationBell />
           <RunScripts />
           <ViewToggle />
         {/if}

@@ -18,7 +18,14 @@ import { CLI_IDLE_MS, CliActivityTracker } from "./cliActivity";
 // invocation (all hoisted function declarations / store handles used inside
 // functions), never a module-eval dereference.
 import { ensureClaudeOpen, handleCliExit } from "./session";
-import { bumpGitRefresh, bumpUnread, refreshUsage, selectedWorktree, setStatus } from "./stores";
+import {
+  bumpGitRefresh,
+  bumpUnread,
+  pushAppNotification,
+  refreshUsage,
+  selectedWorktree,
+  setStatus,
+} from "./stores";
 import type { TermEnvelope } from "./types";
 import { basename } from "./utils";
 
@@ -156,6 +163,7 @@ function noteCliActivity(key: string) {
       if (wt !== get(selectedWorktree)) {
         bumpUnread(wt);
         void api.notify("Agent finished", basename(wt));
+        pushAppNotification(wt, "Agent finished", basename(wt));
       }
     }
   }, CLI_IDLE_MS);
