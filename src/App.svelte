@@ -113,17 +113,26 @@
     if (!wt) return;
     worktreeStatus(wt)
       .then((s) =>
-        setGitStat(wt, { changed: s.files.length, insertions: s.insertions, deletions: s.deletions }),
+        setGitStat(wt, {
+          changed: s.files.length,
+          insertions: s.insertions,
+          deletions: s.deletions,
+          aheadOfDefault: s.ahead_of_default,
+        }),
       )
       // Non-git dirs / errors → treat as no changes (Worktrees surfaces real errors).
-      .catch(() => setGitStat(wt, { changed: 0, insertions: 0, deletions: 0 }));
+      .catch(() => setGitStat(wt, { changed: 0, insertions: 0, deletions: 0, aheadOfDefault: 0 }));
   });
 
-  // If the worktree on screen has no changes, don't strand the user on the (now
-  // hidden) Changes tab — fall back to chat. Same for the Run tab when the
+  // If the worktree on screen has nothing to review (clean AND not ahead of the
+  // default branch), don't strand the user on the (now hidden) Changes tab —
+  // fall back to chat. A clean-but-unmerged branch keeps the tab: its PR/checks
+  // panel must stay reachable after a commit. Same for the Run tab when the
   // worktree has no script run.
   $effect(() => {
-    if ($mainView === "changes" && ($activeGitStat?.changed ?? 0) === 0) setMainView("chat");
+    const gs = $activeGitStat;
+    if ($mainView === "changes" && (gs?.changed ?? 0) === 0 && (gs?.aheadOfDefault ?? 0) === 0)
+      setMainView("chat");
     if ($mainView === "run" && !$activeScriptRun) setMainView("chat");
     if ($mainView === "term" && !$selectedWorktree) setMainView("chat");
   });

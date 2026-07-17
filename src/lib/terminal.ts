@@ -8,14 +8,19 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import { get } from "svelte/store";
 import * as api from "./api";
+import { CLI_IDLE_MS, CliActivityTracker } from "./cliActivity";
 // CIRCULAR-IMPORT CONTRACT: session.ts imports claudeTermKey/getTerminal from
 // here while this module imports handleCliExit/ensureClaudeOpen from
-// session.ts — safe because every cross-module access is a CALL-time function
-// invocation (all hoisted function declarations), never a module-eval
-// dereference.
+// session.ts (and busy/unread mutators from stores.ts, which re-exports
+// session) — safe because every cross-module access is a CALL-time function
+// invocation (all hoisted function declarations / store handles used inside
+// functions), never a module-eval dereference.
 import { ensureClaudeOpen, handleCliExit } from "./session";
+import { bumpGitRefresh, bumpUnread, refreshUsage, selectedWorktree, setStatus } from "./stores";
 import type { TermEnvelope } from "./types";
+import { basename } from "./utils";
 
 /** PTY slot suffix for the dedicated Claude CLI terminal (the chat pane's CLI
  *  mode). NUL can't occur in a filesystem path, so the composite key can't
@@ -119,6 +124,52 @@ export async function ensureOpen(worktree: string) {
   inst.open = true;
 }
 
+// ---- CLI busy/idle detection (the multi-worktree awareness layer) ----------
+// Under CLI-first chat no sidecar events fire, so the sidebar dot / unread
+// badges / OS notifications would all be blind. The claude PTY's OUTPUT FLOW is
+// the signal instead (see cliActivity.ts): data flowing = busy; a real burst
+// ending = the turn-finished side-effects agentEvents.ts runs on `turn_end`.
+const cliActivity = new Map<
+  string,
+  { tracker: CliActivityTracker; timer: ReturnType<typeof setTimeout> | null }
+>();
+
+function noteCliActivity(key: string) {
+  let entry = cliActivity.get(key);
+  if (!entry) {
+    entry = { tracker: new CliActivityTracker(), timer: null };
+    cliActivity.set(key, entry);
+  }
+  const wt = keyWorktree(key);
+  if (entry.tracker.onData(Date.now()) === "busy") setStatus(wt, "busy");
+  if (entry.timer) clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => {
+    entry.timer = null;
+    const burst = entry.tracker.onIdle(Date.now());
+    setStatus(wt, "ready");
+    if (burst === "turn") {
+      // Mirror agentEvents.ts's turn_end side-effects: budget + git state
+      // moved, and a background worktree deserves attention. ("Finished" may
+      // also mean "waiting on a prompt" — either way, it needs the user.)
+      refreshUsage();
+      bumpGitRefresh();
+      if (wt !== get(selectedWorktree)) {
+        bumpUnread(wt);
+        void api.notify("Agent finished", basename(wt));
+      }
+    }
+  }, CLI_IDLE_MS);
+}
+
+/** Stop tracking a claude PTY (exit/dispose): kill the pending idle timer so
+ *  it can't overwrite the `stopped` status with a stale `ready`. */
+function clearCliActivity(key: string) {
+  const entry = cliActivity.get(key);
+  if (!entry) return;
+  if (entry.timer) clearTimeout(entry.timer);
+  cliActivity.delete(key);
+}
+
 /** Route one `term-event` into the cached xterm (creating it if the first
  *  output arrives before the pane ever mounted — e.g. a background exit).
  *  `key` is the PTY key (a worktree path, or its claude-slot composite). */
@@ -127,10 +178,12 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
   switch (kind) {
     case "data":
       if (data) inst.term.write(data);
+      if (inst.slot === "claude") noteCliActivity(key);
       break;
     case "exit":
       inst.open = false;
       if (inst.slot === "claude") {
+        clearCliActivity(key);
         // The CLI ended (/exit, crash, or our own termClose). session.ts
         // decides what that means per chat surface (CLI-first: mark stopped,
         // type-to-revive; legacy toggle: adopt the forked id + restart the
@@ -153,6 +206,7 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
  *  slots, so an archived worktree's CLI terminal can't linger. */
 export function disposeTerminal(worktree: string) {
   for (const key of [worktree, claudeTermKey(worktree)]) {
+    clearCliActivity(key);
     api.termClose(key).catch(() => {});
     const inst = instances.get(key);
     if (inst) {

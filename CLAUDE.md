@@ -93,7 +93,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Rust commands: agent lifecycle / git worktrees | `src-tauri/src/agent.rs`, `worktree.rs` |
 | Rust command registry (`generate_handler!`) | `src-tauri/src/lib.rs` |
 | Permission scope (shell:allow-spawn, sidecar, notification) | `src-tauri/capabilities/default.json` |
-| Notifications & background fleet (unread/pending badges) | `notify` command (`agent.rs`) + `api.notify` + `unreadByWorktree`/`pendingPermission` stores + `Worktrees.svelte` badges; Notification hook → `notification` event in `App.svelte` |
+| Notifications & background fleet (unread/pending badges) | `notify` command (`agent.rs`) + `api.notify` + `unreadByWorktree`/`pendingPermission` stores + `Worktrees.svelte` badges; Notification hook → `notification` event in `App.svelte`; under CLI-first chat the busy/turn-end signal is derived from PTY output flow — `src/lib/cliActivity.ts` (pure tracker + tests) wired in `terminal.ts › noteCliActivity` |
 | Agent → user questions (provider-neutral) | `question_request`/`question_reply` (`shared/protocol.ts`) + `QuestionModal.svelte` + `pendingQuestion`/`activeQuestion` stores + `api.replyQuestion`; Claude raises via the built-in `ask_user` SDK MCP tool in `providers/claude.ts` (built-in `AskUserQuestion` disallowed). A new provider emits the SAME `question_request` |
 | Sidecar/bundle config | `src-tauri/tauri.conf.json` |
 | Thin per-platform embed shims (~6-7 lines each) | `sidecar/agent.<platform>.ts` |

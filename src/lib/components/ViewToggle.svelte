@@ -21,10 +21,14 @@
   import { slidingToggle } from "../slidingHighlight";
 
   const stat = $derived($activeGitStat);
-  const hasChanges = $derived(!!stat && stat.changed > 0);
+  // The tab shows whenever there's anything to review: dirty files OR commits
+  // over the default branch — a clean-but-unmerged branch must keep its
+  // PR/checks panel reachable (committing would otherwise hide the tab).
+  const hasChanges = $derived(!!stat && (stat.changed > 0 || stat.aheadOfDefault > 0));
   // Untracked-only changes have a 0/0 diffstat (`git diff --shortstat HEAD`
   // doesn't see untracked files), so the ±counts alone would render a BLANK
-  // button — fall back to an icon so the tab always has a face.
+  // button — fall back to an icon so the tab always has a face (also the face
+  // of the clean-but-ahead state).
   const hasCounts = $derived(!!stat && (stat.insertions > 0 || stat.deletions > 0));
   const scriptRun = $derived($activeScriptRun);
 </script>

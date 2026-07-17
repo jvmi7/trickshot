@@ -198,11 +198,14 @@ export function requestNewWorktree() {
 
 /** Per-worktree change summary (changed-file count + diffstat). Populated by
  *  App.svelte from `worktree_status` on selection / gitRefreshNonce; drives the
- *  header's Changes tab — shown only when `changed > 0`, with the +/- counts. */
+ *  header's Changes tab — shown when there's anything to review: dirty files
+ *  (with the +/- counts) OR commits over the default branch (`aheadOfDefault`),
+ *  so a clean-but-unmerged branch keeps its PR/checks panel reachable. */
 export interface GitStat {
   changed: number;
   insertions: number;
   deletions: number;
+  aheadOfDefault: number;
 }
 const _gitStat = createWorktreeMap<GitStat>();
 export const gitStatByWorktree = _gitStat.store;
