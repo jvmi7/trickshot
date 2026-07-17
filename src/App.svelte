@@ -33,6 +33,8 @@
     setGitStat,
     activeGitStat,
     activeScriptRun,
+    activeRepo,
+    activateWorktree,
     toggleCommandPalette,
     requestNewWorktree,
   } from "./lib/stores";
@@ -52,10 +54,25 @@
   import TerminalPane from "./lib/components/TerminalPane.svelte";
   import Settings from "./lib/components/Settings.svelte";
   import Welcome from "./lib/components/Welcome.svelte";
+  import UsageIndicator from "./lib/components/UsageIndicator.svelte";
   import { Button } from "./lib/components/ui/button";
+  import { Toaster } from "./lib/components/ui/sonner";
   import * as Tooltip from "./lib/components/ui/tooltip";
+  import { basename } from "./lib/utils";
   import PanelLeft from "@lucide/svelte/icons/panel-left";
   import SettingsIcon from "@lucide/svelte/icons/settings";
+
+  // Header breadcrumb: `repo / branch` reads better than the raw absolute path
+  // (which survives as the tooltip). Branch comes from the worktree list.
+  const activeBranch = $derived.by(() => {
+    const sel = $selectedWorktree;
+    if (!sel) return null;
+    for (const list of Object.values($worktreesByRepo)) {
+      const w = list.find((x) => x.path === sel);
+      if (w) return w.branch ?? "(detached)";
+    }
+    return null;
+  });
 
   // Re-probe the login when the window regains focus, but only while the
   // sign-in notice is showing — this is the "cmd-tab to a terminal, run
@@ -66,13 +83,24 @@
   }
 
   // Global shortcuts (Conductor parity): ⌘K palette, ⌘⇧N new worktree,
-  // ⌘⇧D changes/diff view, ⌘⇧P the PR block (same Changes panel). Plain ⌘K
-  // has no shift; all guard on meta/ctrl so typing stays unaffected.
+  // ⌘⇧D changes/diff view, ⌘⇧P the PR block (same Changes panel), ⌘, settings,
+  // ⌘1–9 jump to the Nth worktree (sidebar order). Esc leaves Settings. All
+  // ⌘-chords guard on meta/ctrl so typing stays unaffected (macOS ⌘-chords
+  // never reach the PTY through xterm, so nothing is stolen from the TUI).
   function onKeydown(e: KeyboardEvent) {
+    // Esc: leave Settings — unless something else (a dialog, the palette)
+    // already handled it (bits-ui prevents default when it consumes Esc).
+    if (e.key === "Escape" && !e.defaultPrevented && get(centerView) === "settings") {
+      setCenterView("chat");
+      return;
+    }
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
     const k = e.key.toLowerCase();
-    if (!e.shiftKey && k === "k") {
+    if (!e.shiftKey && k === ",") {
+      e.preventDefault();
+      setCenterView("settings");
+    } else if (!e.shiftKey && k === "k") {
       e.preventDefault();
       toggleCommandPalette();
     } else if (e.shiftKey && k === "n") {
@@ -82,6 +110,15 @@
       e.preventDefault();
       setCenterView("chat");
       toggleMainView("changes");
+    } else if (!e.shiftKey && k >= "1" && k <= "9") {
+      // Jump to the Nth worktree in sidebar order (repos, then their worktrees).
+      const flat = get(repos).flatMap((r) => get(worktreesByRepo)[r.path] ?? []);
+      const target = flat[Number(k) - 1];
+      if (target) {
+        e.preventDefault();
+        setCenterView("chat");
+        void activateWorktree(target.path).catch(() => {});
+      }
     }
   }
 
@@ -104,24 +141,30 @@
     window.addEventListener("pointerup", up);
   }
 
-  // Keep the selected worktree's change summary fresh so the header can show the
-  // Changes tab (only when dirty) with its +/- diffstat. Re-runs on selection and
-  // on gitRefreshNonce (bumped after a turn that likely touched files).
+  // Keep every worktree's change summary fresh: the header's Changes tab keys
+  // off the SELECTED one, and the sidebar rows show a ± glance per worktree
+  // (the fleet view). Re-runs on selection and on gitRefreshNonce (bumped
+  // after a turn that likely touched files); each refresh is one `git status`
+  // per worktree — cheap at sidebar scale.
   $effect(() => {
-    const wt = $selectedWorktree;
+    void $selectedWorktree;
     void $gitRefreshNonce;
-    if (!wt) return;
-    worktreeStatus(wt)
-      .then((s) =>
-        setGitStat(wt, {
-          changed: s.files.length,
-          insertions: s.insertions,
-          deletions: s.deletions,
-          aheadOfDefault: s.ahead_of_default,
-        }),
-      )
-      // Non-git dirs / errors → treat as no changes (Worktrees surfaces real errors).
-      .catch(() => setGitStat(wt, { changed: 0, insertions: 0, deletions: 0, aheadOfDefault: 0 }));
+    const all = $repos.flatMap((r) => $worktreesByRepo[r.path] ?? []);
+    for (const w of all) {
+      worktreeStatus(w.path)
+        .then((s) =>
+          setGitStat(w.path, {
+            changed: s.files.length,
+            insertions: s.insertions,
+            deletions: s.deletions,
+            aheadOfDefault: s.ahead_of_default,
+          }),
+        )
+        // Non-git dirs / errors → treat as no changes (Worktrees surfaces real errors).
+        .catch(() =>
+          setGitStat(w.path, { changed: 0, insertions: 0, deletions: 0, aheadOfDefault: 0 }),
+        );
+    }
   });
 
   // If the worktree on screen has nothing to review (clean AND not ahead of the
@@ -235,6 +278,7 @@
 <svelte:window onkeydown={onKeydown} onfocus={onWindowFocus} />
 
 <Tooltip.Provider delayDuration={100}>
+<Toaster position="bottom-right" />
 <CommandPalette />
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
   <!-- Sidebar toggle floats over the top-left (just past the traffic lights) so
@@ -289,7 +333,13 @@
           {#if $centerView === "settings"}
             <span class="path">Settings</span>
           {:else if $selectedWorktree}
-            <span class="path">{$selectedWorktree}</span>
+            <span class="path" title={$selectedWorktree}>
+              {$activeRepo ? basename($activeRepo.path) : basename($selectedWorktree)}{#if activeBranch}<span
+                  class="dim"
+                >
+                  / {activeBranch}</span
+                >{/if}
+            </span>
           {:else if $repos.length === 0}
             <span class="dim">add a repository to get started</span>
           {:else}
@@ -301,8 +351,11 @@
         <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
              nothing to act on there. (ChatModeToggle is unwired under the
              CLI-first CHAT_SURFACE — the terminal IS the chat; the component
-             is preserved for the legacy GUI surface.) -->
+             is preserved for the legacy GUI surface.) UsageIndicator lives here
+             (not the deprecated Composer) so budget stays visible under
+             CLI-first chat. -->
         {#if $centerView !== "settings" && $repos.length > 0}
+          <UsageIndicator />
           <RunScripts />
           <ViewToggle />
         {/if}

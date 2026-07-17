@@ -16,7 +16,9 @@ import * as api from "./api";
 import { MINIMAL_DIRECTIVE } from "./minimal";
 import { DEFAULT_PROVIDER_ID } from "./providers";
 import {
+  type ArchivedWorkspace,
   addRepo,
+  addWorktree,
   CHAT_SURFACE,
   chatModeByWorktree,
   clearActivity,
@@ -29,6 +31,7 @@ import {
   minimalMode,
   permissionModeByWorktree,
   providerByWorktree,
+  removeArchived,
   selectWorktree,
   sessionByWorktree,
   sessionStatus,
@@ -44,6 +47,7 @@ import {
 // while we import its key/instance helpers — safe because every cross-module
 // access is a call-time function invocation (all hoisted declarations).
 import { claudeTermKey, getTerminal } from "./terminal";
+import { toastSuccess } from "./toast";
 import { appendMessage, bufferedMessages, summarizeConversation, transcripts } from "./transcript";
 import { basename } from "./utils";
 
@@ -215,6 +219,20 @@ export async function activateWorktree(path: string) {
   }
 }
 
+/** Restore an archived workspace: recreate the worktree from its branch (the
+ *  deterministic path revives the persisted transcript/session keys), re-add
+ *  the repo if it was removed meanwhile (addRepo dedupes), drop the archive
+ *  entry, and activate it. The ONE restore path — the sidebar's Archived list
+ *  and the command palette both route through here. Throws for the caller's
+ *  error surface. */
+export async function restoreWorkspace(entry: ArchivedWorkspace): Promise<void> {
+  const wt = await api.createWorktree(entry.repoPath, entry.branch);
+  addRepo({ path: entry.repoPath, name: entry.repoName });
+  addWorktree(entry.repoPath, wt);
+  removeArchived(entry.repoPath, entry.branch);
+  await activateWorktree(wt.path);
+}
+
 // ---- CLI chat mode (the GUI⇄terminal handoff) ----
 // The chat pane can swap to the REAL Claude Code CLI TUI, resuming the same
 // conversation. Both surfaces share one session store, but a session must have
@@ -236,12 +254,24 @@ async function resumeIdFor(worktree: string): Promise<string | undefined> {
 /** (Re)open the claude-slot PTY for a worktree, resuming the live session id.
  *  Idempotent (Rust no-ops while one is alive) — the pane's (re)mount path.
  *  Marks the session `ready` on success: under CHAT_SURFACE === "cli" the PTY
- *  IS the session, so the sidebar dot should read alive (the PTY has no
- *  busy/idle signal, so `busy` is never set on this path). */
+ *  IS the session; busy/idle then comes from the PTY's output flow
+ *  (terminal.ts › noteCliActivity). */
 export async function ensureClaudeOpen(worktree: string): Promise<void> {
   const inst = getTerminal(claudeTermKey(worktree));
   const { rows, cols } = inst.term;
-  await api.termOpen(worktree, rows, cols, "claude", await resumeIdFor(worktree));
+  const resumeId = await resumeIdFor(worktree);
+  // Cold launch + a session to resume: the TUI does NOT repaint earlier turns,
+  // so a fresh (never-written) terminal would read as a blank "new" chat while
+  // the agent's context is actually intact. Say so, once, before the TUI
+  // paints. (A revive-after-exit terminal already has content — no banner.)
+  const buf = inst.term.buffer.active;
+  const untouched = buf.cursorX === 0 && buf.cursorY === 0;
+  if (resumeId && untouched) {
+    inst.term.write(
+      "\x1b[2m↻ resuming previous session — earlier turns aren't shown here; the agent's context is intact\x1b[0m\r\n",
+    );
+  }
+  await api.termOpen(worktree, rows, cols, "claude", resumeId);
   inst.open = true;
   setStatus(worktree, "ready");
 }
@@ -258,10 +288,17 @@ export async function sendToCli(worktree: string, text: string): Promise<void> {
 /** Submit a prompt to whatever the ACTIVE chat surface is (see CHAT_SURFACE):
  *  keystroke-injection into the CLI, or the GUI transcript path. The one entry
  *  point for features that hand text to the agent from outside the chat pane
- *  (git-panel review comments, "fix failing checks"). */
+ *  (git-panel review comments, "fix failing checks"). The CLI path closes the
+ *  loop: focus the terminal (the injection is invisible from another tab) and
+ *  raise a toast receipt so the action doesn't feel like it vanished. */
 export async function submitTurnToChat(worktree: string, text: string): Promise<void> {
-  if (CHAT_SURFACE === "cli") await sendToCli(worktree, text);
-  else await submitUserTurn(worktree, text);
+  if (CHAT_SURFACE === "cli") {
+    await sendToCli(worktree, text);
+    getTerminal(claudeTermKey(worktree)).term.focus();
+    toastSuccess("Sent to the agent");
+  } else {
+    await submitUserTurn(worktree, text);
+  }
 }
 
 // exitCliMode's own termClose fires the same PTY `exit` event that a

@@ -162,6 +162,17 @@ fn drain_utf8(carry: &mut Vec<u8>) -> Option<String> {
     }
 }
 
+/// Whether the user's `claude` CLI resolves on the login shell's PATH — the
+/// onboarding preflight (Welcome). Distinct from `check_auth` (credentials):
+/// this answers "is the binary even installed?". Async + spawn_blocking: the
+/// first call shells the login shell (OnceLock-cached after).
+#[tauri::command]
+pub async fn check_cli() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || Ok(claude_cli().is_ok()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Open (or no-op if already open) a PTY for `worktree`. By default it runs the
 /// user's login shell with cwd = the worktree; `launch: "claude"` instead runs
 /// the user's Claude Code CLI (optionally `--resume <resumeSessionId>`) on a

@@ -59,6 +59,9 @@ export interface GitFileStatus {
   index: string;
   worktree: string;
   staged: boolean;
+  /** Per-file lines added/removed vs HEAD (null for untracked/binary files). */
+  insertions: number | null;
+  deletions: number | null;
 }
 
 /** A worktree's working-tree status (mirrors the Rust `WorktreeStatus`). */

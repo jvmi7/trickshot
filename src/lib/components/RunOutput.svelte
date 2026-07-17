@@ -8,6 +8,19 @@
 
   const run = $derived($activeScriptRun);
 
+  // The dev-server URL, if the script printed one — the single most useful
+  // thing in a run log, so surface it as a clickable chip instead of making
+  // the user eyeball the stream. First match wins; ANSI color codes are
+  // stripped before matching; 0.0.0.0 is rewritten to a browsable host.
+  const serverUrl = $derived.by(() => {
+    for (const raw of run?.output ?? []) {
+      const line = raw.replace(/\x1b\[[0-9;]*m/g, "");
+      const m = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d+[^\s"')]*/.exec(line);
+      if (m) return m[0].replace("0.0.0.0", "localhost");
+    }
+    return null;
+  });
+
   let pane = $state<HTMLDivElement | null>(null);
   let follow = $state(true);
 
@@ -35,6 +48,9 @@
         <span class="run-status" class:failed={run.code !== null && run.code !== 0}>
           exited{run.code === null ? "" : ` (${run.code})`}
         </span>
+      {/if}
+      {#if serverUrl && run.status === "running"}
+        <a class="run-url" href={serverUrl} target="_blank" rel="noreferrer">{serverUrl} ↗</a>
       {/if}
     </div>
     <div class="run-body" bind:this={pane} onscroll={onScroll}>
@@ -77,6 +93,17 @@
   }
   .run-status.failed {
     color: var(--app-danger);
+  }
+  /* The dev-server chip: quiet link, accent on hover. */
+  .run-url {
+    margin-left: auto;
+    font-size: var(--text-xs);
+    color: var(--app-dim);
+    text-decoration: none;
+    transition: color var(--app-duration-fast);
+  }
+  .run-url:hover {
+    color: var(--app-accent);
   }
   .run-body {
     flex: 1;

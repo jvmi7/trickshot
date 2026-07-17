@@ -846,6 +846,7 @@ export {
   recentConversation,
   removeQueued,
   requestOnce,
+  restoreWorkspace,
   sendQueuedNow,
   sendToCli,
   submitTurnToChat,

@@ -7,6 +7,7 @@
   // the +/- prefix kept literal and the row's add/del background preserved.
   // Prop-driven primitive: the optional `onLineComment` callback (review
   // comments on a diff line) keeps the store/agent wiring in the parent.
+  import { pairChanges, splitCommon, worthHighlighting } from "$lib/diffIntraline";
   import { escapeHtml, highlightCode, langFromPath } from "$lib/highlight";
   import MessageSquarePlus from "@lucide/svelte/icons/message-square-plus";
 
@@ -64,6 +65,23 @@
     for (const { o, n } of lineNos) max = Math.max(max, o ?? 0, n ?? 0);
     return Math.max(3, String(max).length);
   });
+  // Paired -/+ rows (equal adjacent runs) get intraline highlights — see
+  // diffIntraline.ts for the pure pairing/split logic.
+  const kinds = $derived(shown.map((l) => kind(l)));
+  const pairs = $derived(pairChanges(kinds));
+  // A pure rename produces no code rows at all — surface it instead of the
+  // misleading "No changes" empty state. (Rename meta lines are filtered from
+  // `content`, so scan the raw lines.)
+  const rename = $derived.by(() => {
+    let from: string | null = null;
+    let to: string | null = null;
+    for (const l of lines) {
+      if (l.startsWith("rename from ")) from = l.slice("rename from ".length);
+      else if (l.startsWith("rename to ")) to = l.slice("rename to ".length);
+      if (from && to) break;
+    }
+    return from && to ? { from, to } : null;
+  });
   // Highlighting is per-line (no cross-line context), the lightweight tradeoff:
   // a line inside a block comment may mis-color, but the DOM stays bounded and
   // there's no whole-file reconstruction. "" when the type is unknown → escaped
@@ -74,6 +92,7 @@
   function kind(line: string): string {
     if (line.startsWith("@@")) return "hunk";
     if (line.startsWith("+++") || line.startsWith("---")) return "meta";
+    if (line.startsWith("Binary files ")) return "binary";
     if (
       line.startsWith("diff ") ||
       line.startsWith("index ") ||
@@ -90,10 +109,30 @@
 
   /** Render one diff line to safe HTML. Only the code rows are syntax-coloured,
    *  and only when the file type is known; the +/- prefix stays literal so it
-   *  never gets swept into the highlighter. Everything routes through an escape
-   *  (here or inside highlightCode), so {@html} is XSS-safe under the app CSP. */
-  function render(line: string, k: string): string {
+   *  never gets swept into the highlighter. A -/+ row paired with its partner
+   *  gets an intraline mark on the changed segment INSTEAD of syntax colors
+   *  (interleaving hljs spans with the mark span would mangle both; the mark is
+   *  the more useful signal). Everything routes through an escape (here or
+   *  inside highlightCode), so {@html} is XSS-safe under the app CSP. */
+  function render(line: string, k: string, i: number): string {
     const text = line || " ";
+    if (k === "add" || k === "del") {
+      const j = pairs.get(i);
+      if (j !== undefined) {
+        const a = text.slice(1);
+        const b = (shown[j] ?? " ").slice(1);
+        const { pre, suf } = splitCommon(a, b);
+        if (worthHighlighting(a, b, pre, suf)) {
+          const mid = a.slice(pre, a.length - suf);
+          return (
+            escapeHtml(text.slice(0, 1)) +
+            escapeHtml(a.slice(0, pre)) +
+            (mid ? `<span class="ln-seg">${escapeHtml(mid)}</span>` : "") +
+            escapeHtml(a.slice(a.length - suf))
+          );
+        }
+      }
+    }
     if (lang && (k === "add" || k === "del" || k === "ctx")) {
       return escapeHtml(text.slice(0, 1)) + highlightCode(text.slice(1), lang);
     }
@@ -102,13 +141,19 @@
 </script>
 
 {#if shown.length === 0}
-  <div class="diff-empty empty-state">No changes in this file.</div>
+  {#if rename}
+    <div class="diff-empty empty-state">Renamed {rename.from} → {rename.to}</div>
+  {:else}
+    <div class="diff-empty empty-state">No changes in this file.</div>
+  {/if}
 {:else}
   <div class="diff">
     {#each shown as line, i (i)}
       {@const k = kind(line)}
       {@const code = k === "add" || k === "del" || k === "ctx"}
-      {#if onLineComment && code}
+      {#if k === "binary"}
+        <div class="ln meta">Binary file — contents not shown</div>
+      {:else if onLineComment && code}
         <div class="ln {k} commentable">
           <button
             class="ln-comment"
@@ -120,14 +165,14 @@
           </button><span class="ln-no" style="width: {noWidth}ch">{lineNos[i]?.o ?? ""}</span><span
             class="ln-no"
             style="width: {noWidth}ch">{lineNos[i]?.n ?? ""}</span
-          >{@html render(line, k)}</div>
+          >{@html render(line, k, i)}</div>
       {:else if code}
         <div class="ln {k}"><span class="ln-no" style="width: {noWidth}ch">{lineNos[i]?.o ?? ""}</span><span
             class="ln-no"
             style="width: {noWidth}ch">{lineNos[i]?.n ?? ""}</span
-          >{@html render(line, k)}</div>
+          >{@html render(line, k, i)}</div>
       {:else}
-        <div class="ln {k}">{@html render(line, k)}</div>
+        <div class="ln {k}">{@html render(line, k, i)}</div>
       {/if}
     {/each}
     {#if hidden > 0}
@@ -197,6 +242,16 @@
   }
   .del {
     background: color-mix(in oklch, var(--app-danger) 16%, transparent);
+  }
+  /* Intraline mark: the changed segment of a paired -/+ row, a stronger tint
+     over the row's own wash (`:global` — the span arrives via {@html}). */
+  .add :global(.ln-seg) {
+    background: color-mix(in oklch, var(--base-success) 38%, transparent);
+    border-radius: var(--radius-2xs);
+  }
+  .del :global(.ln-seg) {
+    background: color-mix(in oklch, var(--app-danger) 38%, transparent);
+    border-radius: var(--radius-2xs);
   }
   .hunk {
     color: var(--app-accent);

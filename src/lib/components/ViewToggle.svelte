@@ -110,14 +110,14 @@
             variant="ghost"
             class="view-toggle-item size-7 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
             data-active={$mainView === "term" ? "" : undefined}
-            aria-label="Terminal"
+            aria-label="Shell"
             onclick={() => toggleMainView("term")}
           >
             <Terminal class="size-4" />
           </Button>
         {/snippet}
       </Tooltip.Trigger>
-      <Tooltip.Content>Terminal</Tooltip.Content>
+      <Tooltip.Content>Shell — a plain terminal in this worktree (the chat pane is the Claude CLI)</Tooltip.Content>
     </Tooltip.Root>
   {/if}
 </div>
@@ -137,14 +137,6 @@
     position: relative;
     z-index: 1;
   }
-  /* Diffstat counts on the Changes tab (added green / removed red, matching
-     DiffView's line colors). */
-  .diff-add {
-    color: var(--base-success);
-    font-variant-numeric: tabular-nums;
-  }
-  .diff-del {
-    color: var(--app-danger);
-    font-variant-numeric: tabular-nums;
-  }
+  /* Diffstat counts use the shared .diff-add/.diff-del (app.css) — promoted
+     there when GitPanel's file rows adopted the same shape. */
 </style>

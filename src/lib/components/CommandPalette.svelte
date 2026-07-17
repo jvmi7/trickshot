@@ -7,15 +7,20 @@
     activeRepo,
     activeScriptRun,
     activeScripts,
+    archivedWorkspaces,
     closeCommandPalette,
     commandPaletteOpen,
+    restoreWorkspace,
     setMainView,
+    setTheme,
     repos,
     requestNewWorktree,
     selectedWorktree,
     setCenterView,
+    toggleSidebar,
     worktreesByRepo,
   } from "../stores";
+  import { THEMES } from "../themes";
   import * as api from "../api";
   import * as Command from "$lib/components/ui/command";
   import House from "@lucide/svelte/icons/house";
@@ -26,6 +31,9 @@
   import Play from "@lucide/svelte/icons/play";
   import Square from "@lucide/svelte/icons/square";
   import SettingsIcon from "@lucide/svelte/icons/settings";
+  import PanelLeft from "@lucide/svelte/icons/panel-left";
+  import Palette from "@lucide/svelte/icons/palette";
+  import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
 
   // Flat list of every worktree across repos, labeled repo/branch for search.
   const allWorktrees = $derived(
@@ -113,7 +121,32 @@
       <Command.Item value="settings preferences" onSelect={() => pick(() => setCenterView("settings"))}>
         <SettingsIcon class="size-3.5" />
         Settings
+        <Command.Shortcut>⌘,</Command.Shortcut>
       </Command.Item>
+      <Command.Item value="toggle sidebar" onSelect={() => pick(toggleSidebar)}>
+        <PanelLeft class="size-3.5" />
+        Toggle sidebar
+      </Command.Item>
+      {#each THEMES as t (t.id)}
+        <Command.Item value="theme {t.label}" onSelect={() => pick(() => setTheme(t.id))}>
+          <Palette class="size-3.5" />
+          Theme: {t.label}
+        </Command.Item>
+      {/each}
     </Command.Group>
+
+    {#if $archivedWorkspaces.length > 0}
+      <Command.Group heading="Archived">
+        {#each $archivedWorkspaces as a (a.repoPath + a.branch)}
+          <Command.Item
+            value="restore archived {a.repoName} {a.branch}"
+            onSelect={() => pick(() => void restoreWorkspace(a).catch(() => {}))}
+          >
+            <ArchiveRestore class="size-3.5" />
+            Restore {a.repoName} / {a.branch}
+          </Command.Item>
+        {/each}
+      </Command.Group>
+    {/if}
   </Command.List>
 </Command.Dialog>

@@ -740,6 +740,10 @@ html, body {
    ThreadPanel quote toggle. */
 .text-action { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; font-size: var(--text-xs); font-weight: 500; color: var(--app-dim); cursor: pointer; transition: color var(--app-duration-fast) ease; }
 .text-action:hover { color: var(--app-text); }
+/* Diffstat ± counts (added green / removed red, matching DiffView's line
+   colors) — shared by ViewToggle's Changes tab and GitPanel's file rows. */
+.diff-add { color: var(--base-success); font-variant-numeric: tabular-nums; }
+.diff-del { color: var(--app-danger); font-variant-numeric: tabular-nums; }
 /* Bordered panel section + its plumbing, shared by GitPanel and PrPanel (hoisted
    from their formerly copy-pasted "keep in sync" scoped styles). */
 .panel-section { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-top: 1px solid var(--app-border); }
@@ -753,7 +757,7 @@ html, body {
    padding on the host over-counts the rows and the bottom rows draw off-pane.
    The grid never exactly fills the host, so the leftover strip below the last
    row must be OUR background; deliberately NO height:100% on .xterm. */
-.term-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 8px 0 8px 12px; background: var(--base-bg); }
+.term-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 8px 12px; background: var(--base-bg); }
 .term-host { flex: 1; min-height: 0; overflow: hidden; background: var(--base-bg); }
 /* Per-theme glyph glow (--base-term-glow, a full text-shadow; a theme sets `none`
    to disable). Works because xterm runs its DOM renderer (real text in spans) —
@@ -790,6 +794,8 @@ html, body {
 .dot.busy { animation: dot-pulse 1.2s ease-in-out infinite; }
 @keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .wt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Per-row diffstat glance (colors: the shared .diff-add/.diff-del). */
+.wt-stat { flex-shrink: 0; display: inline-flex; gap: 3px; font-size: var(--text-2xs); }
 /* Sidebar activity badges: pending-permission flag + background unread count. */
 .wt-pending { flex-shrink: 0; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: 700; color: var(--base-warning); }
 /* Text on the accent fill is --base-on-accent, NOT --app-bg: they coincide in the

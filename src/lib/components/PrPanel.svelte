@@ -17,6 +17,7 @@
   import Wrench from "@lucide/svelte/icons/wrench";
   import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import GitMerge from "@lucide/svelte/icons/git-merge";
 
   let {
     worktree,
@@ -27,6 +28,7 @@
     hasUpstream,
     busy,
     refreshNonce,
+    onPrState,
   }: {
     worktree: string;
     branch: string | null;
@@ -42,6 +44,8 @@
     busy: boolean;
     /** Bumped by GitPanel after a push/sync so the PR block refetches remote state. */
     refreshNonce: number;
+    /** Reports whether an OPEN PR exists (GitPanel hides its local Merge then). */
+    onPrState?: (open: boolean) => void;
   } = $props();
 
   let pr = $state<PrInfo | null>(null);
@@ -57,6 +61,12 @@
   let generating = $state(false);
 
   const failingChecks = $derived(pr?.checks.filter((c) => c.status === "fail").length ?? 0);
+  const pendingChecks = $derived(pr?.checks.filter((c) => c.status === "pending").length ?? 0);
+  // Mergeable from the app: an open, non-draft PR with nothing failing or
+  // still running (gh enforces reviews/protections on top).
+  const canMerge = $derived(
+    !!pr && pr.state === "OPEN" && !pr.is_draft && failingChecks === 0 && pendingChecks === 0,
+  );
 
   // PR eligibility (drives WHICH of button/hint the block renders).
   const onDefaultBranch = $derived(!!branch && !!defaultBranch && branch === defaultBranch);
@@ -77,12 +87,39 @@
     if (refreshNonce > 0) refreshPr();
   });
 
+  // While CI is running, poll so the check dots don't sit stale (checks only
+  // otherwise refetch on selection/push/manual click). 15s ≈ live enough
+  // without hammering gh; the interval dissolves the moment nothing is pending.
+  $effect(() => {
+    if (!pr || pr.state !== "OPEN" || pendingChecks === 0) return;
+    const t = setInterval(() => {
+      if (!prBusy) refreshPr();
+    }, 15_000);
+    return () => clearInterval(t);
+  });
+
   async function refreshPr() {
     prBusy = true;
     prError = "";
     try {
       pr = await api.prStatus(worktree);
       prLoaded = true;
+      onPrState?.(pr?.state === "OPEN");
+    } catch (e) {
+      prError = String(e);
+    } finally {
+      prBusy = false;
+    }
+  }
+
+  // Merge the PR on GitHub (squash). On success the poll/refetch shows MERGED.
+  async function mergePr() {
+    prBusy = true;
+    prError = "";
+    try {
+      await api.prMerge(worktree);
+      pr = await api.prStatus(worktree);
+      onPrState?.(pr?.state === "OPEN");
     } catch (e) {
       prError = String(e);
     } finally {
@@ -205,6 +242,21 @@
           <Wrench class="size-3.5" /> Fix failing checks with agent
         </Button>
       {/if}
+      {#if pendingChecks > 0}
+        <div class="git-pr-dim">Checks running — refreshing automatically…</div>
+      {/if}
+    {/if}
+    {#if canMerge}
+      <Button
+        size="sm"
+        variant="outline"
+        class="h-7 text-xs"
+        title="Squash-merge this PR on GitHub (gh pr merge --squash)"
+        disabled={prBusy || busy}
+        onclick={mergePr}
+      >
+        <GitMerge class="size-3.5" /> Merge PR
+      </Button>
     {/if}
   {:else if onDefaultBranch}
     <div class="git-pr-dim">

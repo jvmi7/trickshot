@@ -255,6 +255,10 @@ pub struct FileStatus {
     pub index: String,
     pub worktree: String,
     pub staged: bool,
+    /// Per-file lines added/removed vs HEAD (from `--numstat`). None for
+    /// untracked files (numstat doesn't see them) and binary files (`-`).
+    pub insertions: Option<i32>,
+    pub deletions: Option<i32>,
 }
 
 /// A worktree's working-tree status: current branch, ahead/behind counts vs its
@@ -315,6 +319,44 @@ fn diff_shortstat(worktree_path: &str) -> (i32, i32) {
     parse_shortstat(&out)
 }
 
+/// Resolve a `--numstat` path cell to the post-change path. Renames arrive as
+/// either `old => new` or the bracket form `dir/{old => new}/file`; keep the
+/// destination.
+fn numstat_path(cell: &str) -> String {
+    if let (Some(open), Some(close)) = (cell.find('{'), cell.find('}')) {
+        if let Some(arrow) = cell[open..close].find(" => ") {
+            let new_mid = &cell[open + arrow + 4..close];
+            let mut p = format!("{}{}{}", &cell[..open], new_mid, &cell[close + 1..]);
+            // A rename INTO the tree root leaves a leading "/" artifact
+            // (`{old => }/file` → "/file"); normalize doubled slashes too.
+            p = p.replace("//", "/");
+            return p.trim_start_matches('/').to_string();
+        }
+    }
+    if let Some(pos) = cell.find(" => ") {
+        return cell[pos + 4..].to_string();
+    }
+    cell.to_string()
+}
+
+/// Parse `git diff --numstat` output into (path → (insertions, deletions)).
+/// Binary files report `-\t-` and are omitted (the UI shows them unbadged).
+/// Pure so it's unit-testable; `worktree_status` folds it into the file list.
+fn parse_numstat(out: &str) -> std::collections::HashMap<String, (i32, i32)> {
+    let mut map = std::collections::HashMap::new();
+    for line in out.lines() {
+        let mut cols = line.splitn(3, '\t');
+        let (Some(ins), Some(del), Some(path)) = (cols.next(), cols.next(), cols.next()) else {
+            continue;
+        };
+        let (Ok(ins), Ok(del)) = (ins.trim().parse::<i32>(), del.trim().parse::<i32>()) else {
+            continue; // binary: "-\t-"
+        };
+        map.insert(numstat_path(path), (ins, del));
+    }
+    map
+}
+
 /// Parse `git status --porcelain=v1 --branch` output into (branch, ahead, behind,
 /// has_upstream, files). Pure (no git invocation) so it's unit-testable;
 /// `worktree_status` wraps it with the git call and folds in the diffstat.
@@ -367,6 +409,9 @@ fn parse_status(out: &str) -> (Option<String>, i32, i32, bool, Vec<FileStatus>) 
             index: x.to_string(),
             worktree: y.to_string(),
             staged: x != " " && x != "?",
+            // Filled from --numstat by worktree_status (None = untracked/binary).
+            insertions: None,
+            deletions: None,
         });
     }
 
@@ -463,8 +508,18 @@ pub async fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, St
                 "--untracked-files=all",
             ],
         )?;
-        let (branch, ahead, behind, has_upstream, files) = parse_status(&out);
+        let (branch, ahead, behind, has_upstream, mut files) = parse_status(&out);
         let (insertions, deletions) = diff_shortstat(&worktree_path);
+        // Per-file ± counts (best-effort; untracked/binary files stay None).
+        let numstat = git(&worktree_path, &["diff", "HEAD", "--numstat"])
+            .map(|o| parse_numstat(&o))
+            .unwrap_or_default();
+        for f in &mut files {
+            if let Some(&(ins, del)) = numstat.get(&f.path) {
+                f.insertions = Some(ins);
+                f.deletions = Some(del);
+            }
+        }
         let default = default_branch(&worktree_path);
         let ahead_of_default = default
             .as_deref()
@@ -704,8 +759,8 @@ pub async fn worktree_move_to_branch(
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_shortstat, parse_status, parse_worktree_list, pick_default_branch, validate_branch,
-        worktree_path_for,
+        parse_numstat, parse_shortstat, parse_status, parse_worktree_list, pick_default_branch,
+        validate_branch, worktree_path_for,
     };
 
     // ---- parse_worktree_list (git worktree list --porcelain) ----
@@ -833,6 +888,31 @@ mod tests {
         // Empty output (no HEAD / no changes) and unparseable text both yield (0, 0).
         assert_eq!(parse_shortstat(""), (0, 0));
         assert_eq!(parse_shortstat("not a shortstat line"), (0, 0));
+    }
+
+    // ---- parse_numstat (git diff --numstat) ----
+
+    #[test]
+    fn numstat_parses_counts_and_skips_binary() {
+        let out = "12\t4\tsrc/a.rs\n0\t7\tREADME.md\n-\t-\tlogo.png\n";
+        let m = parse_numstat(out);
+        assert_eq!(m.get("src/a.rs"), Some(&(12, 4)));
+        assert_eq!(m.get("README.md"), Some(&(0, 7)));
+        assert!(!m.contains_key("logo.png")); // binary → omitted
+    }
+
+    #[test]
+    fn numstat_keeps_rename_destination() {
+        // Plain and bracketed rename forms both resolve to the new path.
+        let m = parse_numstat("1\t1\told.rs => new.rs\n2\t0\tsrc/{a => b}/f.rs\n");
+        assert_eq!(m.get("new.rs"), Some(&(1, 1)));
+        assert_eq!(m.get("src/b/f.rs"), Some(&(2, 0)));
+    }
+
+    #[test]
+    fn numstat_empty_or_garbage_is_empty() {
+        assert!(parse_numstat("").is_empty());
+        assert!(parse_numstat("not a numstat line").is_empty());
     }
 
     // ---- pick_default_branch (the origin/HEAD fallback order) ----

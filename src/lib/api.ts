@@ -40,6 +40,10 @@ export const getUsage = (provider?: string) =>
 export const checkAuth = (provider?: string) =>
   invoke<boolean>("check_auth", { provider: provider ?? null });
 
+/** Whether the `claude` CLI resolves on the login shell's PATH (the onboarding
+ *  preflight — "is the binary installed?", distinct from checkAuth). */
+export const checkCli = () => invoke<boolean>("check_cli");
+
 /** List all worktrees of a git repo (the first entry is the main worktree). */
 export const listWorktrees = (repoPath: string) =>
   invoke<Worktree[]>("list_worktrees", { repoPath });
@@ -143,12 +147,21 @@ export const prCreate = (
   draft = false,
 ) => invoke<string>("pr_create", { worktreePath, title, body, base: base ?? null, draft });
 
+/** Merge the current branch's open PR (`gh pr merge --squash`). Returns gh's
+ *  stdout; protections/review requirements reject with gh's stderr. */
+export const prMerge = (worktreePath: string) => invoke<string>("pr_merge", { worktreePath });
+
 // ---- AI text generation (one-shot `claude -p`) ----------------------------
 
 /** Generate a commit message from the working diff (staged if any, else vs HEAD).
  *  Rejects when there's nothing to describe or `claude` is unavailable. */
 export const generateCommitMessage = (worktreePath: string) =>
   invoke<string>("generate_commit_message", { worktreePath });
+
+/** Generate a branch name (slugged, validate_branch-safe) from the working
+ *  diff. Rejects when there's nothing to name. */
+export const generateBranchName = (worktreePath: string) =>
+  invoke<string>("generate_branch_name", { worktreePath });
 
 /** Generate a PR title + body from the commits over `base` (default: repo
  *  default branch). Rejects when there are no commits to propose. */

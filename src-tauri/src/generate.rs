@@ -110,6 +110,31 @@ fn clean_commit_message(raw: &str) -> String {
     s.to_string()
 }
 
+/// Reduce a generated branch-name suggestion to a safe git ref slug: keep
+/// alphanumerics and `/`, map runs of everything else to `-`, lowercase, trim
+/// separator runs, cap the length. Pure; also the safety net that keeps model
+/// output inside `validate_branch`'s rules.
+fn slugify_branch(raw: &str) -> String {
+    let mut out = String::new();
+    let mut last_sep = true; // suppress leading separators
+    for c in raw.trim().chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            last_sep = false;
+        } else if c == '/' && !last_sep {
+            out.push('/');
+            last_sep = true;
+        } else if !last_sep {
+            out.push('-');
+            last_sep = true;
+        }
+        if out.len() >= 48 {
+            break;
+        }
+    }
+    out.trim_matches(['-', '/']).to_string()
+}
+
 /// Split a generated PR blob into (title, body): first non-empty line is the
 /// title (leading "# "/"Title:" stripped), the remainder is the body. Pure.
 fn split_pr_text(raw: &str) -> PrText {
@@ -155,6 +180,39 @@ pub async fn generate_commit_message(worktree_path: String) -> Result<String, St
             cap_context(&diff)
         );
         Ok(clean_commit_message(&run_claude(&worktree_path, &prompt)?))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Generate a branch name from the working diff (staged + unstaged + the
+/// untracked file list). Used by the "move changes to a new branch" flow so
+/// the user doesn't have to invent a name. Errors when there's nothing to name.
+#[tauri::command]
+pub async fn generate_branch_name(worktree_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let diff = git(&worktree_path, &["diff", "HEAD", "--stat"]).unwrap_or_default();
+        let untracked = git(
+            &worktree_path,
+            &["ls-files", "--others", "--exclude-standard"],
+        )
+        .unwrap_or_default();
+        if diff.trim().is_empty() && untracked.trim().is_empty() {
+            return Err("no changes to name a branch after".into());
+        }
+        let prompt = format!(
+            "Suggest a short git branch name for these changes. Use the \
+             `feat/`, `fix/`, `refactor/`, or `chore/` prefix style, \
+             lowercase-kebab-case, at most ~40 characters total. Output ONLY \
+             the branch name — nothing else.\n\nChanged files:\n{}\n\nNew files:\n{}",
+            cap_context(&diff),
+            cap_context(&untracked)
+        );
+        let name = slugify_branch(&clean_commit_message(&run_claude(&worktree_path, &prompt)?));
+        if name.is_empty() {
+            return Err("could not derive a branch name".into());
+        }
+        Ok(name)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -209,7 +267,27 @@ pub async fn generate_pr_text(
 
 #[cfg(test)]
 mod tests {
-    use super::{cap_context, clean_commit_message, split_pr_text};
+    use super::{cap_context, clean_commit_message, slugify_branch, split_pr_text};
+
+    #[test]
+    fn slugify_normalizes_model_output() {
+        assert_eq!(slugify_branch("feat/add-user-auth"), "feat/add-user-auth");
+        assert_eq!(slugify_branch("Feat: Add User Auth!"), "feat-add-user-auth");
+        assert_eq!(
+            slugify_branch("  `fix/race--condition`  "),
+            "fix/race-condition"
+        );
+        // Leading separators / option-injection shapes can't survive.
+        assert_eq!(slugify_branch("--force"), "force");
+        assert_eq!(slugify_branch("/etc/passwd"), "etc/passwd");
+        assert_eq!(slugify_branch(""), "");
+    }
+
+    #[test]
+    fn slugify_caps_length() {
+        let long = "x".repeat(100);
+        assert!(slugify_branch(&long).len() <= 48);
+    }
 
     #[test]
     fn clean_strips_fence_and_lang() {
