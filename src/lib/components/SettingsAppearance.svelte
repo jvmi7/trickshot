@@ -4,6 +4,7 @@
   import { Textarea } from "$lib/components/ui/textarea";
   import * as api from "../api";
   import {
+    CHAT_SURFACE,
     font,
     setFont,
     FONTS,
@@ -105,6 +106,17 @@
       </Select.Content>
     </Select.Root>
   </div>
+
+  {#if CHAT_SURFACE === "cli"}
+    <!-- Truth-in-labeling: the knobs below configure SIDECAR sessions, which
+         CLI-first chat never starts — the CLI reads your own Claude Code
+         settings instead. Kept visible (they still apply to the preserved GUI
+         surface) but say so, rather than looking functional. -->
+    <p class="text-muted-foreground text-xs">
+      The settings below apply only to GUI (sidecar) sessions — CLI chat uses your own Claude Code
+      configuration (<code>~/.claude</code>, <code>CLAUDE.md</code>, <code>.mcp.json</code>).
+    </p>
+  {/if}
 
   <div class="flex flex-col gap-1.5">
     <span class="text-sm text-muted-foreground">Custom system prompt</span>

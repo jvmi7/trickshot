@@ -235,7 +235,8 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
         inst.term.write("\r\n\x1b[2m[claude exited — type here to restart it]\x1b[0m\r\n");
         handleCliExit(keyWorktree(key));
       } else {
-        inst.term.write("\r\n\x1b[2m[session ended — reopen the tab to restart]\x1b[0m\r\n");
+        // Typing revives it (the onData reconnect path) — say so.
+        inst.term.write("\r\n\x1b[2m[session ended — type here to restart it]\x1b[0m\r\n");
       }
       break;
     default: {
