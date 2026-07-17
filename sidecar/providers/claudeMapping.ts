@@ -73,7 +73,13 @@ export function toNeutral(msg: SDKMessage): AgentMessage[] {
           out.push({
             type: "tool_result",
             id: String(b.tool_use_id ?? ""),
-            content: typeof b.content === "string" ? b.content : JSON.stringify(b.content, null, 2),
+            // JSON.stringify returns `undefined` (not a string) for an absent block,
+            // yet its TS type claims `string`, so `?? ""` keeps content the declared
+            // string — matching the String(x ?? "") absence-guard on the ids above.
+            content:
+              typeof b.content === "string"
+                ? b.content
+                : (JSON.stringify(b.content, null, 2) ?? ""),
             isError: b.is_error === true,
             ...sub,
           });
