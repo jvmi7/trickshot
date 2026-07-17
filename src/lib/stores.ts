@@ -173,6 +173,15 @@ export function toggleMainView(v: Exclude<MainView, "chat">) {
   mainView.update((cur) => (cur === v ? "chat" : v));
 }
 
+/** Whether the ⌘/ keyboard-shortcuts overlay is open. Ephemeral, global. */
+export const shortcutsHelpOpen = writable<boolean>(false);
+export function toggleShortcutsHelp() {
+  shortcutsHelpOpen.update((v) => !v);
+}
+export function setShortcutsHelpOpen(v: boolean) {
+  shortcutsHelpOpen.set(v);
+}
+
 /** Bumped to ask an open GitPanel to re-fetch status/diff (e.g. after a turn that
  *  likely touched files). A monotonic counter the panel watches. */
 export const gitRefreshNonce = writable<number>(0);

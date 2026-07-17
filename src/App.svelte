@@ -36,6 +36,7 @@
     activeRepo,
     activateWorktree,
     toggleCommandPalette,
+    toggleShortcutsHelp,
     requestNewWorktree,
   } from "./lib/stores";
   import { handleAgentEvent, handleSessionStatus } from "./lib/agentEvents";
@@ -56,6 +57,7 @@
   import Settings from "./lib/components/Settings.svelte";
   import Welcome from "./lib/components/Welcome.svelte";
   import NotificationBell from "./lib/components/NotificationBell.svelte";
+  import ShortcutsHelp from "./lib/components/ShortcutsHelp.svelte";
   import UsageIndicator from "./lib/components/UsageIndicator.svelte";
   import { Button } from "./lib/components/ui/button";
   import { Toaster } from "./lib/components/ui/sonner";
@@ -99,7 +101,10 @@
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
     const k = e.key.toLowerCase();
-    if (!e.shiftKey && k === ",") {
+    if (!e.shiftKey && k === "/") {
+      e.preventDefault();
+      toggleShortcutsHelp();
+    } else if (!e.shiftKey && k === ",") {
       e.preventDefault();
       setCenterView("settings");
     } else if (!e.shiftKey && k === "k") {
@@ -281,6 +286,7 @@
 
 <Tooltip.Provider delayDuration={100}>
 <Toaster position="bottom-right" />
+<ShortcutsHelp />
 <CommandPalette />
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
   <!-- Sidebar toggle floats over the top-left (just past the traffic lights) so

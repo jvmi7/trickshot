@@ -19,6 +19,7 @@
     selectWorktree,
     setCenterView,
     toggleSidebar,
+    toggleShortcutsHelp,
     worktreesByRepo,
   } from "../stores";
   import { THEMES } from "../themes";
@@ -36,6 +37,7 @@
   import Palette from "@lucide/svelte/icons/palette";
   import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+  import Keyboard from "@lucide/svelte/icons/keyboard";
 
   // Flat list of every worktree across repos, labeled repo/branch for search.
   const allWorktrees = $derived(
@@ -137,6 +139,11 @@
       <Command.Item value="toggle sidebar" onSelect={() => pick(toggleSidebar)}>
         <PanelLeft class="size-3.5" />
         Toggle sidebar
+      </Command.Item>
+      <Command.Item value="keyboard shortcuts help keys" onSelect={() => pick(toggleShortcutsHelp)}>
+        <Keyboard class="size-3.5" />
+        Keyboard shortcuts
+        <Command.Shortcut>⌘/</Command.Shortcut>
       </Command.Item>
       {#each THEMES as t (t.id)}
         <Command.Item value="theme {t.label}" onSelect={() => pick(() => setTheme(t.id))}>

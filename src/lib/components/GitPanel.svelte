@@ -517,21 +517,22 @@
       />
 
       <div class="panel-section git-actions">
-        {#if canBranchOff}
-          <div class="git-action-slot">
+        <!-- ONE wrapping toolbar row for the branch-state actions (move-off /
+             sync / merge) — stacked full-width rows read as a form, not a
+             toolbar. The commit split button keeps its own row below. -->
+        <div class="git-commit-row">
+          {#if canBranchOff}
             <Button
               size="sm"
               variant="outline"
-              class="h-7 w-full text-xs"
+              class="h-7 text-xs"
               title="Create a new branch, move your changes onto it, and check it out"
               disabled={busy}
               onclick={openBranchOffDialog}
             >
               <GitBranchPlus class="size-3.5" /> Move changes to a new branch
             </Button>
-          </div>
-        {/if}
-        <div class="git-commit-row">
+          {/if}
           {#if syncAction.kind === "publish"}
             <Button size="sm" variant="outline" class="h-7 text-xs" title="Push -u origin (first publish)" disabled={busy} onclick={doSync}>
               <Upload class="size-3.5" /> Publish branch
@@ -952,6 +953,7 @@
   }
   .git-commit-row {
     display: flex;
+    flex-wrap: wrap; /* narrow panels wrap the toolbar instead of clipping */
     gap: 6px;
   }
   /* The commit actions sit directly under the PR block — drop the shared
@@ -1003,11 +1005,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: var(--text-xs);
-  }
-  /* Same 240px cap for the standalone "move to a branch" action, so it lines up
-     with the commit split button above it. */
-  .git-action-slot {
-    max-width: 240px;
   }
   .git-reject-actions {
     display: flex;
