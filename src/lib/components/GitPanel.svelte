@@ -9,6 +9,7 @@
     activeRepo,
     submitTurnToChat,
     setMainView,
+    setWorktrees,
     commitMode,
     setCommitMode,
   } from "../stores";
@@ -285,6 +286,17 @@
         notice = `Moved your changes to "${name}" and checked it out.`;
       }
       prRefreshNonce++;
+      // The checked-out branch changed under this worktree — re-read the
+      // worktree list so the sidebar row / header breadcrumb (which render
+      // from it, not from `worktree_status`) don't keep showing the old one.
+      const repo = owningRepo;
+      if (repo) {
+        try {
+          setWorktrees(repo.path, await api.listWorktrees(repo.path));
+        } catch {
+          // list refresh is cosmetic here; the next launch/open reconciles
+        }
+      }
     });
   }
 

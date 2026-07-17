@@ -334,11 +334,11 @@
           {#if $centerView === "settings"}
             <span class="path">Settings</span>
           {:else if $selectedWorktree}
+            <!-- The separator lives inside ONE expression — text at element
+                 boundaries gets whitespace-collapsed ("kosha/ main"). -->
             <span class="path" title={$selectedWorktree}>
               {$activeRepo ? basename($activeRepo.path) : basename($selectedWorktree)}{#if activeBranch}<span
-                  class="dim"
-                >
-                  / {activeBranch}</span
+                  class="dim">{` / ${activeBranch}`}</span
                 >{/if}
             </span>
           {:else if $repos.length === 0}
