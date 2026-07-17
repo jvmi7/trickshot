@@ -357,19 +357,35 @@ export function attachTerminal(
     }
   })();
 
-  opts
-    .onOpen()
-    .then(() => {
-      // Sync the PTY to the xterm's CURRENT grid unconditionally: the PTY may
-      // have just spawned with dims read BEFORE the first fit landed (the
-      // 80×24 xterm default), and fitNow only pushes on a CHANGE — so without
-      // this, a fit that settled while the open was in flight never reaches
-      // the PTY and a TUI keeps painting a small grid inside a big pane.
-      api.termResize(key, inst.term.rows, inst.term.cols).catch(() => {});
-      scheduleFit();
-      inst.term.focus();
-    })
-    .catch((e) => opts.onError?.(e));
+  // Open the PTY only after the renderer has measured REAL font metrics and
+  // the grid is fitted (bounded wait, ~600ms worst case). A PTY spawned at
+  // xterm's 80×24 default makes the TUI paint its FIRST frame at the wrong
+  // grid; the follow-up refit then reflows that frame into scattered fragments
+  // — the "blank chat on launch" bug. Waiting is cheap: when the pane is
+  // already measured (every re-attach after the first), the first probe
+  // succeeds and this adds one microtask.
+  (async () => {
+    for (let i = 0; i < 12 && !disposed; i++) {
+      fitNow();
+      const dims = inst.fit.proposeDimensions();
+      if (dims && Number.isFinite(dims.cols) && dims.cols >= 4 && dims.rows >= 2) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (disposed) return;
+    opts
+      .onOpen()
+      .then(() => {
+        // Sync the PTY to the xterm's CURRENT grid unconditionally: the PTY may
+        // have spawned with dims read before a LATER fit landed, and fitNow
+        // only pushes on a CHANGE — so without this, a fit that settled while
+        // the open was in flight never reaches the PTY and a TUI keeps
+        // painting a small grid inside a big pane.
+        api.termResize(key, inst.term.rows, inst.term.cols).catch(() => {});
+        scheduleFit();
+        inst.term.focus();
+      })
+      .catch((e) => opts.onError?.(e));
+  })();
 
   const ro = new ResizeObserver(scheduleFit);
   ro.observe(el);
