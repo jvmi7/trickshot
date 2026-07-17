@@ -48,6 +48,7 @@
   import RunScripts from "./lib/components/RunScripts.svelte";
   import RunOutput from "./lib/components/RunOutput.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
+  import Fleet from "./lib/components/Fleet.svelte";
   import Chat from "./lib/components/Chat.svelte";
   import ThreadPanel from "./lib/components/ThreadPanel.svelte";
   import GitPanel from "./lib/components/GitPanel.svelte";
@@ -375,6 +376,11 @@
         <RunOutput />
       {:else if $mainView === "term"}
         <TerminalPane />
+      {:else if !$selectedWorktree}
+        <!-- No selection + repos exist: the fleet overview (mission control),
+             not a dead-end hint. The palette's "Fleet overview" deselects to
+             land here. -->
+        <Fleet />
       {:else if $selectedWorktree && (CHAT_SURFACE === "cli" || $activeChatMode === "cli")}
         <!-- The chat: the REAL Claude Code TUI (CLI-first — see CHAT_SURFACE in
              stores.ts; also the legacy per-worktree toggle state). The GUI Chat

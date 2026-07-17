@@ -33,7 +33,7 @@
   import * as api from "../api";
   import { toastMessage } from "../toast";
   import { disposeTerminal } from "../terminal";
-  import { basename } from "../utils";
+  import { basename, relativeTime } from "../utils";
   import type { Worktree } from "../types";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -457,6 +457,10 @@
         <div class="wt-row group/row archived-row">
           <Archive class="wt-home" />
           <span class="wt-name" title="{a.repoName} · {a.branch}">{a.repoName} / {a.branch}</span>
+          <span
+            class="arch-time"
+            title={new Date(a.archivedAt).toLocaleString()}
+          >{relativeTime(a.archivedAt)}</span>
           <Tooltip.Root>
             <Tooltip.Trigger>
               {#snippet child({ props })}

@@ -16,6 +16,7 @@
     repos,
     requestNewWorktree,
     selectedWorktree,
+    selectWorktree,
     setCenterView,
     toggleSidebar,
     worktreesByRepo,
@@ -34,6 +35,7 @@
   import PanelLeft from "@lucide/svelte/icons/panel-left";
   import Palette from "@lucide/svelte/icons/palette";
   import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
+  import LayoutGrid from "@lucide/svelte/icons/layout-grid";
 
   // Flat list of every worktree across repos, labeled repo/branch for search.
   const allWorktrees = $derived(
@@ -89,6 +91,15 @@
         New worktree
         <Command.Shortcut>⌘⇧N</Command.Shortcut>
       </Command.Item>
+      {#if allWorktrees.length > 0}
+        <Command.Item
+          value="fleet overview all workspaces dashboard"
+          onSelect={() => pick(() => { setCenterView("chat"); selectWorktree(null); })}
+        >
+          <LayoutGrid class="size-3.5" />
+          Fleet overview
+        </Command.Item>
+      {/if}
       {#if $selectedWorktree}
         <Command.Item value="chat view" onSelect={() => pick(() => { setCenterView("chat"); setMainView("chat"); })}>
           <MessageSquare class="size-3.5" />
