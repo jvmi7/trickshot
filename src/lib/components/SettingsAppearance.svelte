@@ -10,12 +10,23 @@
     theme,
     setTheme,
     THEMES,
+    TERMINAL_FONT_SIZES,
+    terminalFontSize,
+    setTerminalFontSize,
     systemPromptAppend,
     selectedWorktree,
     mcpServersJson,
     mcpStatus,
     agentsJson,
   } from "../stores";
+  import { applyTerminalFontSize } from "../terminal";
+
+  // Persist + live-apply (cached xterms refit; terminal.ts can't subscribe).
+  function pickTerminalFontSize(v: string) {
+    const px = Number(v);
+    setTerminalFontSize(px);
+    applyTerminalFontSize(px);
+  }
 
   let mcpError = $state("");
 
@@ -78,6 +89,18 @@
       <Select.Content align="end">
         {#each FONTS as f (f.id)}
           <Select.Item value={f.id} label={f.label}>{f.label}</Select.Item>
+        {/each}
+      </Select.Content>
+    </Select.Root>
+  </div>
+
+  <div class="flex items-center justify-between gap-4">
+    <span class="text-sm text-muted-foreground">Terminal font size</span>
+    <Select.Root type="single" value={String($terminalFontSize)} onValueChange={(v) => v && pickTerminalFontSize(v)}>
+      <Select.Trigger class="w-44" aria-label="Terminal font size">{$terminalFontSize}px</Select.Trigger>
+      <Select.Content align="end">
+        {#each TERMINAL_FONT_SIZES as s (s)}
+          <Select.Item value={String(s)} label="{s}px">{s}px</Select.Item>
         {/each}
       </Select.Content>
     </Select.Root>

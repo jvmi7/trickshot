@@ -25,6 +25,7 @@ import {
   refreshUsage,
   selectedWorktree,
   setStatus,
+  terminalFontSize,
 } from "./stores";
 import type { TermEnvelope } from "./types";
 import { basename } from "./utils";
@@ -62,20 +63,55 @@ interface TermInstance {
 // anyway. (Cast confined to this line: globalThis has no typed slot for it.)
 const instances = ((globalThis as any).__trickshotTerms ??= new Map()) as Map<string, TermInstance>;
 
+/** xterm ITheme slot names for ANSI 0–15, in slot order (matches the app's
+ *  `--app-ansi-N` tokens — conformance §8's palette, so the TUI renders in the
+ *  SAME curated colors as AnsiText instead of xterm's stock VGA set). */
+const ANSI_SLOTS = [
+  "black",
+  "red",
+  "green",
+  "yellow",
+  "blue",
+  "magenta",
+  "cyan",
+  "white",
+  "brightBlack",
+  "brightRed",
+  "brightGreen",
+  "brightYellow",
+  "brightBlue",
+  "brightMagenta",
+  "brightCyan",
+  "brightWhite",
+] as const;
+
 /** The current `--base-*` palette values, so new terminals match the theme.
  *  Exported so the pane can RE-SYNC an existing instance on attach — the value
  *  is a snapshot, and a stale one paints xterm's background a different shade
- *  than the pane behind it (a visible seam under the last row). */
+ *  than the pane behind it (a visible seam under the last row). ANSI slots are
+ *  resolved through a probe element: the `--app-ansi-*` values are `var()`/
+ *  `color-mix()` EXPRESSIONS, which xterm's color parser rejects — reading a
+ *  probe's computed `color` yields a plain rgb() it accepts. */
 export function themeColors() {
   if (typeof getComputedStyle === "undefined") return {};
   const css = getComputedStyle(document.documentElement);
   const v = (name: string) => css.getPropertyValue(name).trim() || undefined;
-  return {
+  const theme: Record<string, string | undefined> = {
     background: v("--base-bg"),
     foreground: v("--base-text"),
     cursor: v("--base-accent"),
     selectionBackground: v("--base-selection"),
   };
+  const probe = document.createElement("span");
+  probe.style.display = "none";
+  document.body.appendChild(probe);
+  ANSI_SLOTS.forEach((slot, i) => {
+    probe.style.color = `var(--app-ansi-${i})`;
+    const resolved = getComputedStyle(probe).color;
+    if (resolved) theme[slot] = resolved;
+  });
+  probe.remove();
+  return theme;
 }
 
 /** Get (or lazily create) the persistent xterm instance for a PTY key (a
@@ -85,7 +121,7 @@ export function getTerminal(key: string): TermInstance {
   if (!inst) {
     const slot: TermInstance["slot"] = key.endsWith(CLAUDE_SLOT) ? "claude" : "shell";
     const term = new Terminal({
-      fontSize: 12,
+      fontSize: get(terminalFontSize),
       fontFamily: "ui-monospace, Menlo, monospace",
       cursorBlink: true,
       scrollback: 5000,
@@ -210,6 +246,28 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
   }
 }
 
+/** Apply a font-size change to every cached terminal, refit the attached ones,
+ *  and push the resulting grids to their PTYs. Called from Settings on change
+ *  (this module must NOT subscribe to the store at eval — CIRCULAR-IMPORT
+ *  CONTRACT); new terminals pick the size up in getTerminal. */
+export function applyTerminalFontSize(px: number) {
+  for (const [key, inst] of instances) {
+    if (inst.term.options.fontSize === px) continue;
+    const before = { rows: inst.term.rows, cols: inst.term.cols };
+    inst.term.options.fontSize = px;
+    if (!inst.term.element?.isConnected) continue; // detached: refits on attach
+    try {
+      inst.fit.fit();
+    } catch {
+      // renderer not measured yet — the attach settle loop will fit it
+    }
+    const { rows, cols } = inst.term;
+    if (rows !== before.rows || cols !== before.cols) {
+      api.termResize(key, rows, cols).catch(() => {});
+    }
+  }
+}
+
 /** Kill the PTYs and drop the cached xterms (worktree removal/archive) — BOTH
  *  slots, so an archived worktree's CLI terminal can't linger. */
 export function disposeTerminal(worktree: string) {
@@ -247,8 +305,10 @@ export function attachTerminal(
   if (inst.term.element) el.appendChild(inst.term.element);
   else inst.term.open(el);
   // Re-sync the theme snapshot to the LIVE CSS vars so xterm's background is
-  // pixel-identical to the pane behind it (also picks up theme switches).
+  // pixel-identical to the pane behind it (also picks up theme switches), and
+  // the font size to the setting (a cached instance may predate a change).
   inst.term.options.theme = themeColors();
+  inst.term.options.fontSize = get(terminalFontSize);
   inst.term.focus();
 
   // Fit AFTER layout settles, coalesced to one rAF per burst. Fitting

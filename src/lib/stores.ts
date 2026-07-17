@@ -850,6 +850,22 @@ export function setFont(id: string) {
   font.set(id);
 }
 
+/** Terminal (CLI chat + shell) font size in px, persisted and clamped. The
+ *  primary surface is a terminal, so its size deserves a knob; applied live by
+ *  `terminal.ts › applyTerminalFontSize` (called from Settings — terminal.ts
+ *  must not subscribe at module eval, see its CIRCULAR-IMPORT CONTRACT). */
+export const TERMINAL_FONT_SIZES = [11, 12, 13, 14, 15, 16] as const;
+export const terminalFontSize = createPersisted<number>("trickshot.terminalFontSize", 12, {
+  parse: (raw) => {
+    const v = Number(raw);
+    return TERMINAL_FONT_SIZES.some((s) => s === v) ? v : 12;
+  },
+  serialize: String,
+});
+export function setTerminalFontSize(px: number) {
+  if (TERMINAL_FONT_SIZES.some((s) => s === px)) terminalFontSize.set(px);
+}
+
 // ---- Minimal mode (global, persisted) ----
 // A reversible VIEW FILTER: while on, every user turn is sent with an appended
 // directive (see minimal.ts) asking the agent to end its reply with a one-sentence
