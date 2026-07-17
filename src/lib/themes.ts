@@ -158,6 +158,37 @@ export const THEMES: Theme[] = [
         "0 0 3px color-mix(in srgb, currentColor 35%, transparent), 0 0 10px color-mix(in srgb, currentColor 26%, transparent)",
     },
   },
+  {
+    id: "paper",
+    label: "Paper",
+    // The light-valued theme (DESIGN_SYSTEM.md recipe): warm paper surfaces,
+    // near-black warm text, the brand terracotta darkened for contrast on
+    // light ground. `class="dark"` stays — it's the token-activation selector,
+    // not a mode. State hues are darkened siblings of the dark themes' set so
+    // they hold ~4.5:1 on the light canvas.
+    palette: {
+      bg: "#f7f5f2",
+      surface: "#efece7",
+      surfaceRaised: "#e5e1d9",
+      border: "#cdc7bc",
+      text: "#292521",
+      textMuted: "#6e675e",
+      accent: "#b25534",
+      // Dark-on-light flips: light text over the (darker) accent fill.
+      onAccent: "#faf7f3",
+      danger: "#b3392f",
+      success: "#22764a",
+      info: "#2f6cad",
+      warning: "#8a5f0a",
+      special: "#7a4bb0",
+      // Lighter scrim — a 0.5 black wash over a light UI reads as a blackout.
+      overlay: "rgb(0 0 0 / 0.25)",
+      // Reads at the 20% render over white as a warm gray-tan.
+      selection: "#b7ac99",
+      // No glyph glow on paper — halos read as blur on a light ground.
+      termGlow: "none",
+    },
+  },
 ];
 
 /** The default theme id (first in the list) — the picker/store fall back to it. */
