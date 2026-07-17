@@ -2,6 +2,7 @@ import { derived, get, type Readable, type Writable, writable } from "svelte/sto
 import * as api from "./api";
 import { createPersisted, createPersistedString, isPlainObject, parseJsonObject } from "./persist";
 import { DEFAULT_PROVIDER_ID } from "./providers";
+import type { ReviewComment } from "./review";
 // Sibling store modules (threads.ts / session.ts) and stores.ts import each other
 // — safe under ESM live bindings because every cross-module access happens at
 // CALL time (see the CIRCULAR-IMPORT CONTRACT note in each sibling); these two
@@ -460,6 +461,37 @@ export function clearUnread(worktree: string) {
   // Set to 0 (not remove) and skip the write when already cleared — returning the
   // same map identity skips the allocation + primitive-derived re-renders (see stores.test.ts).
   _unread.store.update((m) => (m[worktree] ? { ...m, [worktree]: 0 } : m));
+}
+
+// ---- Review queue (batched diff-line comments) ----
+// Comments queued from the git panel's diff gutter, sent as ONE structured
+// turn (`review.ts › formatReviewPrompt`). Persisted so an app restart doesn't
+// eat a half-written review.
+const _reviewQueue = createWorktreeMap<ReviewComment[]>({ persistKey: "trickshot.reviewQueue" });
+export const reviewQueueByWorktree = _reviewQueue.store;
+// Ids are identity keys and the queue persists — seed past the stored max so a
+// restart can't mint colliding ids (remove-by-id would hit the wrong row).
+let nextReviewId =
+  1 +
+  Object.values(get(reviewQueueByWorktree)).reduce(
+    (max, list) => (list ?? []).reduce((m, c) => Math.max(m, c?.id ?? 0), max),
+    0,
+  );
+/** The selected worktree's queued review comments (empty when none). */
+export const activeReviewQueue = _reviewQueue.active<ReviewComment[]>([]);
+/** Queue a review comment (no-op on blank text). Returns whether it queued. */
+export function addReviewComment(worktree: string, c: Omit<ReviewComment, "id">): boolean {
+  if (!c.text.trim()) return false;
+  _reviewQueue.update(worktree, (cur) => [...(cur ?? []), { ...c, id: nextReviewId++ }]);
+  return true;
+}
+/** Drop one queued comment by its stable id. */
+export function removeReviewComment(worktree: string, id: number) {
+  _reviewQueue.update(worktree, (cur) => (cur ?? []).filter((c) => c.id !== id));
+}
+/** Clear a worktree's whole review queue (same identity guard as clearQueued). */
+export function clearReviewQueue(worktree: string) {
+  _reviewQueue.store.update((m) => (m[worktree]?.length ? { ...m, [worktree]: [] } : m));
 }
 
 // ---- In-app notification history (the header bell) ----

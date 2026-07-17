@@ -15,12 +15,16 @@
     diff,
     path,
     onLineComment,
+    commentedLines,
   }: {
     diff: string;
     path?: string | null;
     /** When set, code rows grow a hover affordance; clicking it hands back the
      *  line text + its enclosing @@ hunk header for a review comment. */
     onLineComment?: (ctx: { line: string; hunk: string | null }) => void;
+    /** Lines (exact text, marker included) with a queued review comment — their
+     *  gutter glyph stays visible/accented so the review-in-progress shows. */
+    commentedLines?: ReadonlySet<string>;
   } = $props();
 
   const MAX_LINES = 2000;
@@ -154,7 +158,7 @@
       {#if k === "binary"}
         <div class="ln meta">Binary file — contents not shown</div>
       {:else if onLineComment && code}
-        <div class="ln {k} commentable">
+        <div class="ln {k} commentable" class:noted={commentedLines?.has(line)}>
           <button
             class="ln-comment"
             title="Comment on this line (sends to the agent)"
@@ -228,6 +232,11 @@
   }
   .ln.commentable:hover .ln-comment {
     opacity: 1;
+  }
+  /* A queued comment keeps its glyph visible + accented (review-in-progress). */
+  .ln.noted .ln-comment {
+    opacity: 1;
+    color: var(--app-accent);
   }
   .ln-comment:hover {
     color: var(--app-accent);

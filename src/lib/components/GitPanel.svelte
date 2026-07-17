@@ -12,7 +12,12 @@
     setWorktrees,
     commitMode,
     setCommitMode,
+    activeReviewQueue,
+    addReviewComment,
+    removeReviewComment,
+    clearReviewQueue,
   } from "../stores";
+  import { formatReviewPrompt, type ReviewComment } from "../review";
   import * as api from "../api";
   import type { GitFileStatus, GitStatus } from "../types";
   import { Button } from "$lib/components/ui/button";
@@ -33,6 +38,7 @@
   import GitBranchPlus from "@lucide/svelte/icons/git-branch-plus";
   import Check from "@lucide/svelte/icons/check";
   import WandSparkles from "@lucide/svelte/icons/wand-sparkles";
+  import Send from "@lucide/svelte/icons/send";
   import { Input } from "$lib/components/ui/input";
 
   let status = $state<GitStatus | null>(null);
@@ -120,9 +126,11 @@
   let prRefreshNonce = $state(0);
 
   // ---- Diff-line review comments (Conductor's inline review loop) ----
-  // Clicking a line's gutter glyph opens a comment box; submitting hands the
-  // comment (with file/hunk/line context) to the agent as a normal turn, so it
-  // iterates like a PR review.
+  // Clicking a line's gutter glyph opens a comment box. Two paths, one prompt
+  // format (review.ts › formatReviewPrompt): "Send now" ships the single
+  // comment immediately; "Add to review" queues it (persisted, per worktree)
+  // so several comments go to the agent as ONE structured turn — the batch
+  // review paper trail a real review needs.
   let lineComment = $state<{ line: string; hunk: string | null } | null>(null);
   let lineCommentText = $state("");
 
@@ -131,22 +139,50 @@
     lineCommentText = "";
   }
 
-  function sendLineComment() {
-    const w = wt;
+  /** The pending dialog comment as a ReviewComment shape (id assigned on queue). */
+  function draftComment(): Omit<ReviewComment, "id"> | null {
     const target = lineComment;
     const text = lineCommentText.trim();
-    if (!w || !target || !text || !selectedFile) return;
-    const hunk = target.hunk ? `\nHunk: \`${target.hunk}\`` : "";
+    if (!target || !text || !selectedFile) return null;
+    return { file: selectedFile, line: target.line, hunk: target.hunk, text };
+  }
+
+  function queueLineComment() {
+    const w = wt;
+    const draft = draftComment();
+    if (!w || !draft) return;
+    addReviewComment(w, draft);
+    lineComment = null;
+    lineCommentText = "";
+  }
+
+  function sendLineComment() {
+    const w = wt;
+    const draft = draftComment();
+    if (!w || !draft) return;
     // Routes to the ACTIVE chat surface (CLI keystroke injection under
     // CLI-first, the GUI transcript otherwise); fire-and-forget like the send.
-    void submitTurnToChat(
-      w,
-      `Review comment on \`${selectedFile}\`:${hunk}\nLine: \`${target.line}\`\n\n${text}\n\nPlease address this review comment in the code.`,
-    );
+    void submitTurnToChat(w, formatReviewPrompt([{ ...draft, id: 0 }]));
     lineComment = null;
     lineCommentText = "";
     setMainView("chat");
   }
+
+  // Send the whole queued review as one turn, then clear it.
+  function sendReview() {
+    const w = wt;
+    const queue = $activeReviewQueue;
+    if (!w || queue.length === 0) return;
+    void submitTurnToChat(w, formatReviewPrompt(queue));
+    clearReviewQueue(w);
+    setMainView("chat");
+  }
+
+  // Lines of the SELECTED file that carry a queued comment — DiffView marks
+  // their gutter glyphs so the review-in-progress is visible in the diff.
+  const commentedLines = $derived(
+    new Set($activeReviewQueue.filter((c) => c.file === selectedFile).map((c) => c.line)),
+  );
 
   function select(f: GitFileStatus) {
     selectedFile = f.path;
@@ -622,6 +658,42 @@
           </div>
         {/if}
       </div>
+
+      {#if $activeReviewQueue.length > 0}
+        <!-- The queued review: batched line comments awaiting one send. -->
+        <div class="panel-section">
+          <span class="section-label">Review comments ({$activeReviewQueue.length})</span>
+          {#each $activeReviewQueue as c (c.id)}
+            <div class="git-review-row">
+              <span class="git-review-file" title="{c.file} — {c.line}">{c.file}</span>
+              <span class="git-review-text" title={c.text}>{c.text}</span>
+              <Button
+                size="icon"
+                variant="ghost"
+                class="size-6 shrink-0"
+                title="Remove comment"
+                aria-label="Remove comment"
+                onclick={() => wt && removeReviewComment(wt, c.id)}
+              >
+                <Minus class="size-3.5" />
+              </Button>
+            </div>
+          {/each}
+          <div class="git-commit-row">
+            <Button size="sm" class="h-7 text-xs" disabled={busy} onclick={sendReview}>
+              <Send class="size-3.5" /> Send review ({$activeReviewQueue.length})
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              class="h-7 text-xs"
+              onclick={() => wt && clearReviewQueue(wt)}
+            >
+              Clear
+            </Button>
+          </div>
+        </div>
+      {/if}
     </div>
 
     <!-- Bottom: working tree — changed files (left) and the selected file's diff (right). -->
@@ -676,7 +748,7 @@
           <span class="diff-updated-pill">diff updated</span>
         {/if}
         {#if selectedFile}
-          <DiffView {diff} path={selectedFile} onLineComment={openLineComment} />
+          <DiffView {diff} path={selectedFile} onLineComment={openLineComment} {commentedLines} />
         {:else}
           <div class="git-empty empty-state">Select a file to view its diff.</div>
         {/if}
@@ -753,7 +825,15 @@
     </div>
     <Dialog.Footer>
       <Button variant="secondary" onclick={() => (lineComment = null)}>Cancel</Button>
-      <Button disabled={!lineCommentText.trim()} onclick={sendLineComment}>Send to agent</Button>
+      <Button
+        variant="outline"
+        title="Queue this comment; send the whole review as one message later"
+        disabled={!lineCommentText.trim()}
+        onclick={queueLineComment}
+      >
+        Add to review
+      </Button>
+      <Button disabled={!lineCommentText.trim()} onclick={sendLineComment}>Send now</Button>
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>
@@ -898,6 +978,31 @@
   .move-name-row {
     display: flex;
     gap: 6px;
+  }
+  /* Queued-review rows: file anchor + comment text + remove. */
+  .git-review-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .git-review-file {
+    flex-shrink: 0;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--app-font-mono);
+    font-size: var(--text-2xs);
+    color: var(--app-dim);
+  }
+  .git-review-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-xs);
   }
   /* Same 240px cap for the standalone "move to a branch" action, so it lines up
      with the commit split button above it. */
