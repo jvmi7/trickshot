@@ -30,6 +30,7 @@
   import GitMerge from "@lucide/svelte/icons/git-merge";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import GitBranchPlus from "@lucide/svelte/icons/git-branch-plus";
+  import Check from "@lucide/svelte/icons/check";
   import { Input } from "$lib/components/ui/input";
 
   let status = $state<GitStatus | null>(null);
@@ -465,10 +466,14 @@
             >
               <Upload class="size-3.5" /> Force
             </Button>
-          {:else}
-            <Button size="sm" variant="outline" class="h-7 text-xs" title="Branch is in sync with its upstream" disabled>
-              Up to date
-            </Button>
+          {:else if status?.branch}
+            <!-- Status, not an action — render as a quiet label, not a dead button. -->
+            <span
+              class="inline-flex h-7 items-center gap-1 text-xs text-muted-foreground"
+              title="Branch is in sync with its upstream"
+            >
+              <Check class="size-3.5" /> Up to date
+            </span>
           {/if}
           {#if !isMain && status?.branch}
             <Button
@@ -699,6 +704,7 @@
     gap: 2px;
     border-radius: var(--radius-xs);
     padding-right: 2px;
+    transition: background var(--app-duration-fast);
   }
   .wt-file.active,
   .wt-file:hover {

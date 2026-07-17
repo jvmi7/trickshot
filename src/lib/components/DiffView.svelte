@@ -38,6 +38,32 @@
       return current;
     });
   });
+  // Old/new line numbers per shown row, derived from the @@ hunk headers in the
+  // same one-pass style as hunkFor: ctx advances both counters, add only the new
+  // side, del only the old side. null = no number on that side.
+  const lineNos = $derived.by(() => {
+    let o = 0;
+    let n = 0;
+    return shown.map((l): { o: number | null; n: number | null } => {
+      const k = kind(l);
+      if (k === "hunk") {
+        const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l);
+        o = Number.parseInt(m?.[1] ?? "0", 10);
+        n = Number.parseInt(m?.[2] ?? "0", 10);
+        return { o: null, n: null };
+      }
+      if (k === "add") return { o: null, n: n++ };
+      if (k === "del") return { o: o++, n: null };
+      if (k === "ctx") return { o: o++, n: n++ };
+      return { o: null, n: null };
+    });
+  });
+  // Gutter width scales with the file: enough ch for the largest number shown.
+  const noWidth = $derived.by(() => {
+    let max = 0;
+    for (const { o, n } of lineNos) max = Math.max(max, o ?? 0, n ?? 0);
+    return Math.max(3, String(max).length);
+  });
   // Highlighting is per-line (no cross-line context), the lightweight tradeoff:
   // a line inside a block comment may mis-color, but the DOM stays bounded and
   // there's no whole-file reconstruction. "" when the type is unknown → escaped
@@ -81,7 +107,8 @@
   <div class="diff">
     {#each shown as line, i (i)}
       {@const k = kind(line)}
-      {#if onLineComment && (k === "add" || k === "del" || k === "ctx")}
+      {@const code = k === "add" || k === "del" || k === "ctx"}
+      {#if onLineComment && code}
         <div class="ln {k} commentable">
           <button
             class="ln-comment"
@@ -90,7 +117,15 @@
             onclick={() => onLineComment({ line, hunk: hunkFor[i] ?? null })}
           >
             <MessageSquarePlus class="size-3" />
-          </button>{@html render(line, k)}</div>
+          </button><span class="ln-no" style="width: {noWidth}ch">{lineNos[i]?.o ?? ""}</span><span
+            class="ln-no"
+            style="width: {noWidth}ch">{lineNos[i]?.n ?? ""}</span
+          >{@html render(line, k)}</div>
+      {:else if code}
+        <div class="ln {k}"><span class="ln-no" style="width: {noWidth}ch">{lineNos[i]?.o ?? ""}</span><span
+            class="ln-no"
+            style="width: {noWidth}ch">{lineNos[i]?.n ?? ""}</span
+          >{@html render(line, k)}</div>
       {:else}
         <div class="ln {k}">{@html render(line, k)}</div>
       {/if}
@@ -113,6 +148,16 @@
     display: block;
     white-space: pre;
     padding: 0 8px;
+  }
+  /* Old/new line-number gutter. Width is set inline (digit-count-scaled);
+     user-select: none keeps copied diff text free of the numbers. */
+  .ln-no {
+    display: inline-block;
+    text-align: right;
+    margin-right: 1ch;
+    color: var(--app-dim);
+    opacity: 0.65;
+    user-select: none;
   }
   /* Commentable rows reserve a slim gutter; the glyph appears on row hover. */
   .ln.commentable {
