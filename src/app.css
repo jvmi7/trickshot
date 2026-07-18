@@ -815,6 +815,12 @@ html, body {
    WebGL/canvas addon is ever added, glyphs become canvas pixels and this rule
    silently stops applying. */
 .term-host .xterm-rows { text-shadow: var(--base-term-glow); }
+/* The Claude pane's xterm scrollbar is structurally DEAD: the TUI enables
+   mouse reporting and scrolls its transcript internally (full repaints), so
+   xterm's viewport position never changes and the thumb never moves. A frozen
+   scrollbar reads as broken — hide it on the claude slot only (the shell tab's
+   scrollback bar works and stays). */
+.term-host-claude .xterm-viewport::-webkit-scrollbar { display: none; }
 /* Text styling is the shared .error-text; this just pads it off the pane edges. */
 .term-error { padding: 6px 12px; }
 
