@@ -866,6 +866,31 @@ export const terminalFontSize = createPersisted<number>("trickshot.terminalFontS
 export function setTerminalFontSize(px: number) {
   if (TERMINAL_FONT_SIZES.some((s) => s === px)) terminalFontSize.set(px);
 }
+// The terminal size doubles as the uniform-type size (below) — expose it to
+// CSS as `--app-uniform-size` so the override block tracks the setting live.
+terminalFontSize.subscribe((px) => {
+  if (typeof document !== "undefined") {
+    document.documentElement.style.setProperty("--app-uniform-size", `${px}px`);
+  }
+});
+
+/** Uniform type: render EVERY `--text-*` step at the terminal font size — a
+ *  real TUI has exactly one glyph size, so this is the last notch of the
+ *  terminal aesthetic. Reflects to `<html data-uniform-type>`; the override
+ *  block lives in app.css. Persisted. */
+export const uniformType = createPersisted<boolean>("trickshot.uniformType", false, {
+  parse: (raw) => raw === "true",
+  serialize: String,
+});
+uniformType.subscribe((on) => {
+  if (typeof document !== "undefined") {
+    if (on) document.documentElement.dataset.uniformType = "";
+    else delete document.documentElement.dataset.uniformType;
+  }
+});
+export function setUniformType(v: boolean) {
+  uniformType.set(v);
+}
 
 // ---- Minimal mode (global, persisted) ----
 // A reversible VIEW FILTER: while on, every user turn is sent with an appended

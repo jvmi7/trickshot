@@ -329,6 +329,18 @@
 }
 [data-font="sf-mono"] { --app-font: var(--font-sf-mono); }
 [data-font="wenkai"] { --app-font: var(--font-wenkai); }
+
+/* Uniform type (Settings → "Match terminal text size"): every --text-* step
+   renders at the terminal font size — a real TUI has ONE glyph size. The size
+   arrives as --app-uniform-size (set from stores.ts › terminalFontSize, so it
+   tracks the setting live); per-step line-heights are left alone. */
+:root[data-uniform-type] {
+  --text-2xs: var(--app-uniform-size);
+  --text-xs: var(--app-uniform-size);
+  --text-sm: var(--app-uniform-size);
+  --text-md: var(--app-uniform-size);
+  --text-base: var(--app-uniform-size);
+}
 [data-font="comic"] { --app-font: var(--font-comic); }
 [data-font="ibm"] { --app-font: var(--font-ibm); }
 [data-font="helvetica"] { --app-font: var(--font-helvetica); }
@@ -459,6 +471,8 @@
   /* Radius ladder — every corner derives from --radius (see :root). 999px is the
      blessed "pill" radius and stays literal. Terminal-crisp steps
      (2/3/4/5/6/8px at --radius: 6px). */
+  /* (Uniform-type override for the --text-* scale lives below, OUTSIDE @theme —
+     a data-attribute block, like the [data-font] switches.) */
   --radius-2xs: calc(var(--radius) - 4px); /* 2px — code chips, tiny controls */
   --radius-xs: calc(var(--radius) - 3px); /* 3px — inset panels, list rows */
   --radius-sm: calc(var(--radius) - 2px); /* 4px */

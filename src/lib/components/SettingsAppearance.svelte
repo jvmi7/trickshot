@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as Select from "$lib/components/ui/select";
+  import { Switch } from "$lib/components/ui/switch";
   import { Button } from "$lib/components/ui/button";
   import { Textarea } from "$lib/components/ui/textarea";
   import * as api from "../api";
@@ -14,6 +15,8 @@
     TERMINAL_FONT_SIZES,
     terminalFontSize,
     setTerminalFontSize,
+    uniformType,
+    setUniformType,
     systemPromptAppend,
     selectedWorktree,
     mcpServersJson,
@@ -105,6 +108,21 @@
         {/each}
       </Select.Content>
     </Select.Root>
+  </div>
+
+  <div class="flex items-center justify-between gap-4">
+    <div class="flex flex-col gap-0.5">
+      <span class="text-sm text-muted-foreground">Match terminal text size</span>
+      <span class="text-xs text-muted-foreground">
+        Every UI label renders at the terminal's size ({$terminalFontSize}px) — one glyph size, like
+        a real TUI.
+      </span>
+    </div>
+    <Switch
+      checked={$uniformType}
+      onCheckedChange={setUniformType}
+      aria-label="Match terminal text size"
+    />
   </div>
 
   {#if CHAT_SURFACE === "cli"}
