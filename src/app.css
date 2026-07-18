@@ -315,6 +315,7 @@
    bespoke :root font-family derive from it, so everything follows. */
 :root {
   --font-sans-code: "Google Sans Code", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-sf-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; /* the TUI's own face: xterm renders ui-monospace, so UI + terminal match exactly */
   --font-wenkai: "LXGW WenKai Mono TC", "Google Sans Code", ui-monospace, monospace;
   --font-comic: "Comic Sans MS", "Comic Sans", ui-rounded, cursive;
   --font-ibm: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -326,6 +327,7 @@
   --font-sn-pro: "SN Pro", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --app-font: var(--font-sans-code);
 }
+[data-font="sf-mono"] { --app-font: var(--font-sf-mono); }
 [data-font="wenkai"] { --app-font: var(--font-wenkai); }
 [data-font="comic"] { --app-font: var(--font-comic); }
 [data-font="ibm"] { --app-font: var(--font-ibm); }

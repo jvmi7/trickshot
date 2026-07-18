@@ -828,6 +828,7 @@ export interface FontOption {
  *  its @font-face + a `[data-font]` block in app.css and an entry here. */
 export const FONTS: FontOption[] = [
   { id: "sans-code", label: "Sans Code" },
+  { id: "sf-mono", label: "SF Mono (terminal)" },
   { id: "wenkai", label: "WenKai Mono" },
   { id: "comic", label: "Comic Sans" },
   { id: "ibm", label: "IBM Plex Mono" },
