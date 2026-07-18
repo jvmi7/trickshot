@@ -16,7 +16,6 @@
     worktreesByRepo,
   } from "../stores";
   import { Button } from "$lib/components/ui/button";
-  import House from "@lucide/svelte/icons/house";
   import GitBranch from "@lucide/svelte/icons/git-branch";
   import Plus from "@lucide/svelte/icons/plus";
 
@@ -61,7 +60,7 @@
           {@const gs = $gitStatByWorktree[wt.path]}
           <button class="fleet-card" onclick={() => open(wt.path)} title={wt.path}>
             <div class="fleet-card-head">
-              {#if wt.is_main}<House class="size-3.5 shrink-0" />{:else}<GitBranch class="size-3.5 shrink-0" />{/if}
+              <GitBranch class="size-3.5 shrink-0" />
               <span class="fleet-branch">{wt.branch ?? "(detached)"}</span>
               {#if $pendingPermission[wt.path]}
                 <span class="fleet-pending" title="Waiting for permission">!</span>

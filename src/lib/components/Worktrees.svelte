@@ -42,7 +42,6 @@
   import * as Tooltip from "$lib/components/ui/tooltip";
   import * as ContextMenu from "$lib/components/ui/context-menu";
   import IconButton from "./IconButton.svelte";
-  import House from "@lucide/svelte/icons/house";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import Plus from "@lucide/svelte/icons/plus";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
@@ -395,9 +394,6 @@
                     class:busy={$sessionStatus[wt.path] === "busy" ||
                       $sessionStatus[wt.path] === "starting"}
                   ></span>
-                  {#if wt.is_main}
-                    <House class="wt-home" />
-                  {/if}
                   <span class="wt-name">{wt.branch ?? "(detached)"}</span>
                   {#if ($gitStatByWorktree[wt.path]?.changed ?? 0) > 0}
                     {@const gs = $gitStatByWorktree[wt.path]}

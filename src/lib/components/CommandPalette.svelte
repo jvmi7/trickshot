@@ -25,7 +25,6 @@
   import { THEMES } from "../themes";
   import * as api from "../api";
   import * as Command from "$lib/components/ui/command";
-  import House from "@lucide/svelte/icons/house";
   import GitBranch from "@lucide/svelte/icons/git-branch";
   import Plus from "@lucide/svelte/icons/plus";
   import MessageSquare from "@lucide/svelte/icons/message-square";
@@ -77,7 +76,7 @@
             value="workspace {label}"
             onSelect={() => pick(() => void activateWorktree(wt.path).catch(() => {}))}
           >
-            {#if wt.is_main}<House class="size-3.5" />{:else}<GitBranch class="size-3.5" />{/if}
+            <GitBranch class="size-3.5" />
             {label}
             {#if $selectedWorktree === wt.path}
               <span class="ml-auto text-xs text-muted-foreground">current</span>
