@@ -85,6 +85,33 @@ export const PALETTE_VARS: Record<keyof ThemePalette, string> = {
  *  fallback in app.css `:root`, so it paints before this module runs). */
 export const THEMES: Theme[] = [
   {
+    id: "term",
+    label: "Terminal",
+    // Matches the Claude Code TUI in the chat pane so the chrome and the
+    // terminal read as ONE surface: neutral near-black, flat (surfaces barely
+    // rise off the canvas), plain light-gray text, the TUI's coral cursor as
+    // the accent, and its soft pink/amber/link-blue state hues. No glyph glow
+    // — the real TUI has none.
+    palette: {
+      bg: "#0f0f0f",
+      surface: "#161616",
+      surfaceRaised: "#1f1f1f",
+      border: "#2e2e2e",
+      text: "#e7e7e7",
+      textMuted: "#8f8f8f",
+      accent: "#d97757",
+      onAccent: "#0f0f0f",
+      danger: "#f07178",
+      success: "#5fb87a",
+      info: "#82aaff",
+      warning: "#f0b03c",
+      special: "#b48ef0",
+      overlay: "rgb(0 0 0 / 0.6)",
+      selection: "#6f6f6f",
+      termGlow: "none",
+    },
+  },
+  {
     id: "terracotta",
     label: "Terracotta",
     // Neutral ramp keyed to the #121011 canvas (near-neutral dark greys with a

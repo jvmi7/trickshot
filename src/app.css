@@ -344,29 +344,30 @@
    The ACTIVE theme is injected at runtime from `src/lib/themes.ts`
    (the single source of truth) as a `:root[data-theme="…"]` block.
    This bare :root block is the STATIC FALLBACK — it mirrors the
-   default theme (THEMES[0], "terracotta") so the UI is styled before
+   default theme (THEMES[0], "term") so the UI is styled before
    that JS runs / if no data-theme is set. Keep it in sync with the
    default entry in themes.ts. See THEMING.md.
    ============================================================ */
 :root {
-  /* Neutral ramp keyed to the #121011 canvas (near-neutral dark greys, whisper of
-     warmth); TEXT is a separate warm cream family. Mirrors THEMES[0] in themes.ts. */
-  --base-bg: #121011;             /* app canvas */
-  --base-surface: #1c1a1a;        /* panels: header, sidebar, cards, popovers */
-  --base-surface-raised: #272424; /* hover / secondary / muted / accent surfaces */
-  --base-border: #363232;         /* dividers, inputs */
-  --base-text: #f4f0ea;           /* primary text (soft off-white, slightly warm) */
-  --base-text-muted: #a29d95;     /* dim / secondary text (muted, slightly warm) */
-  --base-accent: #d97757;         /* brand accent (terracotta) */
-  --base-on-accent: #121011;      /* text / icon on accent fills */
-  --base-danger: #e06c6c;         /* errors / destructive */
+  /* "Terminal" — matches the Claude Code TUI in the chat pane (neutral
+     near-black, flat surfaces, coral cursor-accent, no glyph glow). Mirrors
+     THEMES[0] in themes.ts. */
+  --base-bg: #0f0f0f;             /* app canvas */
+  --base-surface: #161616;        /* panels: header, sidebar, cards, popovers */
+  --base-surface-raised: #1f1f1f; /* hover / secondary / muted / accent surfaces */
+  --base-border: #2e2e2e;         /* dividers, inputs */
+  --base-text: #e7e7e7;           /* primary text (plain light gray, like the TUI) */
+  --base-text-muted: #8f8f8f;     /* dim / secondary text */
+  --base-accent: #d97757;         /* the TUI's coral cursor / Claude brand */
+  --base-on-accent: #0f0f0f;      /* text / icon on accent fills */
+  --base-danger: #f07178;         /* errors / destructive (the TUI's soft pink-red) */
   --base-success: #5fb87a;        /* online / running */
-  --base-info: #6b9fd9;           /* chart / info */
-  --base-warning: #d9b257;        /* chart / warning */
-  --base-special: #b57fd9;        /* chart / extra */
-  --base-overlay: rgb(0 0 0 / 0.5); /* modal scrim */
-  --base-selection: #837c7c; /* text-selection highlight fill (rendered at 20%); selected text uses --base-accent */
-  --base-term-glow: 0 0 3px color-mix(in srgb, currentColor 30%, transparent), 0 0 8px color-mix(in srgb, currentColor 22%, transparent); /* terminal glyph glow (a full text-shadow) */
+  --base-info: #82aaff;           /* chart / info (the TUI's link blue) */
+  --base-warning: #f0b03c;        /* chart / warning (the TUI's amber) */
+  --base-special: #b48ef0;        /* chart / extra */
+  --base-overlay: rgb(0 0 0 / 0.6); /* modal scrim */
+  --base-selection: #6f6f6f; /* text-selection highlight fill (rendered at 20%); selected text uses --base-accent */
+  --base-term-glow: none; /* terminal glyph glow — the real TUI has none */
 }
 
 /* Named themes are NO LONGER hand-written here. They live in `src/lib/themes.ts`
