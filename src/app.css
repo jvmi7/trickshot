@@ -549,6 +549,17 @@
   /* Bespoke-layout tokens — now derive from the same base palette as the
      shadcn tokens, so a theme restyles the header/sidebar/chat too. */
   --app-bg: var(--base-bg);
+  /* The SHELL: the chrome around the content card (layout, sidebar, header) —
+     one step darker than the terminal/card bg so the card reads as raised.
+     Derived (not a palette key) so every theme gets it for free. */
+  --app-shell: color-mix(in oklch, black 25%, var(--base-bg));
+  /* Content-card inset geometry. macOS (Big Sur+) draws the native window with
+     ~10px corners; for the card's corners to run CONCENTRIC with the window's,
+     nested radius = window radius − inset gap → 10 − 4 = 6px. Keep the three in
+     this relation if you retune the gap. */
+  --app-window-radius: 10px;
+  --app-pane-gap: 4px;
+  --app-pane-radius: calc(var(--app-window-radius) - var(--app-pane-gap));
   --app-panel: var(--base-surface);
   --app-panel-2: var(--base-surface-raised);
   --app-border: var(--base-border);
@@ -632,14 +643,16 @@ html, body {
 }
 
 .layout {
-  /* two full-height columns (sidebar | content); the sidebar's right border is
-     the lone divider and runs top-to-bottom. overflow:hidden clips the sidebar
-     when it slides off-screen left on collapse. */
+  /* two full-height columns (sidebar | content) on the darker SHELL; the
+     content pane floats as an inset card (see .content), so there is no
+     divider border — contrast + the gap do the separating. overflow:hidden
+     clips the sidebar when it slides off-screen left on collapse. */
   display: flex;
   flex-direction: row;
   height: 100vh;
   position: relative; /* anchors the floating sidebar toggle */
   overflow: hidden;
+  background: var(--app-shell);
 }
 
 /* ---- content-column top bar (Header.svelte) ---- */
@@ -651,8 +664,8 @@ html, body {
   flex-shrink: 0;
   padding: 0 12px;
   position: relative; /* centers the workspace chip within the content pane */
-  /* no background/border: the bar blends into the content so the only divider
-     on screen is the sidebar's full-height right border. */
+  /* no background/border: the bar sits on the shell, above the inset content
+     card — the card's gap + contrast are the only dividers on screen. */
 }
 .app-header .spacer { flex: 1; }
 /* ---- floating top-bar icon buttons (HeaderIconButton.svelte): the sidebar
@@ -694,8 +707,9 @@ html, body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--app-bg);
-  border-right: 1px solid var(--app-border);
+  /* Sits on the shell (darker than the content card) — no divider border; the
+     card's inset gap does the separating. */
+  background: var(--app-shell);
   /* slide in/out: collapsed pulls the panel fully off to the left (by its current
      width), letting the content smoothly fill the freed space. */
   transition: margin-left var(--app-duration-slow) var(--ease-slide);
@@ -734,7 +748,20 @@ html, body {
 
 /* ---- content column ---- */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.content { flex: 1; display: flex; min-width: 0; min-height: 0; }
+/* The content CARD: the terminal/chat/git pane floats inset on the shell with
+   window-concentric corners (--app-pane-radius = window − gap; see the token
+   block). Top margin 0 — the header band above is shell-colored and provides
+   the visual gap. overflow:hidden clips children to the rounded corners. */
+.content {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 var(--app-pane-gap) var(--app-pane-gap);
+  background: var(--app-bg);
+  border-radius: var(--app-pane-radius);
+  overflow: hidden;
+}
 
 /* ---- settings page (swaps in for the chat in the center pane) ---- */
 .settings-page { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 24px 32px 48px; }
