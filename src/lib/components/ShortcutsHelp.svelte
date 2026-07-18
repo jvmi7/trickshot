@@ -10,6 +10,7 @@
     { keys: ["⌘K"], what: "Command palette" },
     { keys: ["⌘⇧N"], what: "New worktree" },
     { keys: ["⌘⇧D", "⌘⇧P"], what: "Changes & pull request" },
+    { keys: ["⌘E"], what: "Compose a long prompt" },
     { keys: ["⌘1…9"], what: "Jump to the Nth worktree" },
     { keys: ["⌘,"], what: "Settings" },
     { keys: ["Esc"], what: "Leave Settings / close dialogs" },

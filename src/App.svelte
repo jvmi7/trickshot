@@ -36,6 +36,7 @@
     activeRepo,
     activateWorktree,
     toggleCommandPalette,
+    toggleCompose,
     toggleShortcutsHelp,
     requestNewWorktree,
   } from "./lib/stores";
@@ -56,6 +57,7 @@
   import TerminalPane from "./lib/components/TerminalPane.svelte";
   import Settings from "./lib/components/Settings.svelte";
   import Welcome from "./lib/components/Welcome.svelte";
+  import ComposeDialog from "./lib/components/ComposeDialog.svelte";
   import NotificationBell from "./lib/components/NotificationBell.svelte";
   import ShortcutsHelp from "./lib/components/ShortcutsHelp.svelte";
   import UsageIndicator from "./lib/components/UsageIndicator.svelte";
@@ -104,6 +106,13 @@
     if (!e.shiftKey && k === "/") {
       e.preventDefault();
       toggleShortcutsHelp();
+    } else if (!e.shiftKey && k === "e") {
+      // Compose popup: a full editor for long prompts (needs a chat to send to).
+      if (get(selectedWorktree)) {
+        e.preventDefault();
+        setCenterView("chat");
+        toggleCompose();
+      }
     } else if (!e.shiftKey && k === ",") {
       e.preventDefault();
       setCenterView("settings");
@@ -287,6 +296,7 @@
 <Tooltip.Provider delayDuration={100}>
 <Toaster position="bottom-right" />
 <ShortcutsHelp />
+<ComposeDialog />
 <CommandPalette />
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
   <!-- Sidebar toggle floats over the top-left (just past the traffic lights) so

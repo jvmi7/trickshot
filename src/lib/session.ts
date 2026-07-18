@@ -285,11 +285,13 @@ export async function ensureClaudeOpen(worktree: string): Promise<void> {
 
 /** Inject a prompt into the worktree's CLI chat as keystrokes: bracketed paste
  *  (so multi-line text doesn't submit per line — the TUI treats it as one
- *  pasted block) followed by Enter. The CLI-first counterpart of
- *  `submitUserTurn`; used by the git panel's "hand this to the agent" actions. */
-export async function sendToCli(worktree: string, text: string): Promise<void> {
+ *  pasted block), followed by Enter when `submit` (default). `submit: false`
+ *  just inserts into the TUI's input for further editing — the compose
+ *  popup's "Insert" action. The CLI-first counterpart of `submitUserTurn`;
+ *  also used by the git panel's "hand this to the agent" actions. */
+export async function sendToCli(worktree: string, text: string, submit = true): Promise<void> {
   await ensureClaudeOpen(worktree);
-  await api.termWrite(claudeTermKey(worktree), `\x1b[200~${text}\x1b[201~\r`);
+  await api.termWrite(claudeTermKey(worktree), `\x1b[200~${text}\x1b[201~${submit ? "\r" : ""}`);
 }
 
 /** Submit a prompt to whatever the ACTIVE chat surface is (see CHAT_SURFACE):

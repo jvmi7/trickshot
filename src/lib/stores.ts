@@ -173,6 +173,18 @@ export function toggleMainView(v: Exclude<MainView, "chat">) {
   mainView.update((cur) => (cur === v ? "chat" : v));
 }
 
+/** Whether the ⌘E compose popup is open (a full editor for long prompts,
+ *  injected into the CLI chat via bracketed paste). Ephemeral; the draft
+ *  survives close-without-send within the session. */
+export const composeOpen = writable<boolean>(false);
+export const composeDraft = writable<string>("");
+export function setComposeOpen(v: boolean) {
+  composeOpen.set(v);
+}
+export function toggleCompose() {
+  composeOpen.update((v) => !v);
+}
+
 /** Whether the ⌘/ keyboard-shortcuts overlay is open. Ephemeral, global. */
 export const shortcutsHelpOpen = writable<boolean>(false);
 export function toggleShortcutsHelp() {

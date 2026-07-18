@@ -18,6 +18,7 @@
     selectedWorktree,
     selectWorktree,
     setCenterView,
+    toggleCompose,
     toggleSidebar,
     toggleShortcutsHelp,
     worktreesByRepo,
@@ -37,6 +38,7 @@
   import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import Keyboard from "@lucide/svelte/icons/keyboard";
+  import PenLine from "@lucide/svelte/icons/pen-line";
 
   // Flat list of every worktree across repos, labeled repo/branch for search.
   const allWorktrees = $derived(
@@ -105,6 +107,14 @@
         <Command.Item value="chat view" onSelect={() => pick(() => { setCenterView("chat"); setMainView("chat"); })}>
           <MessageSquare class="size-3.5" />
           Go to chat
+        </Command.Item>
+        <Command.Item
+          value="compose long prompt editor write"
+          onSelect={() => pick(() => { setCenterView("chat"); toggleCompose(); })}
+        >
+          <PenLine class="size-3.5" />
+          Compose long prompt
+          <Command.Shortcut>⌘E</Command.Shortcut>
         </Command.Item>
         <Command.Item
           value="changes diff pull request pr view"
