@@ -1026,7 +1026,7 @@
     padding: 2px 8px;
     font-size: var(--text-2xs);
     font-weight: 600;
-    border-radius: 999px;
+    border-radius: var(--radius-2xs);
     background: color-mix(in oklch, var(--app-accent) 18%, var(--app-panel));
     color: var(--app-text);
     border: 1px solid color-mix(in oklch, var(--app-accent) 40%, transparent);

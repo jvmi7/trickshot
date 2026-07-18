@@ -203,7 +203,7 @@
     justify-content: center;
     font-size: var(--text-2xs);
     font-weight: 700;
-    border-radius: 999px;
+    border-radius: var(--radius-2xs);
     background: var(--app-accent);
     color: var(--base-on-accent);
   }
