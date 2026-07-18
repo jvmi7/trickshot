@@ -718,7 +718,7 @@ html, body {
 .sidebar.collapsed { margin-left: calc(-1 * var(--sidebar-width, 320px)); }
 .sidebar-head { height: 48px; flex-shrink: 0; }
 .sidebar-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 16px; }
-.sidebar-foot { flex-shrink: 0; padding: 8px; border-top: 1px solid var(--app-border); }
+.sidebar-foot { flex-shrink: 0; padding: 8px; }
 /* Drag handle straddling the sidebar's right border: a wide (6px) invisible grab
    target, but the hover highlight is just a thin accent line over the border (not
    the full grab width). */
