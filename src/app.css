@@ -807,9 +807,9 @@ html, body {
    padding on the host over-counts the rows and the bottom rows draw off-pane.
    The grid never exactly fills the host, so the leftover strip below the last
    row must be OUR background; deliberately NO height:100% on .xterm. */
-/* No internal padding: the TUI runs flush to the card (the top fade owns the
-   top edge; the card's radius clips the corners). */
-.term-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 0; background: var(--base-bg); }
+/* Flush in the card except a small LEFT gutter (glyphs off the rounded corner
+   and border); the top fade owns the top edge. */
+.term-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 0 0 0 8px; background: var(--base-bg); }
 .term-host { flex: 1; min-height: 0; overflow: hidden; background: var(--base-bg); }
 /* Per-theme glyph glow (--base-term-glow, a full text-shadow; a theme sets `none`
    to disable). Works because xterm runs its DOM renderer (real text in spans) —
