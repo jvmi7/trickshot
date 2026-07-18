@@ -554,12 +554,13 @@
      Derived (not a palette key) so every theme gets it for free. */
   --app-shell: color-mix(in oklch, black 25%, var(--base-bg));
   /* Content-card inset geometry. macOS (Big Sur+) draws the native window with
-     ~10px corners; for the card's corners to run CONCENTRIC with the window's,
-     nested radius = window radius − inset gap → 10 − 4 = 6px. Keep the three in
-     this relation if you retune the gap. */
+     ~10px corners; strict concentricity would want nested radius = window −
+     gap (10 − 8 = 2px), but at a visible ≥8px gap that reads pinched — so the
+     card runs DELIBERATELY rounder (a chosen departure, not an oversight).
+     The eye stops comparing curvatures once the gap is this wide. */
   --app-window-radius: 10px;
-  --app-pane-gap: 4px;
-  --app-pane-radius: calc(var(--app-window-radius) - var(--app-pane-gap));
+  --app-pane-gap: 8px;
+  --app-pane-radius: 10px;
   --app-panel: var(--base-surface);
   --app-panel-2: var(--base-surface-raised);
   --app-border: var(--base-border);
