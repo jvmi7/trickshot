@@ -559,8 +559,8 @@
      card runs DELIBERATELY rounder (a chosen departure, not an oversight).
      The eye stops comparing curvatures once the gap is this wide. */
   --app-window-radius: 10px;
-  --app-pane-gap: 8px;
-  --app-pane-radius: 10px;
+  --app-pane-gap: 12px;
+  --app-pane-radius: 14px;
   --app-panel: var(--base-surface);
   --app-panel-2: var(--base-surface-raised);
   --app-border: var(--base-border);
