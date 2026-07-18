@@ -815,12 +815,29 @@ html, body {
    WebGL/canvas addon is ever added, glyphs become canvas pixels and this rule
    silently stops applying. */
 .term-host .xterm-rows { text-shadow: var(--base-term-glow); }
-/* The Claude pane's xterm scrollbar is structurally DEAD: the TUI enables
-   mouse reporting and scrolls its transcript internally (full repaints), so
-   xterm's viewport position never changes and the thumb never moves. A frozen
-   scrollbar reads as broken — hide it on the claude slot only (the shell tab's
-   scrollback bar works and stays). */
-.term-host-claude .xterm-viewport::-webkit-scrollbar { display: none; }
+/* NO scrollbars anywhere in a terminal pane (both axes, both slots). The
+   claude pane's is structurally DEAD anyway (the TUI enables mouse reporting
+   and scrolls its transcript internally, so xterm's viewport never moves) and
+   stray overflow during resize settles can flash a horizontal bar. Wheel
+   scrolling is unaffected — only the indicators go. */
+.term-pane ::-webkit-scrollbar { display: none; }
+.term-pane * { scrollbar-width: none; }
+/* Top fade: terminal content slides under a bg-colored gradient instead of
+   clipping hard at the card edge (the reading-edge treatment; follows
+   --base-bg so every theme fades into its own canvas). pointer-events: none —
+   it's purely visual; clicks/selection reach the TUI through it. */
+.term-pane { position: relative; }
+.term-pane::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to bottom, var(--base-bg), transparent);
+  pointer-events: none;
+  z-index: var(--app-z-overlay);
+}
 /* Text styling is the shared .error-text; this just pads it off the pane edges. */
 .term-error { padding: 6px 12px; }
 

@@ -49,7 +49,7 @@
       </Button>
     </div>
   {/if}
-  <div class="term-host term-host-claude" bind:this={container}></div>
+  <div class="term-host" bind:this={container}></div>
 </div>
 
 <style>
