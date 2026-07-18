@@ -759,6 +759,7 @@ html, body {
   min-height: 0;
   margin: 0 var(--app-pane-gap) var(--app-pane-gap);
   background: var(--app-bg);
+  border: 1px solid var(--app-border);
   border-radius: var(--app-pane-radius);
   overflow: hidden;
 }
