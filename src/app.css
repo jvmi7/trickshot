@@ -833,8 +833,10 @@ html, body {
   top: 0;
   left: 0;
   right: 0;
-  height: 40px;
-  background: linear-gradient(to bottom, var(--base-bg), transparent);
+  height: 96px;
+  /* Opaque band first (content is fully INVISIBLE at the top edge), then the
+     long ease-out — lines dissolve as they approach the top. */
+  background: linear-gradient(to bottom, var(--base-bg) 0%, var(--base-bg) 22%, transparent 100%);
   pointer-events: none;
   z-index: var(--app-z-overlay);
 }
