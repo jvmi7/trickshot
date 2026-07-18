@@ -31,6 +31,7 @@
     type ArchivedWorkspace,
   } from "../stores";
   import * as api from "../api";
+  import { generateWorktreeName } from "../branchNames";
   import { toastMessage } from "../toast";
   import { disposeTerminal } from "../terminal";
   import { basename, relativeTime } from "../utils";
@@ -92,8 +93,9 @@
     }
   }
 
-  // ⌘⇧N / the palette ask for a new worktree via this nonce: open the inline
-  // create field for the selected worktree's repo (or the first repo).
+  // ⌘⇧N / the palette / the fleet ask for a new worktree via this nonce:
+  // instantly create one (auto-named) for the selected worktree's repo (or the
+  // first repo) — no naming prompt on the fast path.
   let lastCreateReq = $state(0);
   $effect(() => {
     const req = $newWorktreeRequest;
@@ -102,7 +104,7 @@
     const target =
       $repos.find((r) => ($worktreesByRepo[r.path] ?? []).some((w) => w.path === $selectedWorktree))
         ?.path ?? $repos[0]?.path;
-    if (target) startCreate(target);
+    if (target) void createAuto(target);
   });
 
   async function startCreate(repoPath: string) {
@@ -112,8 +114,9 @@
     branchInput?.focus();
   }
 
-  async function create(repoPath: string) {
-    const branch = newBranch.trim();
+  // The ONE create path: makes the worktree, selects it, and fires the repo's
+  // setup script. The manual input and the auto-name flow both land here.
+  async function createWith(repoPath: string, branch: string) {
     if (!branch || creating) return;
     creating = true;
     error = "";
@@ -140,6 +143,21 @@
     } finally {
       creating = false;
     }
+  }
+
+  function create(repoPath: string) {
+    return createWith(repoPath, newBranch.trim());
+  }
+
+  // One-click create: a generated friendly name, no prompt (the default path —
+  // ⌥-click the + for the manual input). Collision set = this repo's worktree
+  // branches + its archived branches; an unknown plain-git branch colliding is
+  // vanishingly rare (1600 pairs) and harmlessly checks that branch out.
+  function createAuto(repoPath: string) {
+    const taken = new Set<string>();
+    for (const w of $worktreesByRepo[repoPath] ?? []) if (w.branch) taken.add(w.branch);
+    for (const a of $archivedWorkspaces) if (a.repoPath === repoPath) taken.add(a.branch);
+    return createWith(repoPath, generateWorktreeName(taken));
   }
 
   // Begin removal/archival. Remove ALWAYS confirms — it permanently drops the
@@ -311,13 +329,14 @@
                       {...props}
                       class="opacity-0 group-hover/repo:opacity-100"
                       aria-label="New worktree"
-                      onclick={() => startCreate(repo.path)}
+                      onclick={(e: MouseEvent) =>
+                        e.altKey ? startCreate(repo.path) : void createAuto(repo.path)}
                     >
                       <Plus />
                     </IconButton>
                   {/snippet}
                 </Tooltip.Trigger>
-                <Tooltip.Content>New worktree</Tooltip.Content>
+                <Tooltip.Content>New worktree — auto-named (⌥-click to name it)</Tooltip.Content>
               </Tooltip.Root>
             </div>
           {/snippet}
