@@ -8,7 +8,7 @@ import type { ReviewComment } from "./review";
 // CALL time (see the CIRCULAR-IMPORT CONTRACT note in each sibling); these two
 // mutators are used by selectWorktree / removeRepo below.
 import { clearQueued } from "./session";
-import { profileAccent, profileBg } from "./termProfiles";
+import { profileAccent } from "./termProfiles";
 import { DEFAULT_THEME, THEMES as THEME_DEFS } from "./themes";
 import { closeComment } from "./threads";
 import {
@@ -331,21 +331,15 @@ export const selectedWorktree = createPersisted<string | null>("trickshot.select
 });
 /** Select a worktree (or clear with `null`). The one mutator for the persisted
  *  selection — components call this, not `selectedWorktree.set()` inline. */
-// Per-workspace identity vars: every workspace has a stable TERMINAL PROFILE
-// (termProfiles.ts — its own ANSI palette/bg/accent, path-hash assigned).
-// The SELECTED workspace's accent + blended bg reflect onto <html> so CSS
-// picks them up (header ❯, term-pane bg, top fade). Synchronous on selection —
-// attach effects read it fresh; xterm itself resolves the profile per key.
+// Per-workspace identity var: every workspace has a stable TERMINAL PROFILE
+// (termProfiles.ts — ANSI palette + accent, path-hash assigned). The SELECTED
+// workspace's accent reflects onto <html> for the header ❯. (Backgrounds are
+// deliberately UNIFORM — the app theme's — so only the accent differentiates.)
 selectedWorktree.subscribe((sel) => {
   if (typeof document === "undefined") return;
   const st = document.documentElement.style;
-  if (sel) {
-    st.setProperty("--ws-accent", profileAccent(sel));
-    st.setProperty("--ws-bg", profileBg(sel));
-  } else {
-    st.removeProperty("--ws-accent");
-    st.removeProperty("--ws-bg");
-  }
+  if (sel) st.setProperty("--ws-accent", profileAccent(sel));
+  else st.removeProperty("--ws-accent");
 });
 
 export function selectWorktree(path: string | null) {

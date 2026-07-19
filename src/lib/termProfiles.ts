@@ -1,10 +1,9 @@
-// Per-workspace TERMINAL profiles: each worktree's terminal gets a complete
-// color scheme of its own — full 16-color ANSI palette, background (+ opacity,
-// blended toward the app theme's bg so profiles sit IN the app rather than
-// clash with it), foreground, cursor, and an identity accent used by the
-// header ❯ / sidebar chips / fleet icons. Assignment is stable (path hash →
-// profile), so a workspace keeps its look across restarts. The app chrome
-// keeps the global theme — profiles are terminal-only. Plain TS on purpose:
+// Per-workspace TERMINAL profiles: each worktree's terminal keeps the APP
+// THEME's background (uniform across workspaces) but gets its own ANSI
+// palette, foreground, and — the identity signal — an ACCENT that doubles as
+// the xterm cursor AND the chip left of the workspace name in the sidebar
+// (plus the header ❯ and fleet icons), so terminal ↔ sidebar mapping is
+// exact. Assignment is stable (path hash → profile). Plain TS on purpose:
 // the palettes are data (classic public schemes), not app styling, so the
 // design-system literal scan doesn't apply. Pure + tested.
 
@@ -13,14 +12,9 @@ import { workspaceHue } from "./utils";
 export interface TermProfile {
   id: string;
   label: string;
-  /** Terminal background, blended over the app theme bg by `bgOpacity`. */
-  bg: string;
-  /** 0–1: how much of `bg` survives the blend (1 = the profile's own bg). */
-  bgOpacity: number;
   fg: string;
-  cursor: string;
-  /** Identity accent (header ❯, sidebar chip, fleet icon) — chosen distinct
-   *  across profiles, not always the cursor color. */
+  /** THE identity color: the xterm cursor, the sidebar chip, the header ❯,
+   *  and the fleet icon — one color, everywhere, per workspace. */
   accent: string;
   /** ANSI 0–15 in slot order (black…white, brightBlack…brightWhite). */
   ansi: [
@@ -47,10 +41,7 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "dracula",
     label: "Dracula",
-    bg: "#282a36",
-    bgOpacity: 0.95,
     fg: "#f8f8f2",
-    cursor: "#ff79c6",
     accent: "#ff79c6",
     ansi: [
       "#21222c",
@@ -74,10 +65,7 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "nord",
     label: "Nord",
-    bg: "#2e3440",
-    bgOpacity: 0.95,
     fg: "#d8dee9",
-    cursor: "#88c0d0",
     accent: "#88c0d0",
     ansi: [
       "#3b4252",
@@ -101,10 +89,7 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "gruvbox",
     label: "Gruvbox Dark",
-    bg: "#282828",
-    bgOpacity: 0.95,
     fg: "#ebdbb2",
-    cursor: "#fe8019",
     accent: "#fe8019",
     ansi: [
       "#282828",
@@ -128,10 +113,7 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "solarized",
     label: "Solarized Dark",
-    bg: "#002b36",
-    bgOpacity: 0.92,
     fg: "#839496",
-    cursor: "#93a1a1",
     accent: "#b58900",
     ansi: [
       "#073642",
@@ -155,10 +137,7 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "tokyo",
     label: "Tokyo Night",
-    bg: "#1a1b26",
-    bgOpacity: 1,
     fg: "#c0caf5",
-    cursor: "#7aa2f7",
     accent: "#7aa2f7",
     ansi: [
       "#15161e",
@@ -182,10 +161,7 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "catppuccin",
     label: "Catppuccin Mocha",
-    bg: "#1e1e2e",
-    bgOpacity: 1,
     fg: "#cdd6f4",
-    cursor: "#f5e0dc",
     accent: "#94e2d5",
     ansi: [
       "#45475a",
@@ -209,10 +185,7 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "onedark",
     label: "One Dark",
-    bg: "#282c34",
-    bgOpacity: 0.95,
     fg: "#abb2bf",
-    cursor: "#61afef",
     accent: "#c678dd",
     ansi: [
       "#282c34",
@@ -236,10 +209,7 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "monokai",
     label: "Monokai",
-    bg: "#272822",
-    bgOpacity: 0.95,
     fg: "#f8f8f2",
-    cursor: "#a6e22e",
     accent: "#a6e22e",
     ansi: [
       "#272822",
@@ -273,11 +243,4 @@ export function profileFor(path: string): TermProfile {
 /** Identity accent for chips / the header ❯ / fleet icons. */
 export function profileAccent(path: string): string {
   return profileFor(path).accent;
-}
-
-/** The profile bg blended over the app theme bg by its opacity — a CSS color
- *  expression (var() stays live per app theme; resolved by the browser). */
-export function profileBg(path: string): string {
-  const p = profileFor(path);
-  return `color-mix(in srgb, ${p.bg} ${Math.round(p.bgOpacity * 100)}%, var(--base-bg))`;
 }

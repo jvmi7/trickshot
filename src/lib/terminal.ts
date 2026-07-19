@@ -27,7 +27,7 @@ import {
   setStatus,
   terminalFontSize,
 } from "./stores";
-import { profileBg, profileFor } from "./termProfiles";
+import { profileFor } from "./termProfiles";
 import type { TermEnvelope } from "./types";
 import { basename } from "./utils";
 
@@ -109,13 +109,14 @@ export function themeColors(key?: string) {
     return getComputedStyle(probe).color || undefined;
   };
   if (key) {
-    // Per-workspace terminal PROFILE (termProfiles.ts): its own ANSI palette,
-    // fg/cursor, and bg (opacity-blended over the app theme bg — the blend is
-    // a color-mix()/var() expression, so probe-resolve it for xterm).
+    // Per-workspace terminal PROFILE (termProfiles.ts): its own ANSI palette
+    // + fg, with the CURSOR carrying the workspace's identity accent — the
+    // same color as its sidebar chip. Background stays the APP THEME's for
+    // every workspace (uniform canvas; the accent is the differentiator).
     const p = profileFor(keyWorktree(key));
-    theme.background = resolve(profileBg(keyWorktree(key)));
+    theme.background = resolve("var(--base-bg)");
     theme.foreground = p.fg;
-    theme.cursor = p.cursor;
+    theme.cursor = p.accent;
     ANSI_SLOTS.forEach((slot, i) => {
       theme[slot] = p.ansi[i];
     });
