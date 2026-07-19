@@ -71,11 +71,11 @@
             {...props}
             size="sm"
             variant="ghost"
-            class="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            class="h-8 gap-1.5 text-sm text-muted-foreground hover:text-foreground"
             onclick={stop}
             aria-label="Stop script"
           >
-            <Square class="size-3 fill-current" />
+            <Square class="size-3.5 fill-current" />
             {$activeScriptRun?.name}
           </Button>
         {/snippet}
@@ -90,11 +90,11 @@
             {...props}
             size="sm"
             variant="ghost"
-            class="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            class="h-8 gap-1.5 text-sm text-muted-foreground hover:text-foreground"
             onclick={() => runScripts[0] && start(runScripts[0].name)}
             aria-label="Run script"
           >
-            <Play class="size-3 fill-current" />
+            <Play class="size-3.5 fill-current" />
             Run
           </Button>
         {/snippet}
@@ -109,12 +109,12 @@
             {...props}
             size="sm"
             variant="ghost"
-            class="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground"
+            class="h-8 gap-1 text-sm text-muted-foreground hover:text-foreground"
             aria-label="Run a script"
           >
-            <Play class="size-3 fill-current" />
+            <Play class="size-3.5 fill-current" />
             Run
-            <ChevronDown class="size-3" />
+            <ChevronDown class="size-3.5" />
           </Button>
         {/snippet}
       </DropdownMenu.Trigger>

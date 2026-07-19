@@ -49,7 +49,7 @@
             {...props}
             size="sm"
             variant="ghost"
-            class="view-toggle-item h-7 gap-1.5 text-xs text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
+            class="view-toggle-item h-8 gap-1.5 text-sm text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
             data-active={$changesOpen ? "" : undefined}
             aria-label="Changes"
             title="Changes & pull request"
@@ -58,7 +58,7 @@
               {#if stat.insertions > 0}<span class="diff-add">+{stat.insertions}</span>{/if}
               {#if stat.deletions > 0}<span class="diff-del">−{stat.deletions}</span>{/if}
             {:else}
-              <FileDiff class="size-4" />
+              <FileDiff class="size-4.5" />
             {/if}
           </Button>
         {/snippet}
@@ -77,12 +77,12 @@
             {...props}
             size="icon-sm"
             variant="ghost"
-            class="view-toggle-item size-7 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
+            class="view-toggle-item size-8 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
             data-active={$mainView === "run" ? "" : undefined}
             aria-label="Run output"
             onclick={() => toggleMainView("run")}
           >
-            <SquareTerminal class="size-4 {scriptRun.status === 'running' ? 'text-[var(--base-success)]' : ''}" />
+            <SquareTerminal class="size-4.5 {scriptRun.status === 'running' ? 'text-[var(--base-success)]' : ''}" />
           </Button>
         {/snippet}
       </Tooltip.Trigger>
@@ -102,12 +102,12 @@
             {...props}
             size="icon-sm"
             variant="ghost"
-            class="view-toggle-item size-7 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
+            class="view-toggle-item size-8 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
             data-active={$shellOpen ? "" : undefined}
             aria-label="Shell"
             title="Shell — a plain terminal in this worktree (the chat pane is the Claude CLI)"
           >
-            <Terminal class="size-4" />
+            <Terminal class="size-4.5" />
           </Button>
         {/snippet}
       </Popover.Trigger>

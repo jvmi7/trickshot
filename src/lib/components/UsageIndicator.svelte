@@ -82,6 +82,7 @@
     background: transparent;
     cursor: default;
     user-select: none;
+    font-size: var(--text-sm); /* header-scale, in step with the view toggle */
   }
   .usage-chip[data-severity="warn"] {
     color: var(--base-warning);
