@@ -921,6 +921,7 @@ html, body {
    it's purely visual; clicks/selection reach the TUI through it. */
 .term-pane { position: relative; }
 .term-pane::before {
+  display: none; /* fade toggled OFF for now (user request) — delete this line to re-enable */
   content: "";
   position: absolute;
   top: 0;
