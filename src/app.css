@@ -661,7 +661,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 48px;
+  height: 40px;
   flex-shrink: 0;
   padding: 0 12px;
   position: relative; /* centers the workspace chip within the content pane */
@@ -716,7 +716,7 @@ html, body {
   transition: margin-left var(--app-duration-slow) var(--ease-slide);
 }
 .sidebar.collapsed { margin-left: calc(-1 * var(--sidebar-width, 320px)); }
-.sidebar-head { height: 48px; flex-shrink: 0; }
+.sidebar-head { height: 40px; flex-shrink: 0; } /* stays in step with .app-header */
 .sidebar-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 16px; }
 .sidebar-foot { flex-shrink: 0; padding: 8px; }
 /* Drag handle straddling the sidebar's right border: a wide (6px) invisible grab
