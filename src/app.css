@@ -673,7 +673,7 @@ html, body {
   left: 0;
   right: 0;
   z-index: var(--app-z-chrome);
-  padding: 6px 12px 0 76px;
+  padding: 6px 12px 0 86px;
   /* no background/border: the bar sits on the shell, above the inset content
      card — the card's gap + contrast are the only dividers on screen. */
 }
