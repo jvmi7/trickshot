@@ -18,6 +18,27 @@ export function basename(path: string): string {
   );
 }
 
+/** Stable per-workspace identity hue (0–359) hashed from the worktree path —
+ *  every workspace gets its own color so parallel agents are visually
+ *  tellable-apart (terminal tint, header prompt, sidebar chips). */
+export function workspaceHue(path: string): number {
+  let h = 0;
+  for (let i = 0; i < path.length; i++) h = (h * 31 + path.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+
+/** The workspace's identity ACCENT (cursor, prompt glyph, identity chips).
+ *  Fixed lightness/chroma so every hue reads at the same weight on dark. */
+export function workspaceAccent(path: string): string {
+  return `oklch(0.75 0.13 ${workspaceHue(path)}deg)`;
+}
+
+/** The workspace's terminal background: the theme bg with a whisper of the
+ *  identity hue mixed in (resolved by CSS — var() stays live per theme). */
+export function workspaceBg(path: string): string {
+  return `color-mix(in oklch, ${workspaceAccent(path)} 5%, var(--base-bg))`;
+}
+
 /** Coarse relative time for list metadata ("just now", "5m ago", "3h ago",
  *  "2d ago", then a short date). `now` is injectable for tests. */
 export function relativeTime(ts: number, now: number = Date.now()): string {

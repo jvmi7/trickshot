@@ -845,7 +845,7 @@ html, body {
 /* Flush in the card except matching LEFT + BOTTOM gutters (glyphs and the
    TUI's status line off the rounded corners/border); the top fade owns the
    top edge. */
-.term-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 0 0 14px 14px; background: var(--base-bg); }
+.term-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 0 0 14px 14px; background: var(--ws-bg, var(--base-bg)); }
 .term-host { flex: 1; min-height: 0; overflow: hidden; background: var(--base-bg); }
 /* Per-theme glyph glow (--base-term-glow, a full text-shadow; a theme sets `none`
    to disable). Works because xterm runs its DOM renderer (real text in spans) —
@@ -874,7 +874,12 @@ html, body {
   height: 96px;
   /* Opaque band first (content is fully INVISIBLE at the top edge), then the
      long ease-out — lines dissolve as they approach the top. */
-  background: linear-gradient(to bottom, var(--base-bg) 0%, var(--base-bg) 22%, transparent 100%);
+  background: linear-gradient(
+    to bottom,
+    var(--ws-bg, var(--base-bg)) 0%,
+    var(--ws-bg, var(--base-bg)) 22%,
+    transparent 100%
+  );
   pointer-events: none;
   z-index: var(--app-z-overlay);
 }
@@ -907,6 +912,8 @@ html, body {
 .dot.busy { animation: dot-pulse 1.2s ease-in-out infinite; }
 @keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .wt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Workspace identity chip (color set inline per row from workspaceAccent). */
+.wt-ident { flex-shrink: 0; width: 6px; height: 6px; border-radius: var(--radius-2xs); }
 /* Per-row diffstat glance (colors: the shared .diff-add/.diff-del). */
 .wt-stat { flex-shrink: 0; display: inline-flex; gap: 3px; font-size: var(--text-2xs); }
 /* Archived-row age ("2d ago"); exact date in the title. */
@@ -949,7 +956,8 @@ html, body {
    prompt line (terminal aesthetic). Accent-colored like the TUI's own caret. */
 .workspace-label .path::before {
   content: "❯ ";
-  color: var(--app-accent);
+  /* Workspace identity hue (stores.ts sets --ws-accent per selection). */
+  color: var(--ws-accent, var(--app-accent));
 }
 .dim { color: var(--app-dim); }
 

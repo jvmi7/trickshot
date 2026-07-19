@@ -29,6 +29,7 @@ import type {
   UsageInfo,
   Worktree,
 } from "./types";
+import { workspaceAccent, workspaceBg } from "./utils";
 
 export interface PermissionReq {
   id: string;
@@ -320,6 +321,22 @@ export const selectedWorktree = createPersisted<string | null>("trickshot.select
 });
 /** Select a worktree (or clear with `null`). The one mutator for the persisted
  *  selection — components call this, not `selectedWorktree.set()` inline. */
+// Per-workspace identity vars: every workspace has a stable path-derived hue
+// (utils.ts › workspaceAccent/workspaceBg). Reflected onto <html> for the
+// SELECTED workspace so CSS + xterm pick it up (header ❯, terminal bg tint,
+// top fade, cursor). Synchronous on selection — attach effects read it fresh.
+selectedWorktree.subscribe((sel) => {
+  if (typeof document === "undefined") return;
+  const st = document.documentElement.style;
+  if (sel) {
+    st.setProperty("--ws-accent", workspaceAccent(sel));
+    st.setProperty("--ws-bg", workspaceBg(sel));
+  } else {
+    st.removeProperty("--ws-accent");
+    st.removeProperty("--ws-bg");
+  }
+});
+
 export function selectWorktree(path: string | null) {
   selectedWorktree.set(path);
   // Close any open comment popup — it belongs to the chat we're leaving.

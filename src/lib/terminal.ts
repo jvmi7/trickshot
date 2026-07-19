@@ -97,17 +97,24 @@ export function themeColors() {
   const css = getComputedStyle(document.documentElement);
   const v = (name: string) => css.getPropertyValue(name).trim() || undefined;
   const theme: Record<string, string | undefined> = {
-    background: v("--base-bg"),
     foreground: v("--base-text"),
-    cursor: v("--base-accent"),
     selectionBackground: v("--base-selection"),
   };
   const probe = document.createElement("span");
   probe.style.display = "none";
   document.body.appendChild(probe);
+  const resolve = (expr: string) => {
+    probe.style.color = expr;
+    return getComputedStyle(probe).color || undefined;
+  };
+  // Background + cursor carry the SELECTED workspace's identity tint/hue
+  // (stores.ts sets --ws-* on selection, synchronously before attach reads
+  // this) — probe-resolved because color-mix()/var() expressions aren't
+  // parseable by xterm.
+  theme.background = resolve("var(--ws-bg, var(--base-bg))");
+  theme.cursor = resolve("var(--ws-accent, var(--base-accent))");
   ANSI_SLOTS.forEach((slot, i) => {
-    probe.style.color = `var(--app-ansi-${i})`;
-    const resolved = getComputedStyle(probe).color;
+    const resolved = resolve(`var(--app-ansi-${i})`);
     if (resolved) theme[slot] = resolved;
   });
   probe.remove();
