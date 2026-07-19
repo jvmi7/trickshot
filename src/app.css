@@ -943,9 +943,10 @@ html, body {
      ≈ 15.5 — 6px padding around that. Adjust these four values to realign. */
   position: fixed;
   top: 3px;
-  left: 6px;
-  width: 64px;
+  left: 3px;
+  width: 72px;
   height: 25px;
+  border: 1px solid var(--app-border);
   border-radius: 999px;
   background: color-mix(in oklch, var(--base-text) 9%, var(--app-shell));
   z-index: var(--app-z-chrome);
