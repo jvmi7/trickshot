@@ -663,10 +663,17 @@ html, body {
   gap: 10px;
   /* Asymmetric: +6px on top so the controls' air ABOVE matches their air
      below (which includes the card's 6px top gap). */
-  height: 34px;
+  height: 35px;
   flex-shrink: 0;
-  padding: 5px 12px 0;
-  position: relative; /* centers the workspace chip within the content pane */
+  /* WINDOW-anchored (fixed, full width): the header must NOT slide when the
+     sidebar collapses/expands. Left padding permanently clears the traffic
+     lights; .main gains matching top padding to keep the card below. */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--app-z-chrome);
+  padding: 6px 12px 0 76px;
   /* no background/border: the bar sits on the shell, above the inset content
      card — the card's gap + contrast are the only dividers on screen. */
 }
@@ -718,7 +725,7 @@ html, body {
   transition: margin-left var(--app-duration-slow) var(--ease-slide);
 }
 .sidebar.collapsed { margin-left: calc(-1 * var(--sidebar-width, 320px)); }
-.sidebar-head { height: 34px; flex-shrink: 0; } /* stays in step with .app-header */
+.sidebar-head { height: 35px; flex-shrink: 0; } /* stays in step with .app-header */
 .sidebar-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 16px; }
 .sidebar-foot { flex-shrink: 0; padding: 8px; }
 /* Drag handle straddling the sidebar's right border: a wide (6px) invisible grab
@@ -750,7 +757,7 @@ html, body {
 .layout.resizing { cursor: col-resize; user-select: none; }
 
 /* ---- content column ---- */
-.main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-top: 35px; /* room for the fixed .app-header */ }
 /* The content CARD: the terminal/chat/git pane floats inset on the shell with
    window-concentric corners (--app-pane-radius = window − gap; see the token
    block). Top margin 0 — the header band above is shell-colored and provides
@@ -955,11 +962,6 @@ html, body {
   font: inherit;
   text-align: left;
   color: inherit;
-}
-/* When the sidebar is collapsed the content pane slides under the macOS
-   traffic lights, so indent the title past them. */
-.sidebar.collapsed ~ .main .workspace-label {
-  padding-left: 76px;
 }
 .workspace-label .path {
   display: inline-block;
