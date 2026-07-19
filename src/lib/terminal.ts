@@ -114,7 +114,7 @@ export function themeColors(key?: string) {
     // cursor — the EXACT color of its sidebar chip. Background stays the APP
     // THEME's for every workspace (uniform canvas; the accent differentiates).
     const p = profileFor(keyWorktree(key));
-    theme.background = resolve("var(--base-bg)");
+    theme.background = "rgba(0, 0, 0, 0)"; // transparent — the backdrop div paints it
     theme.foreground = p.accent;
     theme.cursor = p.accent;
     ANSI_SLOTS.forEach((slot, i) => {
@@ -122,7 +122,7 @@ export function themeColors(key?: string) {
     });
   } else {
     // No workspace context: the app theme's terminal colors.
-    theme.background = resolve("var(--base-bg)");
+    theme.background = "rgba(0, 0, 0, 0)"; // transparent — the backdrop div paints it
     theme.cursor = resolve("var(--base-accent)");
     ANSI_SLOTS.forEach((slot, i) => {
       const resolved = resolve(`var(--app-ansi-${i})`);
@@ -144,6 +144,9 @@ export function getTerminal(key: string): TermInstance {
       fontFamily: "ui-monospace, Menlo, monospace",
       cursorBlink: true,
       scrollback: 5000,
+      // The PANE's backdrop div paints the background (and hosts the cursor
+      // trail); xterm itself is transparent so the effect shows through.
+      allowTransparency: true,
       theme: themeColors(key),
     });
     const fit = new FitAddon();

@@ -7,6 +7,7 @@
   // also how a relaunch with a persisted "cli" mode gets its CLI back.
   // Feature component (reads stores + session orchestration).
   import { ensureClaudeOpen, selectedWorktree, sessionStatus } from "../stores";
+  import { cursorTrail } from "../cursorTrail";
   import { attachTerminal, claudeTermKey } from "../terminal";
   import { Button } from "$lib/components/ui/button";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
@@ -49,6 +50,10 @@
       </Button>
     </div>
   {/if}
+  <!-- Backdrop: carries the bg color + the trailing cursor glow; xterm above
+       is transparent (allowTransparency), so the glow shows through between
+       the glyphs. -->
+  <div class="term-bg" aria-hidden="true" use:cursorTrail></div>
   <div class="term-host" bind:this={container}></div>
 </div>
 
