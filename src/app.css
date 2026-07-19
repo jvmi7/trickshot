@@ -886,7 +886,7 @@ html, body {
   inset: 0;
   background: radial-gradient(
     320px circle at var(--trail-x, 50%) var(--trail-y, 50%),
-    color-mix(in oklch, var(--ws-accent, var(--app-accent)) 18%, transparent),
+    color-mix(in oklch, var(--ws-accent, var(--app-accent)) 2%, transparent),
     transparent 70%
   );
   opacity: var(--trail-o, 0);
