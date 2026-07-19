@@ -18,7 +18,10 @@
   } = $props();
 
   const CELL = 4; // viewBox units per grid cell
-  const INSET = 0.4; // gap between shapes
+  // Optical compensation: circles at the same bounding height as bars READ
+  // smaller (less edge area), so single dots overshoot with a tighter inset.
+  const INSET = 0.7; // pills
+  const INSET_DOT = 0.45; // single dots — slightly larger than geometric parity
   const shapes = $derived(glyphShapes(seed));
 </script>
 
@@ -31,11 +34,12 @@
   aria-hidden="true"
 >
   {#each shapes as s (`${s.row},${s.col}`)}
-    {@const w = s.w * CELL - INSET * 2}
-    {@const h = s.h * CELL - INSET * 2}
+    {@const inset = s.w === 1 && s.h === 1 ? INSET_DOT : INSET}
+    {@const w = s.w * CELL - inset * 2}
+    {@const h = s.h * CELL - inset * 2}
     <rect
-      x={s.col * CELL + INSET}
-      y={s.row * CELL + INSET}
+      x={s.col * CELL + inset}
+      y={s.row * CELL + inset}
       width={w}
       height={h}
       rx={Math.min(w, h) / 2}
