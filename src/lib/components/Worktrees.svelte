@@ -10,6 +10,7 @@
     removeWorktreeFromRepo,
     selectedWorktree,
     selectWorktree,
+    sessionStatus,
     clearStatus,
     activateWorktree,
     newWorktreeRequest,
@@ -387,7 +388,11 @@
                     }
                   }}
                 >
-                  <IdentityGlyph seed={wt.path} color={profileAccent(wt.path)} />
+                  <IdentityGlyph
+                    seed={wt.path}
+                    color={profileAccent(wt.path)}
+                    loading={$sessionStatus[wt.path] === "busy" || $sessionStatus[wt.path] === "starting"}
+                  />
                   <span class="wt-name">{wt.branch ?? "(detached)"}</span>
                   {#if ($gitStatByWorktree[wt.path]?.changed ?? 0) > 0}
                     {@const gs = $gitStatByWorktree[wt.path]}
