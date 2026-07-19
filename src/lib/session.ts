@@ -46,7 +46,7 @@ import {
 // CIRCULAR-IMPORT CONTRACT: terminal.ts imports handleCliExit from this module
 // while we import its key/instance helpers — safe because every cross-module
 // access is a call-time function invocation (all hoisted declarations).
-import { claudeTermKey, getTerminal } from "./terminal";
+import { claudeTermKey, getTerminal, muteCliActivity, noteCliInput } from "./terminal";
 import { toastSuccess } from "./toast";
 import { appendMessage, bufferedMessages, summarizeConversation, transcripts } from "./transcript";
 import { basename } from "./utils";
@@ -264,6 +264,11 @@ export async function ensureClaudeOpen(worktree: string): Promise<void> {
   const buf = inst.term.buffer.active;
   const untouched = buf.cursorX === 0 && buf.cursorY === 0;
   const spawned = await api.termOpen(worktree, rows, cols, "claude", resumeId);
+  // Neither of the bursts below is a turn — don't let them light the busy
+  // indicator: a fresh spawn streams the TUI's boot/resume paint for seconds;
+  // the reload wiggle triggers a full repaint (see cliActivity.ts).
+  if (spawned) muteCliActivity(key, 5000);
+  else if (untouched) muteCliActivity(key, 1500);
   if (spawned && resumeId && untouched) {
     // Cold spawn + a session to resume: the TUI does NOT repaint earlier
     // turns, so a fresh terminal would read as a blank "new" chat while the
@@ -291,6 +296,9 @@ export async function ensureClaudeOpen(worktree: string): Promise<void> {
  *  also used by the git panel's "hand this to the agent" actions. */
 export async function sendToCli(worktree: string, text: string, submit = true): Promise<void> {
   await ensureClaudeOpen(worktree);
+  // Injected keystrokes are user input too — their echo must not read as a
+  // turn starting (the real turn's output keeps flowing past the echo window).
+  noteCliInput(claudeTermKey(worktree));
   await api.termWrite(claudeTermKey(worktree), `\x1b[200~${text}\x1b[201~${submit ? "\r" : ""}`);
 }
 

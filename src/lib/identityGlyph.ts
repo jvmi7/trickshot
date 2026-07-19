@@ -11,11 +11,66 @@ export interface GlyphShape {
   h: number;
 }
 
-/** Deterministic 32-bit hash → [0,1) PRNG (mulberry32). */
-function seededRand(seed: string): () => number {
+export interface GlyphPalette {
+  name: string;
+  colors: string[];
+}
+
+/** The glyph color palettes — every workspace is pinned to ONE (paletteFor),
+ *  and its shapes pull their fills from it (shapeFills). */
+export const GLYPH_PALETTES: GlyphPalette[] = [
+  // magenta -> red-orange
+  {
+    name: "punch",
+    colors: ["#e900d1", "#ff00b7", "#ff007a", "#ff003c", "#ff071e", "#ff180d", "#ff3f14"],
+  },
+  // orange -> yellow
+  {
+    name: "sun",
+    colors: ["#FF6200", "#FF7700", "#FF8C00", "#FFA100", "#FFB700", "#FFCC00", "#FFE100"],
+  },
+  // teal-green -> chartreuse
+  {
+    name: "green",
+    colors: ["#00cc8e", "#00de79", "#00f057", "#14ff00", "#6fff00", "#9bff00", "#bdff00"],
+  },
+  // deep blue -> cyan
+  {
+    name: "blue",
+    colors: ["#0048ff", "#005fff", "#0075ff", "#008cff", "#00a3ff", "#00b9ff", "#00d0ff"],
+  },
+  // purple -> magenta
+  {
+    name: "violet",
+    colors: ["#5f00db", "#7900ea", "#9500f8", "#b108ff", "#c817ff", "#de25ff", "#f134ff"],
+  },
+];
+
+/** Deterministic 32-bit string hash (same scheme seededRand uses). */
+function hashSeed(seed: string): number {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  let a = h || 1;
+  return h;
+}
+
+/** The workspace's palette: stable per seed, forever. */
+export function paletteFor(seed: string): GlyphPalette {
+  return GLYPH_PALETTES[hashSeed(seed) % GLYPH_PALETTES.length]!;
+}
+
+/** Fills for `count` shapes: a seeded-random pick from the palette per shape
+ *  (the seed here is the GLYPH's — a morphing glyph re-rolls fills per tick). */
+export function shapeFills(glyphSeed: string, count: number, palette: GlyphPalette): string[] {
+  const rand = seededRand(`${glyphSeed}|fill`);
+  const fills: string[] = [];
+  for (let i = 0; i < count; i++)
+    fills.push(palette.colors[Math.floor(rand() * palette.colors.length)] ?? "currentColor");
+  return fills;
+}
+
+/** Deterministic 32-bit hash → [0,1) PRNG (mulberry32). */
+function seededRand(seed: string): () => number {
+  let a = hashSeed(seed) || 1;
   return () => {
     a |= 0;
     a = (a + 0x6d2b79f5) | 0;

@@ -27,7 +27,7 @@ import {
   setStatus,
   terminalFontSize,
 } from "./stores";
-import { profileFor } from "./termProfiles";
+import { profileAccent, profileFor } from "./termProfiles";
 import type { TermEnvelope } from "./types";
 import { basename } from "./utils";
 
@@ -113,10 +113,12 @@ export function themeColors(key?: string) {
     // with the workspace's identity accent as BOTH the main text color and the
     // cursor — the EXACT color of its sidebar chip. Background stays the APP
     // THEME's for every workspace (uniform canvas; the accent differentiates).
-    const p = profileFor(keyWorktree(key));
+    const wt = keyWorktree(key);
+    const p = profileFor(wt);
     theme.background = "rgba(0, 0, 0, 0)"; // transparent — the backdrop div paints it
-    theme.foreground = p.accent;
-    theme.cursor = p.accent;
+    const accent = profileAccent(wt);
+    theme.foreground = accent;
+    theme.cursor = accent;
     ANSI_SLOTS.forEach((slot, i) => {
       theme[slot] = p.ansi[i];
     });
@@ -159,6 +161,9 @@ export function getTerminal(key: string): TermInstance {
     // swallowed with zero feedback; under CLI-first chat it's also the natural
     // "type to revive" path after a /exit.
     term.onData((data) => {
+      // Mark the input BEFORE the PTY can echo it back — output that trails
+      // user input is reactive, not a turn starting (see cliActivity.ts).
+      if (slot === "claude") noteCliInput(key);
       api.termWrite(key, data).catch(async () => {
         const i = instances.get(key);
         if (!i) return;
@@ -207,12 +212,29 @@ const cliActivity = new Map<
   { tracker: CliActivityTracker; timer: ReturnType<typeof setTimeout> | null }
 >();
 
-function noteCliActivity(key: string) {
+function cliEntry(key: string) {
   let entry = cliActivity.get(key);
   if (!entry) {
     entry = { tracker: new CliActivityTracker(), timer: null };
     cliActivity.set(key, entry);
   }
+  return entry;
+}
+
+/** User input headed for the claude PTY (keystroke, wheel, focus, an injected
+ *  paste): output that follows shortly is reactive, not a turn starting. */
+export function noteCliInput(key: string) {
+  cliEntry(key).tracker.onInput(Date.now());
+}
+
+/** Ignore busy edges on this PTY for `ms` — bridges a known non-turn output
+ *  burst (the `--resume` boot replay, the reload repaint wiggle). */
+export function muteCliActivity(key: string, ms: number) {
+  cliEntry(key).tracker.muteUntil(Date.now() + ms);
+}
+
+function noteCliActivity(key: string) {
+  const entry = cliEntry(key);
   const wt = keyWorktree(key);
   if (entry.tracker.onData(Date.now()) === "busy") setStatus(wt, "busy");
   if (entry.timer) clearTimeout(entry.timer);
@@ -333,6 +355,11 @@ export function attachTerminal(
 ): () => void {
   const inst = getTerminal(key);
   el.replaceChildren(); // drop a previous worktree's terminal DOM
+  // Start VEILED: the swapped-in terminal must not flash at full opacity for
+  // the frame(s) before the observer-driven veil lands — the open path below
+  // reveals (the left→right sweep) once the pane is fitted.
+  el.classList.remove("term-resize-rtl");
+  el.classList.add("term-resizing");
   if (inst.term.element) el.appendChild(inst.term.element);
   else inst.term.open(el);
   // Re-sync the theme snapshot to the LIVE CSS vars so xterm's background is
@@ -351,6 +378,33 @@ export function attachTerminal(
   // render (a black pane).
   let raf = 0;
   let disposed = false;
+  // The resize veil: the pane's content SITS OUT a resize burst. Showing the
+  // old grid mid-tween slides the text with the pane's moving left edge (the
+  // sidebar collapse), and any end-of-burst swap is a re-wrap layout jump —
+  // neither can be masked in place. So the first resize event fades the
+  // glyphs out (app.css › .term-resizing; the bg + trail grid stay), the
+  // debounced fit lands while hidden, and the fresh TUI frame fades back in.
+  const REPAINT_MS = 100; // PTY round-trip allowance before the fade-in
+  let unveil: ReturnType<typeof setTimeout> | undefined;
+  let lastW = el.clientWidth;
+  const veil = () => {
+    clearTimeout(unveil); // a new burst must not be unveiled by the last one
+    unveil = undefined;
+    // Sweep direction follows the pane's moving left edge: the sidebar
+    // sliding IN shrinks the pane (edge travels right → reveal left→right,
+    // the base mask), sliding OUT grows it (edge travels left → the mirrored
+    // .term-resize-rtl mask, reveal right→left). Stamped while the pane is
+    // still fully visible, where both masks paint identically — the swap
+    // itself never shows.
+    const w = el.clientWidth;
+    if (w !== lastW) el.classList.toggle("term-resize-rtl", w > lastW);
+    lastW = w;
+    el.classList.add("term-resizing");
+  };
+  const reveal = () => {
+    clearTimeout(unveil);
+    unveil = setTimeout(() => el.classList.remove("term-resizing"), REPAINT_MS);
+  };
   const fitNow = () => {
     raf = 0;
     if (disposed || !el.clientHeight) return;
@@ -416,16 +470,39 @@ export function attachTerminal(
         api.termResize(key, inst.term.rows, inst.term.cols).catch(() => {});
         scheduleFit();
         inst.term.focus();
+        reveal(); // end the attach veil: sweep the (re)opened pane in
       })
-      .catch((e) => opts.onError?.(e));
+      .catch((e) => {
+        reveal(); // never leave the pane hidden behind a failed open
+        opts.onError?.(e);
+      });
   })();
 
-  const ro = new ResizeObserver(scheduleFit);
+  // Observer-driven fits wait for the size to SETTLE: an animated layout
+  // change (the sidebar collapse/expand tweens width for --app-duration-slow)
+  // streams a resize per frame, and refitting on every intermediate width
+  // reflows the TUI grid dozens of times — the jagged mid-animation redraw.
+  // The trailing debounce collapses the burst into ONE fit after the pane
+  // stops moving, veiled for the duration (see the resize veil above);
+  // direct fits (settle loop, PTY open) stay immediate and unveiled.
+  let settle: ReturnType<typeof setTimeout> | undefined;
+  const scheduleFitSettled = () => {
+    veil();
+    clearTimeout(settle);
+    settle = setTimeout(() => {
+      scheduleFit();
+      reveal(); // REPAINT_MS comfortably covers the fit's rAF + TUI repaint
+    }, 150);
+  };
+  const ro = new ResizeObserver(scheduleFitSettled);
   ro.observe(el);
   scheduleFit();
   return () => {
     disposed = true;
     ro.disconnect();
+    clearTimeout(settle);
+    clearTimeout(unveil);
+    el.classList.remove("term-resizing", "term-resize-rtl");
     if (raf) cancelAnimationFrame(raf);
   };
 }

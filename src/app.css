@@ -733,7 +733,7 @@ html, body {
    the full grab width). */
 .sidebar-resize {
   position: absolute;
-  top: 0;
+  top: 35px; /* clear the header band (stays in step with .sidebar-head/.app-header) */
   bottom: 0;
   right: -6px;
   width: 12px;
@@ -857,10 +857,10 @@ html, body {
    padding on the host over-counts the rows and the bottom rows draw off-pane.
    The grid never exactly fills the host, so the leftover strip below the last
    row must be OUR background; deliberately NO height:100% on .xterm. */
-/* Flush in the card except matching LEFT + BOTTOM gutters (glyphs and the
+/* Flush in the card except LEFT + a slimmer BOTTOM gutter (glyphs and the
    TUI's status line off the rounded corners/border); the top fade owns the
    top edge. */
-.term-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 0 0 14px 14px; background: var(--base-bg); }
+.term-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 0 0 10px 14px; background: var(--base-bg); }
 .term-host { position: relative; z-index: 1; flex: 1; min-height: 0; overflow: hidden; }
 /* Make xterm's own chrome see-through so the backdrop (bg + cursor trail)
    shows UNDER the glyphs, not just in the gutters. xterm writes the theme
@@ -872,10 +872,44 @@ html, body {
 .term-host .xterm-viewport {
   background-color: transparent !important;
 }
+/* Resize veil (terminal.ts › attachTerminal): while the pane is actively
+   resizing (the sidebar slide, a window drag) the glyphs hide and sit the
+   burst out — the old grid would slide with the pane's moving edge and then
+   jump at the refit. The backdrop (bg + trail grid) stays; the fresh TUI
+   frame comes back once the refit + repaint have landed.
+   DIRECTIONAL, not a flat fade: an alpha mask 2.5× the pane wide — opaque
+   left span, transparent right span, soft ramp between — slides across, so
+   the reveal SWEEPS left→right (the hide is its mirror, right→left).
+   Asymmetric speeds on purpose: hide fast (beat the sliding text), reveal at
+   the slow soft ease. */
+.term-host .xterm {
+  mask-image: linear-gradient(to right, black 40%, transparent 60%);
+  mask-size: 250% 100%;
+  mask-repeat: no-repeat;
+  mask-position: 0% 0%;
+  transition: mask-position var(--app-duration-slow) var(--ease-out-soft);
+}
+.term-host.term-resizing .xterm {
+  mask-position: 100% 0%;
+  transition-duration: var(--app-duration-fast);
+}
+/* Direction variant (terminal.ts › veil): the sweep follows the pane's moving
+   left edge. Base rules = shrinking pane (sidebar sliding in, edge → right):
+   reveal left→right. .term-resize-rtl = growing pane (sidebar sliding out,
+   edge → left): the mask mirrors, reveal right→left. (Both masks paint fully
+   opaque in the visible state, so stamping the class never shows.) */
+.term-host.term-resize-rtl .xterm {
+  mask-image: linear-gradient(to left, black 40%, transparent 60%);
+  mask-position: 100% 0%;
+}
+.term-host.term-resize-rtl.term-resizing .xterm {
+  mask-position: 0% 0%;
+}
 /* Terminal backdrop (ClaudeTerminalPane): the bg layer under the transparent
-   xterm. ::after paints the trailing cursor glow at --trail-x/y (written by
-   cursorTrail.ts, lerped — the glow chases the pointer) in the workspace
-   identity color. Decorative: pointer-events none. */
+   xterm. cursorTrail.ts appends a canvas here and paints the trailing cursor
+   effect on it — a grid of squares lighting up in the theme's neutral
+   foreground gray as the trail passes (--base-text, resolved in the action).
+   Decorative: pointer-events none. */
 .term-bg {
   position: absolute;
   inset: 0;
@@ -884,16 +918,14 @@ html, body {
   overflow: hidden;
   pointer-events: none;
 }
-.term-bg::after {
-  content: "";
+.term-bg canvas {
   position: absolute;
   inset: 0;
-  background: radial-gradient(
-    320px circle at var(--trail-x, 50%) var(--trail-y, 50%),
-    color-mix(in oklch, var(--ws-accent, var(--app-accent)) 2%, transparent),
-    transparent 70%
-  );
-  opacity: var(--trail-o, 0);
+  /* Pin the CSS size to the pane: the bitmap is DEVICE pixels (node × dpr),
+     and a replaced element ignores inset for sizing — without this the canvas
+     renders at intrinsic (dpr×) size and the grid lands off-cursor. */
+  width: 100%;
+  height: 100%;
 }
 /* Per-theme glyph glow (--base-term-glow, a full text-shadow; a theme sets `none`
    to disable). Works because xterm runs its DOM renderer (real text in spans) —
@@ -992,13 +1024,23 @@ html, body {
   gap: 7px;
   min-width: 0;
   overflow: hidden;
-  padding: 0;
+  /* Hover-chip geometry: the padding gives the hover bg its air; the matching
+     negative margin keeps the text's REST position exactly where the plain
+     label sat. */
+  padding: 2px 5px;
+  margin: -2px -5px;
+  border-radius: var(--radius-lg);
   border: 0;
   background: none;
   font: inherit;
   text-align: left;
   color: inherit;
+  transition: background var(--app-duration-fast) ease;
 }
+.workspace-label:hover { background: var(--app-panel-2); }
+/* Pressed: one step brighter than hover (no raised-er surface token exists —
+   mix a touch of foreground into the hover bg instead). */
+.workspace-label:active { background: color-mix(in oklch, var(--app-panel-2) 85%, var(--app-text)); }
 .workspace-label .path {
   display: inline-block;
   max-width: 100%;
@@ -1012,17 +1054,24 @@ html, body {
   -webkit-user-select: none;
   user-select: none;
 }
+/* The text brightens on the same clock as the icon — one unit. */
+.workspace-label .path,
+.workspace-label .path .dim {
+  transition: color var(--app-duration-fast);
+}
 /* Sidebar-toggle arrow before the breadcrumb (collapse ⇤ / expand ⇥ by
    state). Shares the label's color treatment — dim at rest, bright on hover,
    as ONE unit with the text. flex-shrink 0 — the path text truncates, never
    the affordance. */
-.workspace-label :global(.ws-toggle) {
+.workspace-label .ws-toggle {
   flex-shrink: 0;
   color: var(--app-dim);
   transition: color var(--app-duration-fast);
 }
-/* Hover brightens the WHOLE label — icon, repo, and the dim branch suffix. */
-.workspace-label:hover :global(.ws-toggle),
+/* Hover brightens the WHOLE label — icon, repo, and the dim branch suffix.
+   (Plain descendant selectors: this is a GLOBAL sheet — a Svelte-style
+   :global() wrapper here is invalid CSS and silently kills the whole rule.) */
+.workspace-label:hover .ws-toggle,
 .workspace-label:hover .path,
 .workspace-label:hover .path .dim {
   color: var(--app-text);

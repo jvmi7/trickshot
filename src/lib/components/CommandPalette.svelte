@@ -69,7 +69,14 @@
   }
 </script>
 
-<Command.Dialog bind:open={$commandPaletteOpen} title="Command palette" description="Jump to a workspace or run an action">
+<!-- Spotlight-shaped: wide horizontal bar (over the dialog's sm:max-w-sm
+     default) with a fainter outline ring. -->
+<Command.Dialog
+  bind:open={$commandPaletteOpen}
+  title="Command palette"
+  description="Jump to a workspace or run an action"
+  class="sm:max-w-xl! ring-foreground/5!"
+>
   <Command.Input placeholder="Search workspaces and actions…" />
   <Command.List>
     <Command.Empty>No results.</Command.Empty>
