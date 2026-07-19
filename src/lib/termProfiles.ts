@@ -1,7 +1,7 @@
 // Per-workspace TERMINAL profiles: each worktree's terminal keeps the APP
 // THEME's background (uniform across workspaces) but gets its own ANSI
-// palette, foreground, and — the identity signal — an ACCENT that doubles as
-// the xterm cursor AND the chip left of the workspace name in the sidebar
+// palette and — the identity signal — an ACCENT that IS the terminal's main
+// text color + cursor AND the chip left of the workspace name in the sidebar
 // (plus the header ❯ and fleet icons), so terminal ↔ sidebar mapping is
 // exact. Assignment is stable (path hash → profile). Plain TS on purpose:
 // the palettes are data (classic public schemes), not app styling, so the
@@ -12,9 +12,8 @@ import { workspaceHue } from "./utils";
 export interface TermProfile {
   id: string;
   label: string;
-  fg: string;
-  /** THE identity color: the xterm cursor, the sidebar chip, the header ❯,
-   *  and the fleet icon — one color, everywhere, per workspace. */
+  /** THE identity color: the terminal's MAIN TEXT + cursor, the sidebar chip,
+   *  the header ❯, and the fleet icon — one exact color, everywhere. */
   accent: string;
   /** ANSI 0–15 in slot order (black…white, brightBlack…brightWhite). */
   ansi: [
@@ -41,7 +40,6 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "dracula",
     label: "Dracula",
-    fg: "#f8f8f2",
     accent: "#ff79c6",
     ansi: [
       "#21222c",
@@ -65,7 +63,6 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "nord",
     label: "Nord",
-    fg: "#d8dee9",
     accent: "#88c0d0",
     ansi: [
       "#3b4252",
@@ -89,7 +86,6 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "gruvbox",
     label: "Gruvbox Dark",
-    fg: "#ebdbb2",
     accent: "#fe8019",
     ansi: [
       "#282828",
@@ -113,7 +109,6 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "solarized",
     label: "Solarized Dark",
-    fg: "#839496",
     accent: "#b58900",
     ansi: [
       "#073642",
@@ -137,7 +132,6 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "tokyo",
     label: "Tokyo Night",
-    fg: "#c0caf5",
     accent: "#7aa2f7",
     ansi: [
       "#15161e",
@@ -161,7 +155,6 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "catppuccin",
     label: "Catppuccin Mocha",
-    fg: "#cdd6f4",
     accent: "#94e2d5",
     ansi: [
       "#45475a",
@@ -185,7 +178,6 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "onedark",
     label: "One Dark",
-    fg: "#abb2bf",
     accent: "#c678dd",
     ansi: [
       "#282c34",
@@ -209,7 +201,6 @@ export const TERM_PROFILES: TermProfile[] = [
   {
     id: "monokai",
     label: "Monokai",
-    fg: "#f8f8f2",
     accent: "#a6e22e",
     ansi: [
       "#272822",

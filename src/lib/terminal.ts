@@ -109,13 +109,13 @@ export function themeColors(key?: string) {
     return getComputedStyle(probe).color || undefined;
   };
   if (key) {
-    // Per-workspace terminal PROFILE (termProfiles.ts): its own ANSI palette
-    // + fg, with the CURSOR carrying the workspace's identity accent — the
-    // same color as its sidebar chip. Background stays the APP THEME's for
-    // every workspace (uniform canvas; the accent is the differentiator).
+    // Per-workspace terminal PROFILE (termProfiles.ts): its own ANSI palette,
+    // with the workspace's identity accent as BOTH the main text color and the
+    // cursor — the EXACT color of its sidebar chip. Background stays the APP
+    // THEME's for every workspace (uniform canvas; the accent differentiates).
     const p = profileFor(keyWorktree(key));
     theme.background = resolve("var(--base-bg)");
-    theme.foreground = p.fg;
+    theme.foreground = p.accent;
     theme.cursor = p.accent;
     ANSI_SLOTS.forEach((slot, i) => {
       theme[slot] = p.ansi[i];

@@ -7,7 +7,6 @@ describe("terminal profiles", () => {
     for (const p of TERM_PROFILES) {
       expect(p.ansi).toHaveLength(16);
       for (const c of p.ansi) expect(c).toMatch(HEX);
-      expect(p.fg).toMatch(HEX);
       expect(p.accent).toMatch(HEX);
     }
     // ids + accents stay distinct — the accents ARE the identity signal.
