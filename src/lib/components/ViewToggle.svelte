@@ -6,20 +6,21 @@
   // one again returns to chat.
   import {
     mainView,
-    setMainView,
     toggleMainView,
     activeGitStat,
     activeScriptRun,
     changesOpen,
     setChangesOpen,
+    shellOpen,
+    setShellOpen,
     selectedWorktree,
   } from "../stores";
   import GitPanel from "./GitPanel.svelte";
+  import TerminalPane from "./TerminalPane.svelte";
   import * as Popover from "$lib/components/ui/popover";
   import { Button } from "$lib/components/ui/button";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import FileDiff from "@lucide/svelte/icons/file-diff";
-  import MessageSquare from "@lucide/svelte/icons/message-square";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import Terminal from "@lucide/svelte/icons/terminal";
   import { slidingToggle } from "../slidingHighlight";
@@ -38,25 +39,6 @@
 </script>
 
 <div class="view-toggle" use:slidingToggle>
-  <Tooltip.Root>
-    <Tooltip.Trigger>
-      {#snippet child({ props })}
-        <Button
-          {...props}
-          size="icon-sm"
-          variant="ghost"
-          class="view-toggle-item size-7 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
-          data-active={$mainView === "chat" ? "" : undefined}
-          aria-label="Chat"
-          onclick={() => setMainView("chat")}
-        >
-          <MessageSquare class="size-4" />
-        </Button>
-      {/snippet}
-    </Tooltip.Trigger>
-    <Tooltip.Content>Chat</Tooltip.Content>
-  </Tooltip.Root>
-
   {#if hasChanges && stat}
     <!-- Changes is a POPOVER over the terminal (not a page swap): the ± trigger
          drops the whole git panel in place. -->
@@ -109,24 +91,30 @@
   {/if}
 
   {#if $selectedWorktree}
-    <Tooltip.Root>
-      <Tooltip.Trigger>
+    <!-- Shell is a POPOVER whose session PERSISTS across open/close (the PTY +
+         xterm live in the instance cache; the popover only re-parents them).
+         Esc is IGNORED so it reaches the shell — vim lives there; close by
+         clicking outside or re-clicking the trigger. -->
+    <Popover.Root open={$shellOpen} onOpenChange={setShellOpen}>
+      <Popover.Trigger>
         {#snippet child({ props })}
           <Button
             {...props}
             size="icon-sm"
             variant="ghost"
             class="view-toggle-item size-7 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
-            data-active={$mainView === "term" ? "" : undefined}
+            data-active={$shellOpen ? "" : undefined}
             aria-label="Shell"
-            onclick={() => toggleMainView("term")}
+            title="Shell — a plain terminal in this worktree (the chat pane is the Claude CLI)"
           >
             <Terminal class="size-4" />
           </Button>
         {/snippet}
-      </Tooltip.Trigger>
-      <Tooltip.Content>Shell — a plain terminal in this worktree (the chat pane is the Claude CLI)</Tooltip.Content>
-    </Tooltip.Root>
+      </Popover.Trigger>
+      <Popover.Content align="end" class="w-auto p-0" escapeKeydownBehavior="ignore">
+        <TerminalPane />
+      </Popover.Content>
+    </Popover.Root>
   {/if}
 </div>
 

@@ -160,10 +160,11 @@ export function setSidebarWidth(w: number) {
   sidebarWidth.set(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(w))));
 }
 
-/** Which view the main pane shows for the selected worktree: the chat transcript,
- *  the script "run" output, or the integrated terminal. (Git changes moved to
- *  a header POPOVER — `changesOpen` below — not a page.) Ephemeral UI state. */
-export type MainView = "chat" | "run" | "term";
+/** Which view the main pane shows for the selected worktree: the chat
+ *  transcript or the script "run" output. (Git changes AND the shell terminal
+ *  are header POPOVERS — `changesOpen`/`shellOpen` below — not pages.)
+ *  Ephemeral UI state. */
+export type MainView = "chat" | "run";
 export const mainView = writable<MainView>("chat");
 /** Set the main pane's view (the one mutator — see the store-mutator rule). */
 export function setMainView(v: MainView) {
@@ -182,6 +183,17 @@ export function setChangesOpen(v: boolean) {
 }
 export function toggleChanges() {
   changesOpen.update((v) => !v);
+}
+
+/** Whether the SHELL terminal popover is open. The PTY + xterm scrollback
+ *  persist across open/close (lib/terminal.ts instance cache) — the popover
+ *  only re-parents the same terminal. Ephemeral. */
+export const shellOpen = writable<boolean>(false);
+export function setShellOpen(v: boolean) {
+  shellOpen.set(v);
+}
+export function toggleShell() {
+  shellOpen.update((v) => !v);
 }
 
 /** Whether the ⌘E compose popup is open (a full editor for long prompts,

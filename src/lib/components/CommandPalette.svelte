@@ -13,6 +13,7 @@
     restoreWorkspace,
     setChangesOpen,
     setMainView,
+    toggleShell,
     setTheme,
     repos,
     requestNewWorktree,
@@ -40,6 +41,7 @@
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import Keyboard from "@lucide/svelte/icons/keyboard";
   import PenLine from "@lucide/svelte/icons/pen-line";
+  import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 
   // Flat list of every worktree across repos, labeled repo/branch for search.
   const allWorktrees = $derived(
@@ -108,6 +110,10 @@
         <Command.Item value="chat view" onSelect={() => pick(() => { setCenterView("chat"); setMainView("chat"); })}>
           <MessageSquare class="size-3.5" />
           Go to chat
+        </Command.Item>
+        <Command.Item value="shell terminal zsh" onSelect={() => pick(toggleShell)}>
+          <SquareTerminal class="size-3.5" />
+          Shell terminal
         </Command.Item>
         <Command.Item
           value="compose long prompt editor write"

@@ -38,6 +38,8 @@
     changesOpen,
     setChangesOpen,
     toggleChanges,
+    shellOpen,
+    setShellOpen,
     activateWorktree,
     toggleCommandPalette,
     toggleCompose,
@@ -56,7 +58,6 @@
   import Fleet from "./lib/components/Fleet.svelte";
   import Chat from "./lib/components/Chat.svelte";
   import ThreadPanel from "./lib/components/ThreadPanel.svelte";
-  import TerminalPane from "./lib/components/TerminalPane.svelte";
   import Settings from "./lib/components/Settings.svelte";
   import Welcome from "./lib/components/Welcome.svelte";
   import ComposeDialog from "./lib/components/ComposeDialog.svelte";
@@ -194,7 +195,7 @@
     if ($changesOpen && (gs?.changed ?? 0) === 0 && (gs?.aheadOfDefault ?? 0) === 0)
       setChangesOpen(false);
     if ($mainView === "run" && !$activeScriptRun) setMainView("chat");
-    if ($mainView === "term" && !$selectedWorktree) setMainView("chat");
+    if ($shellOpen && !$selectedWorktree) setShellOpen(false);
   });
 
   // Don't strand a worktree in CLI chat mode when its provider has no CLI
@@ -385,8 +386,6 @@
         <Welcome />
       {:else if $mainView === "run"}
         <RunOutput />
-      {:else if $mainView === "term"}
-        <TerminalPane />
       {:else if !$selectedWorktree}
         <!-- No selection + repos exist: the fleet overview (mission control),
              not a dead-end hint. The palette's "Fleet overview" deselects to

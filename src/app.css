@@ -853,6 +853,8 @@ html, body {
    WebGL/canvas addon is ever added, glyphs become canvas pixels and this rule
    silently stops applying. */
 .term-host .xterm-rows { text-shadow: var(--base-term-glow); }
+/* The shell popover's pane needs explicit dimensions (no flex parent). */
+.term-pane-popover { width: min(760px, 92vw); height: min(64vh, 700px); }
 /* NO scrollbars anywhere in a terminal pane (both axes, both slots). The
    claude pane's is structurally DEAD anyway (the TUI enables mouse reporting
    and scrolls its transcript internally, so xterm's viewport never moves) and
