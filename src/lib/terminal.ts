@@ -338,6 +338,9 @@ export function attachTerminal(
   // Re-sync the theme snapshot to the LIVE CSS vars so xterm's background is
   // pixel-identical to the pane behind it (also picks up theme switches), and
   // the font size to the setting (a cached instance may predate a change).
+  // allowTransparency FIRST: a cached instance created without it CLAMPS the
+  // transparent background's alpha and keeps painting opaque black.
+  inst.term.options.allowTransparency = true;
   inst.term.options.theme = themeColors(key);
   inst.term.options.fontSize = get(terminalFontSize);
   inst.term.focus();
