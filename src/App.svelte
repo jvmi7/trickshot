@@ -35,6 +35,9 @@
     activeGitStat,
     activeScriptRun,
     activeRepo,
+    changesOpen,
+    setChangesOpen,
+    toggleChanges,
     activateWorktree,
     toggleCommandPalette,
     toggleCompose,
@@ -54,12 +57,10 @@
   import Fleet from "./lib/components/Fleet.svelte";
   import Chat from "./lib/components/Chat.svelte";
   import ThreadPanel from "./lib/components/ThreadPanel.svelte";
-  import GitPanel from "./lib/components/GitPanel.svelte";
   import TerminalPane from "./lib/components/TerminalPane.svelte";
   import Settings from "./lib/components/Settings.svelte";
   import Welcome from "./lib/components/Welcome.svelte";
   import ComposeDialog from "./lib/components/ComposeDialog.svelte";
-  import NotificationBell from "./lib/components/NotificationBell.svelte";
   import ShortcutsHelp from "./lib/components/ShortcutsHelp.svelte";
   import UsageIndicator from "./lib/components/UsageIndicator.svelte";
   import { Button } from "./lib/components/ui/button";
@@ -126,7 +127,7 @@
     } else if (e.shiftKey && (k === "d" || k === "p")) {
       e.preventDefault();
       setCenterView("chat");
-      toggleMainView("changes");
+      toggleChanges();
     } else if (!e.shiftKey && k >= "1" && k <= "9") {
       // Jump to the Nth worktree in sidebar order (repos, then their worktrees).
       const flat = get(repos).flatMap((r) => get(worktreesByRepo)[r.path] ?? []);
@@ -191,8 +192,9 @@
   // worktree has no script run.
   $effect(() => {
     const gs = $activeGitStat;
-    if ($mainView === "changes" && (gs?.changed ?? 0) === 0 && (gs?.aheadOfDefault ?? 0) === 0)
-      setMainView("chat");
+    // The Changes POPOVER closes when there's nothing left to review.
+    if ($changesOpen && (gs?.changed ?? 0) === 0 && (gs?.aheadOfDefault ?? 0) === 0)
+      setChangesOpen(false);
     if ($mainView === "run" && !$activeScriptRun) setMainView("chat");
     if ($mainView === "term" && !$selectedWorktree) setMainView("chat");
   });
@@ -375,7 +377,6 @@
              CLI-first chat. -->
         {#if $centerView !== "settings" && $repos.length > 0}
           <UsageIndicator />
-          <NotificationBell />
           <RunScripts />
           <ViewToggle />
         {/if}
@@ -389,8 +390,6 @@
              pane, composer included. Gated on repo count — state, not a flag —
              so it reappears exactly when it's true again. -->
         <Welcome />
-      {:else if $mainView === "changes"}
-        <GitPanel />
       {:else if $mainView === "run"}
         <RunOutput />
       {:else if $mainView === "term"}

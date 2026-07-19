@@ -15,7 +15,7 @@
     unreadByWorktree,
     worktreesByRepo,
   } from "../stores";
-  import { workspaceAccent } from "../utils";
+  import { profileAccent } from "../termProfiles";
   import { Button } from "$lib/components/ui/button";
   import GitBranch from "@lucide/svelte/icons/git-branch";
   import Plus from "@lucide/svelte/icons/plus";
@@ -61,7 +61,7 @@
           {@const gs = $gitStatByWorktree[wt.path]}
           <button class="fleet-card" onclick={() => open(wt.path)} title={wt.path}>
             <div class="fleet-card-head">
-              <span class="shrink-0" style="color: {workspaceAccent(wt.path)}"><GitBranch class="size-3.5" /></span>
+              <span class="shrink-0" style="color: {profileAccent(wt.path)}"><GitBranch class="size-3.5" /></span>
               <span class="fleet-branch">{wt.branch ?? "(detached)"}</span>
               {#if $pendingPermission[wt.path]}
                 <span class="fleet-pending" title="Waiting for permission">!</span>

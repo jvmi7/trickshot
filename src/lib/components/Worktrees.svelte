@@ -34,7 +34,8 @@
   import { generateWorktreeName } from "../branchNames";
   import { toastMessage } from "../toast";
   import { disposeTerminal } from "../terminal";
-  import { basename, relativeTime, workspaceAccent } from "../utils";
+  import { profileAccent } from "../termProfiles";
+  import { basename, relativeTime } from "../utils";
   import type { Worktree } from "../types";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -394,7 +395,7 @@
                     class:busy={$sessionStatus[wt.path] === "busy" ||
                       $sessionStatus[wt.path] === "starting"}
                   ></span>
-                  <span class="wt-ident" style="background: {workspaceAccent(wt.path)}"></span>
+                  <span class="wt-ident" style="background: {profileAccent(wt.path)}"></span>
                   <span class="wt-name">{wt.branch ?? "(detached)"}</span>
                   {#if ($gitStatByWorktree[wt.path]?.changed ?? 0) > 0}
                     {@const gs = $gitStatByWorktree[wt.path]}

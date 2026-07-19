@@ -10,8 +10,12 @@
     toggleMainView,
     activeGitStat,
     activeScriptRun,
+    changesOpen,
+    setChangesOpen,
     selectedWorktree,
   } from "../stores";
+  import GitPanel from "./GitPanel.svelte";
+  import * as Popover from "$lib/components/ui/popover";
   import { Button } from "$lib/components/ui/button";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import FileDiff from "@lucide/svelte/icons/file-diff";
@@ -54,17 +58,19 @@
   </Tooltip.Root>
 
   {#if hasChanges && stat}
-    <Tooltip.Root>
-      <Tooltip.Trigger>
+    <!-- Changes is a POPOVER over the terminal (not a page swap): the ± trigger
+         drops the whole git panel in place. -->
+    <Popover.Root open={$changesOpen} onOpenChange={setChangesOpen}>
+      <Popover.Trigger>
         {#snippet child({ props })}
           <Button
             {...props}
             size="sm"
             variant="ghost"
             class="view-toggle-item h-7 gap-1.5 text-xs text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
-            data-active={$mainView === "changes" ? "" : undefined}
+            data-active={$changesOpen ? "" : undefined}
             aria-label="Changes"
-            onclick={() => toggleMainView("changes")}
+            title="Changes & pull request"
           >
             {#if hasCounts}
               {#if stat.insertions > 0}<span class="diff-add">+{stat.insertions}</span>{/if}
@@ -74,9 +80,11 @@
             {/if}
           </Button>
         {/snippet}
-      </Tooltip.Trigger>
-      <Tooltip.Content>Changes</Tooltip.Content>
-    </Tooltip.Root>
+      </Popover.Trigger>
+      <Popover.Content align="end" class="w-auto p-0">
+        <GitPanel />
+      </Popover.Content>
+    </Popover.Root>
   {/if}
 
   {#if scriptRun}

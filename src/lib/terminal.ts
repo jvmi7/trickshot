@@ -27,6 +27,7 @@ import {
   setStatus,
   terminalFontSize,
 } from "./stores";
+import { profileBg, profileFor } from "./termProfiles";
 import type { TermEnvelope } from "./types";
 import { basename } from "./utils";
 
@@ -92,7 +93,7 @@ const ANSI_SLOTS = [
  *  resolved through a probe element: the `--app-ansi-*` values are `var()`/
  *  `color-mix()` EXPRESSIONS, which xterm's color parser rejects — reading a
  *  probe's computed `color` yields a plain rgb() it accepts. */
-export function themeColors() {
+export function themeColors(key?: string) {
   if (typeof getComputedStyle === "undefined") return {};
   const css = getComputedStyle(document.documentElement);
   const v = (name: string) => css.getPropertyValue(name).trim() || undefined;
@@ -107,16 +108,26 @@ export function themeColors() {
     probe.style.color = expr;
     return getComputedStyle(probe).color || undefined;
   };
-  // Background + cursor carry the SELECTED workspace's identity tint/hue
-  // (stores.ts sets --ws-* on selection, synchronously before attach reads
-  // this) — probe-resolved because color-mix()/var() expressions aren't
-  // parseable by xterm.
-  theme.background = resolve("var(--ws-bg, var(--base-bg))");
-  theme.cursor = resolve("var(--ws-accent, var(--base-accent))");
-  ANSI_SLOTS.forEach((slot, i) => {
-    const resolved = resolve(`var(--app-ansi-${i})`);
-    if (resolved) theme[slot] = resolved;
-  });
+  if (key) {
+    // Per-workspace terminal PROFILE (termProfiles.ts): its own ANSI palette,
+    // fg/cursor, and bg (opacity-blended over the app theme bg — the blend is
+    // a color-mix()/var() expression, so probe-resolve it for xterm).
+    const p = profileFor(keyWorktree(key));
+    theme.background = resolve(profileBg(keyWorktree(key)));
+    theme.foreground = p.fg;
+    theme.cursor = p.cursor;
+    ANSI_SLOTS.forEach((slot, i) => {
+      theme[slot] = p.ansi[i];
+    });
+  } else {
+    // No workspace context: the app theme's terminal colors.
+    theme.background = resolve("var(--base-bg)");
+    theme.cursor = resolve("var(--base-accent)");
+    ANSI_SLOTS.forEach((slot, i) => {
+      const resolved = resolve(`var(--app-ansi-${i})`);
+      if (resolved) theme[slot] = resolved;
+    });
+  }
   probe.remove();
   return theme;
 }
@@ -132,7 +143,7 @@ export function getTerminal(key: string): TermInstance {
       fontFamily: "ui-monospace, Menlo, monospace",
       cursorBlink: true,
       scrollback: 5000,
-      theme: themeColors(),
+      theme: themeColors(key),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -323,7 +334,7 @@ export function attachTerminal(
   // Re-sync the theme snapshot to the LIVE CSS vars so xterm's background is
   // pixel-identical to the pane behind it (also picks up theme switches), and
   // the font size to the setting (a cached instance may predate a change).
-  inst.term.options.theme = themeColors();
+  inst.term.options.theme = themeColors(key);
   inst.term.options.fontSize = get(terminalFontSize);
   inst.term.focus();
 

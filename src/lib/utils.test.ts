@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { basename, relativeTime, workspaceAccent, workspaceHue } from "./utils";
+import { basename, relativeTime, workspaceHue } from "./utils";
 
-describe("workspaceHue / workspaceAccent", () => {
+describe("workspaceHue", () => {
   test("stable and in range", () => {
     const h1 = workspaceHue("/repos/app-worktrees/swift-harbor");
     expect(h1).toBe(workspaceHue("/repos/app-worktrees/swift-harbor"));
@@ -13,9 +13,6 @@ describe("workspaceHue / workspaceAccent", () => {
       ["/a/one", "/a/two", "/a/three", "/b/main", "/c/keen-fjord"].map(workspaceHue),
     );
     expect(hues.size).toBeGreaterThan(3);
-  });
-  test("accent embeds the hue as oklch", () => {
-    expect(workspaceAccent("/a/one")).toBe(`oklch(0.75 0.13 ${workspaceHue("/a/one")}deg)`);
   });
 });
 

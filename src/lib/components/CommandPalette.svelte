@@ -11,6 +11,7 @@
     closeCommandPalette,
     commandPaletteOpen,
     restoreWorkspace,
+    setChangesOpen,
     setMainView,
     setTheme,
     repos,
@@ -118,7 +119,7 @@
         </Command.Item>
         <Command.Item
           value="changes diff pull request pr view"
-          onSelect={() => pick(() => { setCenterView("chat"); setMainView("changes"); })}
+          onSelect={() => pick(() => { setCenterView("chat"); setChangesOpen(true); })}
         >
           <GitPullRequest class="size-3.5" />
           Changes & pull request

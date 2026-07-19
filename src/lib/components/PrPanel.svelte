@@ -4,7 +4,7 @@
   // agent. PR state is fetched on worktree change / after push/create — NOT on
   // every gitRefreshNonce bump, which fires per agent turn (gh is a network
   // call); GitPanel bumps `refreshNonce` when a sync changes remote state.
-  import { setMainView, submitTurnToChat } from "../stores";
+  import { setChangesOpen, submitTurnToChat } from "../stores";
   import * as api from "../api";
   import type { PrInfo } from "../types";
   import { Button } from "$lib/components/ui/button";
@@ -191,7 +191,7 @@
       worktree,
       `Our PR "${pr.title}" (#${pr.number}) has failing CI checks:\n${lines}\n\nInvestigate why they fail and fix them.`,
     );
-    setMainView("chat");
+    setChangesOpen(false);
   }
 </script>
 

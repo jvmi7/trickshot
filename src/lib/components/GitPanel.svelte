@@ -8,7 +8,7 @@
     gitRefreshNonce,
     activeRepo,
     submitTurnToChat,
-    setMainView,
+    setChangesOpen,
     setWorktrees,
     commitMode,
     setCommitMode,
@@ -165,7 +165,7 @@
     void submitTurnToChat(w, formatReviewPrompt([{ ...draft, id: 0 }]));
     lineComment = null;
     lineCommentText = "";
-    setMainView("chat");
+    setChangesOpen(false);
   }
 
   // Send the whole queued review as one turn, then clear it.
@@ -175,7 +175,7 @@
     if (!w || queue.length === 0) return;
     void submitTurnToChat(w, formatReviewPrompt(queue));
     clearReviewQueue(w);
-    setMainView("chat");
+    setChangesOpen(false);
   }
 
   // Lines of the SELECTED file that carry a queued comment — DiffView marks
@@ -841,13 +841,12 @@
 
 <style>
   .git-panel {
-    /* flex:1 claims the full width of `.content` (a flex ROW); without it a
-       COLUMN panel would shrink-to-fit its widest child instead of filling. */
-    flex: 1;
+    /* Sized for the header POPOVER it now lives in (not a page): a fixed
+       comfortable panel, controls on top, working tree below. */
     display: flex;
     flex-direction: column;
-    min-width: 0;
-    height: 100%;
+    width: min(680px, 92vw);
+    height: min(72vh, 760px);
     min-height: 0;
   }
   /* Top control panel: sizes to its content but is capped so the working tree
@@ -860,11 +859,12 @@
     overflow-y: auto;
     border-bottom: 1px solid var(--app-border);
   }
-  /* Bottom working tree: changed-files list (left) beside the diff (right). */
+  /* Bottom working tree: file list stacked over the diff (popover width). */
   .git-work {
     flex: 1;
     min-height: 0;
     display: flex;
+    flex-direction: column;
   }
   .git-head {
     display: flex;
@@ -891,12 +891,12 @@
     padding: 6px 12px;
   }
   .git-list {
-    width: 280px;
     flex-shrink: 0;
+    max-height: 180px;
     overflow-y: auto;
     min-height: 0;
     padding: 4px;
-    border-right: 1px solid var(--app-border);
+    border-bottom: 1px solid var(--app-border);
   }
   .wt-file {
     display: flex;
