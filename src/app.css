@@ -968,10 +968,6 @@ html, body {
   text-align: left;
   color: inherit;
 }
-.workspace-label:hover .path {
-  color: var(--app-text);
-  transition: color var(--app-duration-fast);
-}
 /* When the sidebar is collapsed the content pane slides under the macOS
    traffic lights, so indent the title past them. */
 .sidebar.collapsed ~ .main .workspace-label {
@@ -991,11 +987,19 @@ html, body {
   user-select: none;
 }
 /* Sidebar-toggle arrow before the breadcrumb (collapse ⇤ / expand ⇥ by
-   state), in the workspace identity color. flex-shrink 0 — the path text
-   truncates, never the affordance. */
+   state). Shares the label's color treatment — dim at rest, bright on hover,
+   as ONE unit with the text. flex-shrink 0 — the path text truncates, never
+   the affordance. */
 .workspace-label :global(.ws-toggle) {
   flex-shrink: 0;
-  color: var(--ws-accent, var(--app-accent));
+  color: var(--app-dim);
+  transition: color var(--app-duration-fast);
+}
+/* Hover brightens the WHOLE label — icon, repo, and the dim branch suffix. */
+.workspace-label:hover :global(.ws-toggle),
+.workspace-label:hover .path,
+.workspace-label:hover .path .dim {
+  color: var(--app-text);
 }
 .dim { color: var(--app-dim); }
 
