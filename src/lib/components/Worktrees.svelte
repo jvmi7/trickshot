@@ -10,7 +10,6 @@
     removeWorktreeFromRepo,
     selectedWorktree,
     selectWorktree,
-    sessionStatus,
     clearStatus,
     activateWorktree,
     newWorktreeRequest,
@@ -387,14 +386,6 @@
                     }
                   }}
                 >
-                  <span
-                    class="dot"
-                    class:on={$sessionStatus[wt.path] === "ready" ||
-                      $sessionStatus[wt.path] === "busy" ||
-                      $sessionStatus[wt.path] === "starting"}
-                    class:busy={$sessionStatus[wt.path] === "busy" ||
-                      $sessionStatus[wt.path] === "starting"}
-                  ></span>
                   <span class="wt-ident" style="background: {profileAccent(wt.path)}"></span>
                   <span class="wt-name">{wt.branch ?? "(detached)"}</span>
                   {#if ($gitStatByWorktree[wt.path]?.changed ?? 0) > 0}

@@ -909,10 +909,6 @@ html, body {
 .wt-row:hover { background: var(--app-panel); }
 .wt-row.active { background: var(--app-panel-2); }
 .wt-row .wt-home { color: var(--app-dim); flex-shrink: 0; width: 16px; height: 16px; }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--app-border); flex-shrink: 0; }
-.dot.on { background: var(--base-success); }
-.dot.busy { animation: dot-pulse 1.2s ease-in-out infinite; }
-@keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .wt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Workspace identity chip (color set inline per row from workspaceAccent). */
 .wt-ident { flex-shrink: 0; width: 6px; height: 6px; border-radius: var(--radius-2xs); }
@@ -939,10 +935,10 @@ html, body {
    overlay defaults (12px buttons centered at x≈20/40/60, y≈20). */
 .traffic-pill {
   position: fixed;
-  top: 7px;
+  top: 4px;
   left: 8px;
-  width: 66px;
-  height: 26px;
+  width: 70px;
+  height: 25px;
   border-radius: 999px;
   background: color-mix(in oklch, var(--base-text) 9%, var(--app-shell));
   z-index: var(--app-z-chrome);
