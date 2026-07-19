@@ -386,7 +386,7 @@
                     }
                   }}
                 >
-                  <span class="wt-ident" style="background: {profileAccent(wt.path)}"></span>
+                  <span class="wt-ident" style="color: {profileAccent(wt.path)}"></span>
                   <span class="wt-name">{wt.branch ?? "(detached)"}</span>
                   {#if ($gitStatByWorktree[wt.path]?.changed ?? 0) > 0}
                     {@const gs = $gitStatByWorktree[wt.path]}
