@@ -929,15 +929,27 @@ html, body {
 .chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 /* workspace path shown inline in the content column's top bar (Header), as a
    subtle rounded chip. */
-/* Left-aligned in the header's flex flow (the first slot). */
+/* Left-aligned in the header's flex flow (the first slot). A BUTTON now —
+   clicking the project/branch breadcrumb toggles the sidebar (the floating
+   toggle is gone); reset the button chrome to plain text. */
 .workspace-label {
   min-width: 0;
   overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
 }
-/* When the sidebar is collapsed the content pane slides under the traffic lights
-   + floating sidebar toggle, so indent the title past them. */
+.workspace-label:hover .path {
+  color: var(--app-text);
+  transition: color var(--app-duration-fast);
+}
+/* When the sidebar is collapsed the content pane slides under the macOS
+   traffic lights, so indent the title past them. */
 .sidebar.collapsed ~ .main .workspace-label {
-  padding-left: 92px;
+  padding-left: 76px;
 }
 .workspace-label .path {
   display: inline-block;

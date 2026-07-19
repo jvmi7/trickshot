@@ -49,7 +49,6 @@
   import ClaudeTerminalPane from "./lib/components/ClaudeTerminalPane.svelte";
   import CommandPalette from "./lib/components/CommandPalette.svelte";
   import Header from "./lib/components/Header.svelte";
-  import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
   import ViewToggle from "./lib/components/ViewToggle.svelte";
   import RunScripts from "./lib/components/RunScripts.svelte";
   import RunOutput from "./lib/components/RunOutput.svelte";
@@ -67,7 +66,6 @@
   import { Toaster } from "./lib/components/ui/sonner";
   import * as Tooltip from "./lib/components/ui/tooltip";
   import { basename } from "./lib/utils";
-  import PanelLeft from "@lucide/svelte/icons/panel-left";
   import SettingsIcon from "@lucide/svelte/icons/settings";
 
   // Header breadcrumb: `repo / branch` reads better than the raw absolute path
@@ -302,19 +300,6 @@
 <ComposeDialog />
 <CommandPalette />
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
-  <!-- Sidebar toggle floats over the top-left (just past the traffic lights) so
-       it stays put when the sidebar slides away and can always reopen it. -->
-  <Tooltip.Root>
-    <Tooltip.Trigger>
-      {#snippet child({ props })}
-        <HeaderIconButton {...props} onclick={toggleSidebar} aria-label="Toggle sidebar">
-          <PanelLeft />
-        </HeaderIconButton>
-      {/snippet}
-    </Tooltip.Trigger>
-    <Tooltip.Content>{$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}</Tooltip.Content>
-  </Tooltip.Root>
-
   <aside class="sidebar" class:collapsed={!$sidebarOpen}>
     <!-- empty strip aligning the worktree list's top with the content's top bar
          and clearing the traffic lights + floating toggle; the sidebar's right
@@ -350,7 +335,15 @@
     <!-- top bar: the workspace path sits inline in the header band. -->
     <Header>
       {#snippet left()}
-        <div class="workspace-label">
+        <!-- The breadcrumb IS the sidebar toggle (no separate floating button):
+             clicking the project/branch label collapses/expands the sidebar. -->
+        <button
+          type="button"
+          class="workspace-label"
+          onclick={toggleSidebar}
+          aria-label={$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+          title={$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+        >
           {#if $centerView === "settings"}
             <span class="path">Settings</span>
           {:else if $selectedWorktree}
@@ -366,7 +359,7 @@
           {:else}
             <span class="dim">select or create a worktree on the left</span>
           {/if}
-        </div>
+        </button>
       {/snippet}
       {#snippet actions()}
         <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
