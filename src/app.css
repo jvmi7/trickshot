@@ -934,10 +934,12 @@ html, body {
    drag region behind stay fully interactive. Geometry mirrors the macOS
    overlay defaults (12px buttons centered at x≈20/40/60, y≈20). */
 .traffic-pill {
+  /* Calibrated against screenshots: the lights' bbox ≈ x 12→64, center-y
+     ≈ 15.5 — 6px padding around that. Adjust these four values to realign. */
   position: fixed;
-  top: 4px;
-  left: 8px;
-  width: 70px;
+  top: 3px;
+  left: 6px;
+  width: 64px;
   height: 25px;
   border-radius: 999px;
   background: color-mix(in oklch, var(--base-text) 9%, var(--app-shell));

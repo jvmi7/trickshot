@@ -111,7 +111,13 @@
           </Button>
         {/snippet}
       </Popover.Trigger>
-      <Popover.Content align="end" class="w-auto p-0" escapeKeydownBehavior="ignore">
+      <!-- animate-none: xterm measures its glyph cells at attach; the default
+           zoom-in transform scales those measurements and garbles the grid. -->
+      <Popover.Content
+        align="end"
+        class="w-auto p-0 data-[state=open]:animate-none data-[state=closed]:animate-none"
+        escapeKeydownBehavior="ignore"
+      >
         <TerminalPane />
       </Popover.Content>
     </Popover.Root>
