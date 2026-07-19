@@ -968,16 +968,6 @@ html, body {
 .wt-row.active { background: var(--app-panel-2); }
 .wt-row .wt-home { color: var(--app-dim); flex-shrink: 0; width: 16px; height: 16px; }
 .wt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Workspace identity glyph: a 3x3 dot-matrix in the workspace accent (the
-   inline per-row `color`; the tiled gradient reads currentColor). One element,
-   no per-dot DOM: a 4px tile with a 1.2px dot, repeated over a 12px square. */
-.wt-ident {
-  flex-shrink: 0;
-  width: 12px;
-  height: 12px;
-  background-image: radial-gradient(circle 1.2px at 2px 2px, currentColor 99%, transparent);
-  background-size: 4px 4px;
-}
 /* Per-row diffstat glance (colors: the shared .diff-add/.diff-del). */
 .wt-stat { flex-shrink: 0; display: inline-flex; gap: 3px; font-size: var(--text-2xs); }
 /* Archived-row age ("2d ago"); exact date in the title. */

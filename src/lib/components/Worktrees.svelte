@@ -42,6 +42,7 @@
   import * as Tooltip from "$lib/components/ui/tooltip";
   import * as ContextMenu from "$lib/components/ui/context-menu";
   import IconButton from "./IconButton.svelte";
+  import IdentityGlyph from "./IdentityGlyph.svelte";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import Plus from "@lucide/svelte/icons/plus";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
@@ -386,7 +387,7 @@
                     }
                   }}
                 >
-                  <span class="wt-ident" style="color: {profileAccent(wt.path)}"></span>
+                  <IdentityGlyph seed={wt.path} color={profileAccent(wt.path)} />
                   <span class="wt-name">{wt.branch ?? "(detached)"}</span>
                   {#if ($gitStatByWorktree[wt.path]?.changed ?? 0) > 0}
                     {@const gs = $gitStatByWorktree[wt.path]}
