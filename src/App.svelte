@@ -68,6 +68,8 @@
   import * as Tooltip from "./lib/components/ui/tooltip";
   import { basename } from "./lib/utils";
   import SettingsIcon from "@lucide/svelte/icons/settings";
+  import ArrowLeftToLine from "@lucide/svelte/icons/arrow-left-to-line";
+  import ArrowRightFromLine from "@lucide/svelte/icons/arrow-right-from-line";
 
   // Header breadcrumb: `repo / branch` reads better than the raw absolute path
   // (which survives as the tooltip). Branch comes from the worktree list.
@@ -349,6 +351,13 @@
           aria-label={$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           title={$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
         >
+          <!-- The toggle affordance: collapse-arrow while the sidebar shows,
+               expand-arrow while hidden (replaces the ❯ prompt glyph). -->
+          {#if $sidebarOpen}
+            <ArrowLeftToLine class="ws-toggle size-3.5" />
+          {:else}
+            <ArrowRightFromLine class="ws-toggle size-3.5" />
+          {/if}
           {#if $centerView === "settings"}
             <span class="path">Settings</span>
           {:else if $selectedWorktree}

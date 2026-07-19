@@ -857,6 +857,9 @@ html, body {
    content is an AUTO-HEIGHT flex column, where the base rule's flex: 1 means
    basis 0 and the pane collapses to nothing (only the absolute fade shows). */
 .term-pane-popover { flex: none; width: min(760px, 92vw); height: min(64vh, 700px); }
+/* No top fade in the popover — that's a chat-pane reading-edge treatment; a
+   small floating panel just wants its content crisp to the edge. */
+.term-pane-popover::before { content: none; }
 /* NO scrollbars anywhere in a terminal pane (both axes, both slots). The
    claude pane's is structurally DEAD anyway (the TUI enables mouse reporting
    and scrolls its transcript internally, so xterm's viewport never moves) and
@@ -953,6 +956,9 @@ html, body {
    clicking the project/branch breadcrumb toggles the sidebar (the floating
    toggle is gone); reset the button chrome to plain text. */
 .workspace-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   min-width: 0;
   overflow: hidden;
   padding: 0;
@@ -984,11 +990,11 @@ html, body {
   -webkit-user-select: none;
   user-select: none;
 }
-/* Prompt glyph before the repo/branch breadcrumb — the header reads as a shell
-   prompt line (terminal aesthetic). Accent-colored like the TUI's own caret. */
-.workspace-label .path::before {
-  content: "❯ ";
-  /* Workspace identity hue (stores.ts sets --ws-accent per selection). */
+/* Sidebar-toggle arrow before the breadcrumb (collapse ⇤ / expand ⇥ by
+   state), in the workspace identity color. flex-shrink 0 — the path text
+   truncates, never the affordance. */
+.workspace-label :global(.ws-toggle) {
+  flex-shrink: 0;
   color: var(--ws-accent, var(--app-accent));
 }
 .dim { color: var(--app-dim); }
