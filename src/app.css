@@ -858,8 +858,10 @@ html, body {
    basis 0 and the pane collapses to nothing (only the absolute fade shows). */
 .term-pane-popover { flex: none; width: min(760px, 92vw); height: min(64vh, 700px); }
 /* No top fade in the popover — that's a chat-pane reading-edge treatment; a
-   small floating panel just wants its content crisp to the edge. */
-.term-pane-popover::before { content: none; }
+   small floating panel just wants its content crisp to the edge. (Double
+   class: the fade rule sets content:"" LATER in the file, so this must win
+   on specificity, not order.) */
+.term-pane.term-pane-popover::before { content: none; }
 /* NO scrollbars anywhere in a terminal pane (both axes, both slots). The
    claude pane's is structurally DEAD anyway (the TUI enables mouse reporting
    and scrolls its transcript internally, so xterm's viewport never moves) and
