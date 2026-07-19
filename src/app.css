@@ -856,7 +856,7 @@ html, body {
 /* The shell popover's pane: explicit dimensions, and flex: none — the popover
    content is an AUTO-HEIGHT flex column, where the base rule's flex: 1 means
    basis 0 and the pane collapses to nothing (only the absolute fade shows). */
-.term-pane-popover { flex: none; width: min(760px, 92vw); height: min(64vh, 700px); }
+.term-pane-popover { flex: none; width: min(760px, 92vw); height: min(64vh, 700px); padding-top: 14px; }
 /* No top fade in the popover — that's a chat-pane reading-edge treatment; a
    small floating panel just wants its content crisp to the edge. (Double
    class: the fade rule sets content:"" LATER in the file, so this must win
