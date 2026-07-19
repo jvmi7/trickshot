@@ -303,10 +303,6 @@
 <ComposeDialog />
 <CommandPalette />
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
-  <!-- Decorative pill behind the native macOS traffic lights (they draw over
-       the webview under titleBarStyle: Overlay). Theme-adaptive and
-       click-through; geometry mirrors the overlay defaults. -->
-  <div class="traffic-pill" aria-hidden="true"></div>
   <aside class="sidebar" class:collapsed={!$sidebarOpen}>
     <!-- empty strip aligning the worktree list's top with the content's top bar
          and clearing the traffic lights + floating toggle; the sidebar's right
