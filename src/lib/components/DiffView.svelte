@@ -7,6 +7,7 @@
   // the +/- prefix kept literal and the row's add/del background preserved.
   // Prop-driven primitive: the optional `onLineComment` callback (review
   // comments on a diff line) keeps the store/agent wiring in the parent.
+  import { pairChanges, splitCommon, worthHighlighting } from "$lib/diffIntraline";
   import { escapeHtml, highlightCode, langFromPath } from "$lib/highlight";
   import MessageSquarePlus from "@lucide/svelte/icons/message-square-plus";
 
@@ -14,12 +15,16 @@
     diff,
     path,
     onLineComment,
+    commentedLines,
   }: {
     diff: string;
     path?: string | null;
     /** When set, code rows grow a hover affordance; clicking it hands back the
      *  line text + its enclosing @@ hunk header for a review comment. */
     onLineComment?: (ctx: { line: string; hunk: string | null }) => void;
+    /** Lines (exact text, marker included) with a queued review comment — their
+     *  gutter glyph stays visible/accented so the review-in-progress shows. */
+    commentedLines?: ReadonlySet<string>;
   } = $props();
 
   const MAX_LINES = 2000;
@@ -38,6 +43,49 @@
       return current;
     });
   });
+  // Old/new line numbers per shown row, derived from the @@ hunk headers in the
+  // same one-pass style as hunkFor: ctx advances both counters, add only the new
+  // side, del only the old side. null = no number on that side.
+  const lineNos = $derived.by(() => {
+    let o = 0;
+    let n = 0;
+    return shown.map((l): { o: number | null; n: number | null } => {
+      const k = kind(l);
+      if (k === "hunk") {
+        const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l);
+        o = Number.parseInt(m?.[1] ?? "0", 10);
+        n = Number.parseInt(m?.[2] ?? "0", 10);
+        return { o: null, n: null };
+      }
+      if (k === "add") return { o: null, n: n++ };
+      if (k === "del") return { o: o++, n: null };
+      if (k === "ctx") return { o: o++, n: n++ };
+      return { o: null, n: null };
+    });
+  });
+  // Gutter width scales with the file: enough ch for the largest number shown.
+  const noWidth = $derived.by(() => {
+    let max = 0;
+    for (const { o, n } of lineNos) max = Math.max(max, o ?? 0, n ?? 0);
+    return Math.max(3, String(max).length);
+  });
+  // Paired -/+ rows (equal adjacent runs) get intraline highlights — see
+  // diffIntraline.ts for the pure pairing/split logic.
+  const kinds = $derived(shown.map((l) => kind(l)));
+  const pairs = $derived(pairChanges(kinds));
+  // A pure rename produces no code rows at all — surface it instead of the
+  // misleading "No changes" empty state. (Rename meta lines are filtered from
+  // `content`, so scan the raw lines.)
+  const rename = $derived.by(() => {
+    let from: string | null = null;
+    let to: string | null = null;
+    for (const l of lines) {
+      if (l.startsWith("rename from ")) from = l.slice("rename from ".length);
+      else if (l.startsWith("rename to ")) to = l.slice("rename to ".length);
+      if (from && to) break;
+    }
+    return from && to ? { from, to } : null;
+  });
   // Highlighting is per-line (no cross-line context), the lightweight tradeoff:
   // a line inside a block comment may mis-color, but the DOM stays bounded and
   // there's no whole-file reconstruction. "" when the type is unknown → escaped
@@ -48,6 +96,7 @@
   function kind(line: string): string {
     if (line.startsWith("@@")) return "hunk";
     if (line.startsWith("+++") || line.startsWith("---")) return "meta";
+    if (line.startsWith("Binary files ")) return "binary";
     if (
       line.startsWith("diff ") ||
       line.startsWith("index ") ||
@@ -64,10 +113,30 @@
 
   /** Render one diff line to safe HTML. Only the code rows are syntax-coloured,
    *  and only when the file type is known; the +/- prefix stays literal so it
-   *  never gets swept into the highlighter. Everything routes through an escape
-   *  (here or inside highlightCode), so {@html} is XSS-safe under the app CSP. */
-  function render(line: string, k: string): string {
+   *  never gets swept into the highlighter. A -/+ row paired with its partner
+   *  gets an intraline mark on the changed segment INSTEAD of syntax colors
+   *  (interleaving hljs spans with the mark span would mangle both; the mark is
+   *  the more useful signal). Everything routes through an escape (here or
+   *  inside highlightCode), so {@html} is XSS-safe under the app CSP. */
+  function render(line: string, k: string, i: number): string {
     const text = line || " ";
+    if (k === "add" || k === "del") {
+      const j = pairs.get(i);
+      if (j !== undefined) {
+        const a = text.slice(1);
+        const b = (shown[j] ?? " ").slice(1);
+        const { pre, suf } = splitCommon(a, b);
+        if (worthHighlighting(a, b, pre, suf)) {
+          const mid = a.slice(pre, a.length - suf);
+          return (
+            escapeHtml(text.slice(0, 1)) +
+            escapeHtml(a.slice(0, pre)) +
+            (mid ? `<span class="ln-seg">${escapeHtml(mid)}</span>` : "") +
+            escapeHtml(a.slice(a.length - suf))
+          );
+        }
+      }
+    }
     if (lang && (k === "add" || k === "del" || k === "ctx")) {
       return escapeHtml(text.slice(0, 1)) + highlightCode(text.slice(1), lang);
     }
@@ -76,13 +145,20 @@
 </script>
 
 {#if shown.length === 0}
-  <div class="diff-empty empty-state">No changes in this file.</div>
+  {#if rename}
+    <div class="diff-empty empty-state">Renamed {rename.from} → {rename.to}</div>
+  {:else}
+    <div class="diff-empty empty-state">No changes in this file.</div>
+  {/if}
 {:else}
   <div class="diff">
     {#each shown as line, i (i)}
       {@const k = kind(line)}
-      {#if onLineComment && (k === "add" || k === "del" || k === "ctx")}
-        <div class="ln {k} commentable">
+      {@const code = k === "add" || k === "del" || k === "ctx"}
+      {#if k === "binary"}
+        <div class="ln meta">Binary file — contents not shown</div>
+      {:else if onLineComment && code}
+        <div class="ln {k} commentable" class:noted={commentedLines?.has(line)}>
           <button
             class="ln-comment"
             title="Comment on this line (sends to the agent)"
@@ -90,9 +166,17 @@
             onclick={() => onLineComment({ line, hunk: hunkFor[i] ?? null })}
           >
             <MessageSquarePlus class="size-3" />
-          </button>{@html render(line, k)}</div>
+          </button><span class="ln-no" style="width: {noWidth}ch">{lineNos[i]?.o ?? ""}</span><span
+            class="ln-no"
+            style="width: {noWidth}ch">{lineNos[i]?.n ?? ""}</span
+          >{@html render(line, k, i)}</div>
+      {:else if code}
+        <div class="ln {k}"><span class="ln-no" style="width: {noWidth}ch">{lineNos[i]?.o ?? ""}</span><span
+            class="ln-no"
+            style="width: {noWidth}ch">{lineNos[i]?.n ?? ""}</span
+          >{@html render(line, k, i)}</div>
       {:else}
-        <div class="ln {k}">{@html render(line, k)}</div>
+        <div class="ln {k}">{@html render(line, k, i)}</div>
       {/if}
     {/each}
     {#if hidden > 0}
@@ -113,6 +197,16 @@
     display: block;
     white-space: pre;
     padding: 0 8px;
+  }
+  /* Old/new line-number gutter. Width is set inline (digit-count-scaled);
+     user-select: none keeps copied diff text free of the numbers. */
+  .ln-no {
+    display: inline-block;
+    text-align: right;
+    margin-right: 1ch;
+    color: var(--app-dim);
+    opacity: 0.65;
+    user-select: none;
   }
   /* Commentable rows reserve a slim gutter; the glyph appears on row hover. */
   .ln.commentable {
@@ -139,6 +233,11 @@
   .ln.commentable:hover .ln-comment {
     opacity: 1;
   }
+  /* A queued comment keeps its glyph visible + accented (review-in-progress). */
+  .ln.noted .ln-comment {
+    opacity: 1;
+    color: var(--app-accent);
+  }
   .ln-comment:hover {
     color: var(--app-accent);
     background: color-mix(in oklch, var(--app-accent) 14%, transparent);
@@ -152,6 +251,16 @@
   }
   .del {
     background: color-mix(in oklch, var(--app-danger) 16%, transparent);
+  }
+  /* Intraline mark: the changed segment of a paired -/+ row, a stronger tint
+     over the row's own wash (`:global` — the span arrives via {@html}). */
+  .add :global(.ln-seg) {
+    background: color-mix(in oklch, var(--base-success) 38%, transparent);
+    border-radius: var(--radius-2xs);
+  }
+  .del :global(.ln-seg) {
+    background: color-mix(in oklch, var(--app-danger) 38%, transparent);
+    border-radius: var(--radius-2xs);
   }
   .hunk {
     color: var(--app-accent);

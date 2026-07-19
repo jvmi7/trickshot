@@ -12,6 +12,7 @@
     selectedWorktree,
   } from "../stores";
   import * as api from "../api";
+  import { toastError } from "../toast";
   import { Button } from "$lib/components/ui/button";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
   import * as Tooltip from "$lib/components/ui/tooltip";
@@ -41,7 +42,10 @@
       await api.runScript(repo.path, w, name);
       setMainView("run"); // surface the output as it starts
     } catch (e) {
+      // The header row can only fit a short label — the full error goes to a
+      // toast (same inline-visibility bar as the git panel's errors).
       error = String(e);
+      toastError(String(e));
     }
   }
 
@@ -53,6 +57,7 @@
       await api.stopScript(w);
     } catch (e) {
       error = String(e);
+      toastError(String(e));
     }
   }
 </script>
@@ -66,11 +71,11 @@
             {...props}
             size="sm"
             variant="ghost"
-            class="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            class="h-8 gap-1.5 text-sm text-muted-foreground hover:text-foreground"
             onclick={stop}
             aria-label="Stop script"
           >
-            <Square class="size-3 fill-current" />
+            <Square class="size-3.5 fill-current" />
             {$activeScriptRun?.name}
           </Button>
         {/snippet}
@@ -85,11 +90,11 @@
             {...props}
             size="sm"
             variant="ghost"
-            class="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            class="h-8 gap-1.5 text-sm text-muted-foreground hover:text-foreground"
             onclick={() => runScripts[0] && start(runScripts[0].name)}
             aria-label="Run script"
           >
-            <Play class="size-3 fill-current" />
+            <Play class="size-3.5 fill-current" />
             Run
           </Button>
         {/snippet}
@@ -104,12 +109,12 @@
             {...props}
             size="sm"
             variant="ghost"
-            class="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground"
+            class="h-8 gap-1 text-sm text-muted-foreground hover:text-foreground"
             aria-label="Run a script"
           >
-            <Play class="size-3 fill-current" />
+            <Play class="size-3.5 fill-current" />
             Run
-            <ChevronDown class="size-3" />
+            <ChevronDown class="size-3.5" />
           </Button>
         {/snippet}
       </DropdownMenu.Trigger>

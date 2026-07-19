@@ -70,7 +70,9 @@ fn is_valid_session_id(id: &str) -> bool {
 /// LOGIN shell with fixed strings (no interpolation — nothing user-controlled
 /// enters these commands). The PATH is exported into the CLI's PTY so claude's
 /// own subprocesses (its Bash tool) see the user's real environment.
-fn claude_cli() -> Result<(String, String), String> {
+/// pub(crate): `generate.rs` reuses it to run one-shot `claude -p` generations
+/// rather than re-resolving the binary.
+pub(crate) fn claude_cli() -> Result<(String, String), String> {
     #[cfg(not(unix))]
     {
         return Err("CLI chat mode is not supported on this platform yet".to_string());
@@ -160,6 +162,17 @@ fn drain_utf8(carry: &mut Vec<u8>) -> Option<String> {
     }
 }
 
+/// Whether the user's `claude` CLI resolves on the login shell's PATH — the
+/// onboarding preflight (Welcome). Distinct from `check_auth` (credentials):
+/// this answers "is the binary even installed?". Async + spawn_blocking: the
+/// first call shells the login shell (OnceLock-cached after).
+#[tauri::command]
+pub async fn check_cli() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || Ok(claude_cli().is_ok()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Open (or no-op if already open) a PTY for `worktree`. By default it runs the
 /// user's login shell with cwd = the worktree; `launch: "claude"` instead runs
 /// the user's Claude Code CLI (optionally `--resume <resumeSessionId>`) on a
@@ -175,7 +188,7 @@ pub async fn term_open(
     cols: u16,
     launch: Option<String>,
     resume_session_id: Option<String>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let launch = parse_launch(launch.as_deref())?;
     if let Some(id) = &resume_session_id {
         if !is_valid_session_id(id) {
@@ -199,7 +212,9 @@ pub async fn term_open(
         // start_session).
         let mut map = state.lock();
         if map.contains_key(&key) {
-            return Ok(());
+            // Already alive — report it so the webview knows no fresh TUI
+            // paint is coming (a reloaded webview must force a repaint).
+            return Ok(false);
         }
 
         let pair = native_pty_system()
@@ -294,7 +309,7 @@ pub async fn term_open(
             );
         });
 
-        Ok(())
+        Ok(true)
     })
     .await
     .map_err(|e| e.to_string())?

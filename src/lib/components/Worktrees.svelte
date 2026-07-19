@@ -26,11 +26,16 @@
     archivedWorkspaces,
     addArchived,
     removeArchived,
+    restoreWorkspace,
+    gitStatByWorktree,
     type ArchivedWorkspace,
   } from "../stores";
   import * as api from "../api";
+  import { generateWorktreeName } from "../branchNames";
+  import { toastMessage } from "../toast";
   import { disposeTerminal } from "../terminal";
-  import { basename } from "../utils";
+  import { profileAccent } from "../termProfiles";
+  import { basename, relativeTime } from "../utils";
   import type { Worktree } from "../types";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -38,7 +43,7 @@
   import * as Tooltip from "$lib/components/ui/tooltip";
   import * as ContextMenu from "$lib/components/ui/context-menu";
   import IconButton from "./IconButton.svelte";
-  import House from "@lucide/svelte/icons/house";
+  import IdentityGlyph from "./IdentityGlyph.svelte";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import Plus from "@lucide/svelte/icons/plus";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
@@ -89,8 +94,9 @@
     }
   }
 
-  // ⌘⇧N / the palette ask for a new worktree via this nonce: open the inline
-  // create field for the selected worktree's repo (or the first repo).
+  // ⌘⇧N / the palette / the fleet ask for a new worktree via this nonce:
+  // instantly create one (auto-named) for the selected worktree's repo (or the
+  // first repo) — no naming prompt on the fast path.
   let lastCreateReq = $state(0);
   $effect(() => {
     const req = $newWorktreeRequest;
@@ -99,7 +105,7 @@
     const target =
       $repos.find((r) => ($worktreesByRepo[r.path] ?? []).some((w) => w.path === $selectedWorktree))
         ?.path ?? $repos[0]?.path;
-    if (target) startCreate(target);
+    if (target) void createAuto(target);
   });
 
   async function startCreate(repoPath: string) {
@@ -109,8 +115,9 @@
     branchInput?.focus();
   }
 
-  async function create(repoPath: string) {
-    const branch = newBranch.trim();
+  // The ONE create path: makes the worktree, selects it, and fires the repo's
+  // setup script. The manual input and the auto-name flow both land here.
+  async function createWith(repoPath: string, branch: string) {
     if (!branch || creating) return;
     creating = true;
     error = "";
@@ -139,11 +146,28 @@
     }
   }
 
-  // Begin removal/archival: if the worktree has uncommitted work, open the
-  // confirm Dialog first (both force-remove the dir, which discards it);
-  // otherwise proceed straight away. NOTE: `e` takes an explicit default, not
-  // a `?:` optional — Svelte's TS stripper leaves the bare `e?` in the output,
-  // which JavaScriptCore (the Tauri webview) rejects as a syntax error.
+  function create(repoPath: string) {
+    return createWith(repoPath, newBranch.trim());
+  }
+
+  // One-click create: a generated friendly name, no prompt (the default path —
+  // ⌥-click the + for the manual input). Collision set = this repo's worktree
+  // branches + its archived branches; an unknown plain-git branch colliding is
+  // vanishingly rare (1600 pairs) and harmlessly checks that branch out.
+  function createAuto(repoPath: string) {
+    const taken = new Set<string>();
+    for (const w of $worktreesByRepo[repoPath] ?? []) if (w.branch) taken.add(w.branch);
+    for (const a of $archivedWorkspaces) if (a.repoPath === repoPath) taken.add(a.branch);
+    return createWith(repoPath, generateWorktreeName(taken));
+  }
+
+  // Begin removal/archival. Remove ALWAYS confirms — it permanently drops the
+  // worktree AND its chat history, clean tree or not (an accidental click must
+  // not be destructive). Archive of a CLEAN tree proceeds immediately but gets
+  // an Undo toast (restore is lossless); a dirty tree confirms first (the
+  // force-remove discards uncommitted work). NOTE: `e` takes an explicit
+  // default, not a `?:` optional — Svelte's TS stripper leaves the bare `e?`
+  // in the output, which JavaScriptCore rejects as a syntax error.
   async function requestAction(
     kind: "remove" | "archive",
     repoPath: string,
@@ -152,16 +176,17 @@
   ) {
     e?.stopPropagation();
     error = "";
+    let fileCount = 0;
     try {
-      const st = await api.worktreeStatus(wt.path);
-      if (st.files.length > 0) {
-        confirmAction = { kind, repoPath, wt, fileCount: st.files.length };
-        return;
-      }
+      fileCount = (await api.worktreeStatus(wt.path)).files.length;
     } catch {
-      // status check failed (e.g. not a git dir) — proceed
+      // status check failed (e.g. not a git dir) — treat as clean
     }
-    await (kind === "archive" ? doArchive(repoPath, wt) : doRemove(repoPath, wt));
+    if (kind === "remove" || fileCount > 0) {
+      confirmAction = { kind, repoPath, wt, fileCount };
+      return;
+    }
+    await doArchive(repoPath, wt);
   }
 
   // Force-remove the worktree and drop all of its local state.
@@ -209,30 +234,32 @@
       clearStatus(wt.path);
       removeScriptRun(wt.path);
       removeWorktreeFromRepo(repoPath, wt.path);
-      addArchived({
+      const entry: ArchivedWorkspace = {
         repoPath,
         repoName: basename(repoPath),
         branch: wt.branch,
         path: wt.path,
         archivedAt: Date.now(),
-      });
+      };
+      addArchived(entry);
       if ($selectedWorktree === wt.path) selectWorktree(null);
+      // Archiving is lossless (restore revives chat + context) — offer the
+      // instant round-trip instead of making the action feel scary.
+      toastMessage(`Archived ${wt.branch}`, {
+        action: { label: "Undo", onClick: () => void restoreWorkspace(entry).catch(() => {}) },
+      });
     } catch (err) {
       error = String(err);
     }
   }
 
-  // Restore an archived workspace: recreate the worktree from its branch (same
-  // deterministic path → same transcript/session keys) and select it. Re-adds
-  // the repo to the sidebar if it was removed meanwhile (addRepo dedupes).
+  // Restore an archived workspace — the shared flow lives in session.ts
+  // (`restoreWorkspace`, also the palette's path); this just owns the
+  // sidebar's local error surface.
   async function restoreArchived(entry: ArchivedWorkspace) {
     error = "";
     try {
-      const wt = await api.createWorktree(entry.repoPath, entry.branch);
-      addRepo({ path: entry.repoPath, name: entry.repoName });
-      addWorktree(entry.repoPath, wt);
-      removeArchived(entry.repoPath, entry.branch);
-      await select(wt);
+      await restoreWorkspace(entry);
     } catch (e) {
       error = String(e);
     }
@@ -303,13 +330,14 @@
                       {...props}
                       class="opacity-0 group-hover/repo:opacity-100"
                       aria-label="New worktree"
-                      onclick={() => startCreate(repo.path)}
+                      onclick={(e: MouseEvent) =>
+                        e.altKey ? startCreate(repo.path) : void createAuto(repo.path)}
                     >
                       <Plus />
                     </IconButton>
                   {/snippet}
                 </Tooltip.Trigger>
-                <Tooltip.Content>New worktree</Tooltip.Content>
+                <Tooltip.Content>New worktree — auto-named (⌥-click to name it)</Tooltip.Content>
               </Tooltip.Root>
             </div>
           {/snippet}
@@ -324,16 +352,17 @@
 
       {#if !collapsed[repo.path]}
         {#if creatingFor === repo.path}
+          <!-- No blur-to-cancel: a stray click (or the OS dialog stealing focus)
+               must not discard a half-typed name. Esc cancels; Enter creates. -->
           <Input
             class="my-1"
-            placeholder="branch name…  (Enter)"
+            placeholder="branch name…  (Enter, Esc cancels)"
             bind:value={newBranch}
             bind:ref={branchInput}
             onkeydown={(e: KeyboardEvent) => {
               if (e.key === "Enter") create(repo.path);
               else if (e.key === "Escape") creatingFor = null;
             }}
-            onblur={() => (creatingFor = null)}
           />
         {/if}
 
@@ -359,18 +388,21 @@
                     }
                   }}
                 >
-                  <span
-                    class="dot"
-                    class:on={$sessionStatus[wt.path] === "ready" ||
-                      $sessionStatus[wt.path] === "busy" ||
+                  <IdentityGlyph
+                    seed={wt.path}
+                    color={profileAccent(wt.path)}
+                    loading={$sessionStatus[wt.path] === "busy" ||
                       $sessionStatus[wt.path] === "starting"}
-                    class:busy={$sessionStatus[wt.path] === "busy" ||
-                      $sessionStatus[wt.path] === "starting"}
-                  ></span>
-                  {#if wt.is_main}
-                    <House class="wt-home" />
-                  {/if}
+                  />
                   <span class="wt-name">{wt.branch ?? "(detached)"}</span>
+                  {#if ($gitStatByWorktree[wt.path]?.changed ?? 0) > 0}
+                    {@const gs = $gitStatByWorktree[wt.path]}
+                    <span class="wt-stat" title="{gs?.changed} changed file{gs?.changed === 1 ? '' : 's'}">
+                      {#if gs?.insertions}<span class="diff-add">+{gs.insertions}</span>{/if}
+                      {#if gs?.deletions}<span class="diff-del">−{gs.deletions}</span>{/if}
+                      {#if !gs?.insertions && !gs?.deletions}<span class="diff-add">●</span>{/if}
+                    </span>
+                  {/if}
                   {#if $pendingPermission[wt.path]}
                     <span class="wt-pending" title="Waiting for permission">!</span>
                   {/if}
@@ -393,9 +425,12 @@
                       variant="ghost"
                       size="icon-xs"
                       class="opacity-0 transition-opacity group-hover/row:opacity-100"
-                      title="Remove worktree"
+                      title="Remove worktree (drops its chat history)"
+                      aria-label="Remove worktree"
                       onclick={(e: Event) => requestAction("remove", repo.path, wt, e)}
-                    >×</Button>
+                    >
+                      <Trash2 class="size-3" />
+                    </Button>
                   {/if}
                 </div>
               {/snippet}
@@ -437,6 +472,10 @@
         <div class="wt-row group/row archived-row">
           <Archive class="wt-home" />
           <span class="wt-name" title="{a.repoName} · {a.branch}">{a.repoName} / {a.branch}</span>
+          <span
+            class="arch-time"
+            title={new Date(a.archivedAt).toLocaleString()}
+          >{relativeTime(a.archivedAt)}</span>
           <Tooltip.Root>
             <Tooltip.Trigger>
               {#snippet child({ props })}
@@ -489,13 +528,21 @@
           "{confirmAction.entry.repoName} / {confirmAction.entry.branch}" will be gone for good —
           its chat history is deleted (the git branch is kept).
         </Dialog.Description>
-      {:else if confirmAction}
+      {:else if confirmAction && confirmAction.fileCount > 0}
         <Dialog.Title>{confirmAction.kind === "archive" ? "Archive" : "Remove"} worktree?</Dialog.Title>
         <Dialog.Description>
           "{confirmAction.wt.branch ?? confirmAction.wt.path}" has {confirmAction.fileCount} uncommitted
           change{confirmAction.fileCount === 1 ? "" : "s"}. {confirmAction.kind === "archive"
             ? "Archiving removes the working files and discards them (commit first to keep them); the chat is kept for restore."
             : "Removing discards them."}
+        </Dialog.Description>
+      {:else if confirmAction}
+        <!-- Clean-tree remove: nothing uncommitted, but the worktree + its chat
+             history still disappear — that deserves a stop. -->
+        <Dialog.Title>Remove worktree?</Dialog.Title>
+        <Dialog.Description>
+          "{confirmAction.wt.branch ?? confirmAction.wt.path}" and its chat history will be removed
+          (the git branch is kept). Archive instead to keep the chat restorable.
         </Dialog.Description>
       {/if}
     </Dialog.Header>

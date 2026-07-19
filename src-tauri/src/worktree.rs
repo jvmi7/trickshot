@@ -255,6 +255,10 @@ pub struct FileStatus {
     pub index: String,
     pub worktree: String,
     pub staged: bool,
+    /// Per-file lines added/removed vs HEAD (from `--numstat`). None for
+    /// untracked files (numstat doesn't see them) and binary files (`-`).
+    pub insertions: Option<i32>,
+    pub deletions: Option<i32>,
 }
 
 /// A worktree's working-tree status: current branch, ahead/behind counts vs its
@@ -315,6 +319,44 @@ fn diff_shortstat(worktree_path: &str) -> (i32, i32) {
     parse_shortstat(&out)
 }
 
+/// Resolve a `--numstat` path cell to the post-change path. Renames arrive as
+/// either `old => new` or the bracket form `dir/{old => new}/file`; keep the
+/// destination.
+fn numstat_path(cell: &str) -> String {
+    if let (Some(open), Some(close)) = (cell.find('{'), cell.find('}')) {
+        if let Some(arrow) = cell[open..close].find(" => ") {
+            let new_mid = &cell[open + arrow + 4..close];
+            let mut p = format!("{}{}{}", &cell[..open], new_mid, &cell[close + 1..]);
+            // A rename INTO the tree root leaves a leading "/" artifact
+            // (`{old => }/file` → "/file"); normalize doubled slashes too.
+            p = p.replace("//", "/");
+            return p.trim_start_matches('/').to_string();
+        }
+    }
+    if let Some(pos) = cell.find(" => ") {
+        return cell[pos + 4..].to_string();
+    }
+    cell.to_string()
+}
+
+/// Parse `git diff --numstat` output into (path → (insertions, deletions)).
+/// Binary files report `-\t-` and are omitted (the UI shows them unbadged).
+/// Pure so it's unit-testable; `worktree_status` folds it into the file list.
+fn parse_numstat(out: &str) -> std::collections::HashMap<String, (i32, i32)> {
+    let mut map = std::collections::HashMap::new();
+    for line in out.lines() {
+        let mut cols = line.splitn(3, '\t');
+        let (Some(ins), Some(del), Some(path)) = (cols.next(), cols.next(), cols.next()) else {
+            continue;
+        };
+        let (Ok(ins), Ok(del)) = (ins.trim().parse::<i32>(), del.trim().parse::<i32>()) else {
+            continue; // binary: "-\t-"
+        };
+        map.insert(numstat_path(path), (ins, del));
+    }
+    map
+}
+
 /// Parse `git status --porcelain=v1 --branch` output into (branch, ahead, behind,
 /// has_upstream, files). Pure (no git invocation) so it's unit-testable;
 /// `worktree_status` wraps it with the git call and folds in the diffstat.
@@ -367,32 +409,87 @@ fn parse_status(out: &str) -> (Option<String>, i32, i32, bool, Vec<FileStatus>) 
             index: x.to_string(),
             worktree: y.to_string(),
             staged: x != " " && x != "?",
+            // Filled from --numstat by worktree_status (None = untracked/binary).
+            insertions: None,
+            deletions: None,
         });
     }
 
     (branch, ahead, behind, has_upstream, files)
 }
 
-/// The repo's default branch from `origin/HEAD` ("origin/main" → "main").
-/// Local-only lookup (no network); None when origin/HEAD is unset.
-fn default_branch(worktree_path: &str) -> Option<String> {
-    let out = git(
+/// Pick a default branch name from the probe results, most-authoritative first:
+/// `origin/HEAD` if set, then a well-known remote branch that exists, then a
+/// well-known local branch. Pure (takes booleans, does no git I/O) so the
+/// fallback ORDER is unit-testable; `default_branch` supplies the probes.
+fn pick_default_branch(
+    origin_head: Option<&str>,
+    origin_main: bool,
+    origin_master: bool,
+    local_main: bool,
+    local_master: bool,
+) -> Option<String> {
+    if let Some(name) = origin_head.map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(name.to_string());
+    }
+    if origin_main || local_main {
+        return Some("main".to_string());
+    }
+    if origin_master || local_master {
+        return Some("master".to_string());
+    }
+    None
+}
+
+/// The repo's default branch. Prefers `origin/HEAD` ("origin/main" → "main"),
+/// but that local ref is frequently unset (never written by `git init` + remote
+/// add, and not always after a clone), so it falls back to a well-known remote
+/// branch (origin/main|master) and finally a local one. Local-only (no network);
+/// None only when nothing resolves. Keeping this permissive is what lets the PR
+/// UI's `ahead_of_default` gate show the Create-PR button (see `ahead_of`).
+/// pub(crate): `generate.rs` reuses it to pick a PR base when none is given.
+pub(crate) fn default_branch(worktree_path: &str) -> Option<String> {
+    let origin_head = git(
         worktree_path,
         &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
     )
-    .ok()?;
-    out.trim().strip_prefix("origin/").map(str::to_string)
+    .ok()
+    .map(|s| s.trim().trim_start_matches("origin/").to_string())
+    .filter(|s| !s.is_empty());
+
+    pick_default_branch(
+        origin_head.as_deref(),
+        ref_exists(worktree_path, "refs/remotes/origin/main"),
+        ref_exists(worktree_path, "refs/remotes/origin/master"),
+        ref_exists(worktree_path, "refs/heads/main"),
+        ref_exists(worktree_path, "refs/heads/master"),
+    )
 }
 
-/// Commits on HEAD beyond `origin/<default>` (0 when the ref is unknown).
-fn ahead_of(worktree_path: &str, default: &str) -> i32 {
-    git(
+/// Whether a fully-qualified ref resolves in the repo (a status-only probe).
+fn ref_exists(worktree_path: &str, full_ref: &str) -> bool {
+    git_command(
         worktree_path,
-        &["rev-list", "--count", &format!("origin/{default}..HEAD")],
+        &["show-ref", "--verify", "--quiet", full_ref],
     )
-    .ok()
-    .and_then(|s| s.trim().parse().ok())
-    .unwrap_or(0)
+    .status()
+    .map(|s| s.success())
+    .unwrap_or(false)
+}
+
+/// Commits on HEAD beyond the default branch. Tries the remote-tracking ref
+/// `origin/<default>` first (what a PR would actually diff against), then falls
+/// back to the local `<default>` when the remote ref was never fetched — so a
+/// never-pushed branch still reports a truthful count. 0 when neither resolves.
+fn ahead_of(worktree_path: &str, default: &str) -> i32 {
+    let count = |range: String| -> Option<i32> {
+        git(worktree_path, &["rev-list", "--count", &range])
+            .ok()
+            .and_then(|s| s.trim().parse().ok())
+    };
+    count(format!("origin/{default}..HEAD"))
+        .or_else(|| count(format!("{default}..HEAD")))
+        .unwrap_or(0)
 }
 
 /// Parsed `git status --porcelain=v1 --branch` for a worktree. Async: this
@@ -400,9 +497,29 @@ fn ahead_of(worktree_path: &str, default: &str) -> i32 {
 #[tauri::command]
 pub async fn worktree_status(worktree_path: String) -> Result<WorktreeStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let out = git(&worktree_path, &["status", "--porcelain=v1", "--branch"])?;
-        let (branch, ahead, behind, has_upstream, files) = parse_status(&out);
+        // `--untracked-files=all` lists individual files inside a new/untracked
+        // directory instead of collapsing it to `newdir/` — the UI needs each file.
+        let out = git(
+            &worktree_path,
+            &[
+                "status",
+                "--porcelain=v1",
+                "--branch",
+                "--untracked-files=all",
+            ],
+        )?;
+        let (branch, ahead, behind, has_upstream, mut files) = parse_status(&out);
         let (insertions, deletions) = diff_shortstat(&worktree_path);
+        // Per-file ± counts (best-effort; untracked/binary files stay None).
+        let numstat = git(&worktree_path, &["diff", "HEAD", "--numstat"])
+            .map(|o| parse_numstat(&o))
+            .unwrap_or_default();
+        for f in &mut files {
+            if let Some(&(ins, del)) = numstat.get(&f.path) {
+                f.insertions = Some(ins);
+                f.deletions = Some(del);
+            }
+        }
         let default = default_branch(&worktree_path);
         let ahead_of_default = default
             .as_deref()
@@ -579,10 +696,71 @@ pub async fn worktree_merge(repo_path: String, branch: String) -> Result<String,
     .map_err(|e| e.to_string())?
 }
 
+/// Move the current branch's commits onto a NEW branch, then rewind the current
+/// branch back to its upstream — the recovery for "committed to a protected
+/// branch that won't accept a direct push". Creates `branch` at HEAD, switches
+/// to it (so the existing push/PR commands then operate on it), and force-updates
+/// the former branch to its upstream (`origin/<default>` as a fallback) so it's
+/// clean again. Nothing is lost — the commits ride to the new branch (and remain
+/// in the reflog). Returns the new branch name. Requires a clean-enough tree; any
+/// uncommitted edits are carried across the switch by git.
+#[tauri::command]
+pub async fn worktree_move_to_branch(
+    worktree_path: String,
+    branch: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let branch = branch.trim().to_string();
+        validate_branch(&branch)?;
+        if branch_exists(&worktree_path, &branch)? {
+            return Err(format!("branch \"{branch}\" already exists"));
+        }
+        let current = git(&worktree_path, &["rev-parse", "--abbrev-ref", "HEAD"])?
+            .trim()
+            .to_string();
+        if current == branch {
+            return Err("already on that branch".into());
+        }
+
+        // Where to rewind the former branch to: its own upstream, else the
+        // remote default branch. None → leave it (commits stay safe on `branch`).
+        let target = git(
+            &worktree_path,
+            &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        )
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| default_branch(&worktree_path).map(|d| format!("origin/{d}")));
+
+        // Create + switch to the new branch at the current commit.
+        git(&worktree_path, &["switch", "-c", &branch])?;
+
+        // Rewind the former branch to its upstream (best-effort; only when the ref
+        // resolves and the branch isn't checked out in another worktree).
+        if current != "HEAD" && current != branch {
+            if let Some(target) = target {
+                let full = if target.contains('/') {
+                    format!("refs/remotes/{target}")
+                } else {
+                    format!("refs/heads/{target}")
+                };
+                if ref_exists(&worktree_path, &full) {
+                    let _ = git(&worktree_path, &["branch", "-f", &current, &target]);
+                }
+            }
+        }
+        Ok(branch)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_shortstat, parse_status, parse_worktree_list, validate_branch, worktree_path_for,
+        parse_numstat, parse_shortstat, parse_status, parse_worktree_list, pick_default_branch,
+        validate_branch, worktree_path_for,
     };
 
     // ---- parse_worktree_list (git worktree list --porcelain) ----
@@ -710,6 +888,69 @@ mod tests {
         // Empty output (no HEAD / no changes) and unparseable text both yield (0, 0).
         assert_eq!(parse_shortstat(""), (0, 0));
         assert_eq!(parse_shortstat("not a shortstat line"), (0, 0));
+    }
+
+    // ---- parse_numstat (git diff --numstat) ----
+
+    #[test]
+    fn numstat_parses_counts_and_skips_binary() {
+        let out = "12\t4\tsrc/a.rs\n0\t7\tREADME.md\n-\t-\tlogo.png\n";
+        let m = parse_numstat(out);
+        assert_eq!(m.get("src/a.rs"), Some(&(12, 4)));
+        assert_eq!(m.get("README.md"), Some(&(0, 7)));
+        assert!(!m.contains_key("logo.png")); // binary → omitted
+    }
+
+    #[test]
+    fn numstat_keeps_rename_destination() {
+        // Plain and bracketed rename forms both resolve to the new path.
+        let m = parse_numstat("1\t1\told.rs => new.rs\n2\t0\tsrc/{a => b}/f.rs\n");
+        assert_eq!(m.get("new.rs"), Some(&(1, 1)));
+        assert_eq!(m.get("src/b/f.rs"), Some(&(2, 0)));
+    }
+
+    #[test]
+    fn numstat_empty_or_garbage_is_empty() {
+        assert!(parse_numstat("").is_empty());
+        assert!(parse_numstat("not a numstat line").is_empty());
+    }
+
+    // ---- pick_default_branch (the origin/HEAD fallback order) ----
+
+    #[test]
+    fn default_branch_prefers_origin_head() {
+        // origin/HEAD wins even when it disagrees with the well-known names.
+        let d = pick_default_branch(Some("develop"), true, false, true, false);
+        assert_eq!(d.as_deref(), Some("develop"));
+    }
+
+    #[test]
+    fn default_branch_falls_back_to_remote_then_local() {
+        // origin/HEAD unset → a well-known remote branch, then a local one.
+        assert_eq!(
+            pick_default_branch(None, true, false, false, false).as_deref(),
+            Some("main")
+        );
+        assert_eq!(
+            pick_default_branch(None, false, false, true, false).as_deref(),
+            Some("main")
+        );
+        assert_eq!(
+            pick_default_branch(None, false, true, false, false).as_deref(),
+            Some("master")
+        );
+        // main outranks master when both exist.
+        assert_eq!(
+            pick_default_branch(None, false, true, true, false).as_deref(),
+            Some("main")
+        );
+    }
+
+    #[test]
+    fn default_branch_none_when_nothing_resolves() {
+        // An empty origin/HEAD string must NOT be treated as a real name.
+        assert!(pick_default_branch(Some(""), false, false, false, false).is_none());
+        assert!(pick_default_branch(None, false, false, false, false).is_none());
     }
 
     // ---- parse_status (git status --porcelain=v1 --branch) ----

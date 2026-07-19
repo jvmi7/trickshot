@@ -2,11 +2,13 @@ import { derived, get, type Readable, type Writable, writable } from "svelte/sto
 import * as api from "./api";
 import { createPersisted, createPersistedString, isPlainObject, parseJsonObject } from "./persist";
 import { DEFAULT_PROVIDER_ID } from "./providers";
+import type { ReviewComment } from "./review";
 // Sibling store modules (threads.ts / session.ts) and stores.ts import each other
 // — safe under ESM live bindings because every cross-module access happens at
 // CALL time (see the CIRCULAR-IMPORT CONTRACT note in each sibling); these two
 // mutators are used by selectWorktree / removeRepo below.
 import { clearQueued } from "./session";
+import { profileAccent } from "./termProfiles";
 import { DEFAULT_THEME, THEMES as THEME_DEFS } from "./themes";
 import { closeComment } from "./threads";
 import {
@@ -158,10 +160,11 @@ export function setSidebarWidth(w: number) {
   sidebarWidth.set(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(w))));
 }
 
-/** Which view the main pane shows for the selected worktree: the chat transcript,
- *  the git "changes" (diff) panel, the script "run" output, or the integrated
- *  terminal. Ephemeral UI state. */
-export type MainView = "chat" | "changes" | "run" | "term";
+/** Which view the main pane shows for the selected worktree: the chat
+ *  transcript or the script "run" output. (Git changes AND the shell terminal
+ *  are header POPOVERS — `changesOpen`/`shellOpen` below — not pages.)
+ *  Ephemeral UI state. */
+export type MainView = "chat" | "run";
 export const mainView = writable<MainView>("chat");
 /** Set the main pane's view (the one mutator — see the store-mutator rule). */
 export function setMainView(v: MainView) {
@@ -170,6 +173,48 @@ export function setMainView(v: MainView) {
 /** Toggle between a view and the chat (the header tabs' click behavior). */
 export function toggleMainView(v: Exclude<MainView, "chat">) {
   mainView.update((cur) => (cur === v ? "chat" : v));
+}
+
+/** Whether the git Changes POPOVER (header ± trigger) is open — a dropdown
+ *  panel over the terminal, not a page swap. Ephemeral. */
+export const changesOpen = writable<boolean>(false);
+export function setChangesOpen(v: boolean) {
+  changesOpen.set(v);
+}
+export function toggleChanges() {
+  changesOpen.update((v) => !v);
+}
+
+/** Whether the SHELL terminal popover is open. The PTY + xterm scrollback
+ *  persist across open/close (lib/terminal.ts instance cache) — the popover
+ *  only re-parents the same terminal. Ephemeral. */
+export const shellOpen = writable<boolean>(false);
+export function setShellOpen(v: boolean) {
+  shellOpen.set(v);
+}
+export function toggleShell() {
+  shellOpen.update((v) => !v);
+}
+
+/** Whether the ⌘E compose popup is open (a full editor for long prompts,
+ *  injected into the CLI chat via bracketed paste). Ephemeral; the draft
+ *  survives close-without-send within the session. */
+export const composeOpen = writable<boolean>(false);
+export const composeDraft = writable<string>("");
+export function setComposeOpen(v: boolean) {
+  composeOpen.set(v);
+}
+export function toggleCompose() {
+  composeOpen.update((v) => !v);
+}
+
+/** Whether the ⌘/ keyboard-shortcuts overlay is open. Ephemeral, global. */
+export const shortcutsHelpOpen = writable<boolean>(false);
+export function toggleShortcutsHelp() {
+  shortcutsHelpOpen.update((v) => !v);
+}
+export function setShortcutsHelpOpen(v: boolean) {
+  shortcutsHelpOpen.set(v);
 }
 
 /** Bumped to ask an open GitPanel to re-fetch status/diff (e.g. after a turn that
@@ -198,11 +243,14 @@ export function requestNewWorktree() {
 
 /** Per-worktree change summary (changed-file count + diffstat). Populated by
  *  App.svelte from `worktree_status` on selection / gitRefreshNonce; drives the
- *  header's Changes tab — shown only when `changed > 0`, with the +/- counts. */
+ *  header's Changes tab — shown when there's anything to review: dirty files
+ *  (with the +/- counts) OR commits over the default branch (`aheadOfDefault`),
+ *  so a clean-but-unmerged branch keeps its PR/checks panel reachable. */
 export interface GitStat {
   changed: number;
   insertions: number;
   deletions: number;
+  aheadOfDefault: number;
 }
 const _gitStat = createWorktreeMap<GitStat>();
 export const gitStatByWorktree = _gitStat.store;
@@ -238,6 +286,17 @@ theme.subscribe((t) => {
 /** Switch the active theme (validated against THEMES by the store's parse). */
 export function setTheme(id: string) {
   theme.set(id);
+}
+
+/** Which action the git panel's split commit button performs by default. */
+export type CommitMode = "commit" | "commit-push";
+/** Persisted so the user's chosen commit action sticks across sessions. */
+export const commitMode = createPersistedString("trickshot.commitMode", "commit-push", (raw) =>
+  raw === "commit" || raw === "commit-push" ? raw : "commit-push",
+);
+/** Set the default commit action (validated by the store's parse). */
+export function setCommitMode(mode: CommitMode) {
+  commitMode.set(mode);
 }
 
 // ---- Persisted repos ----
@@ -284,6 +343,17 @@ export const selectedWorktree = createPersisted<string | null>("trickshot.select
 });
 /** Select a worktree (or clear with `null`). The one mutator for the persisted
  *  selection — components call this, not `selectedWorktree.set()` inline. */
+// Per-workspace identity var: every workspace has a stable TERMINAL PROFILE
+// (termProfiles.ts — ANSI palette + accent, path-hash assigned). The SELECTED
+// workspace's accent reflects onto <html> for the header ❯. (Backgrounds are
+// deliberately UNIFORM — the app theme's — so only the accent differentiates.)
+selectedWorktree.subscribe((sel) => {
+  if (typeof document === "undefined") return;
+  const st = document.documentElement.style;
+  if (sel) st.setProperty("--ws-accent", profileAccent(sel));
+  else st.removeProperty("--ws-accent");
+});
+
 export function selectWorktree(path: string | null) {
   selectedWorktree.set(path);
   // Close any open comment popup — it belongs to the chat we're leaving.
@@ -446,6 +516,70 @@ export function clearUnread(worktree: string) {
   // Set to 0 (not remove) and skip the write when already cleared — returning the
   // same map identity skips the allocation + primitive-derived re-renders (see stores.test.ts).
   _unread.store.update((m) => (m[worktree] ? { ...m, [worktree]: 0 } : m));
+}
+
+// ---- Review queue (batched diff-line comments) ----
+// Comments queued from the git panel's diff gutter, sent as ONE structured
+// turn (`review.ts › formatReviewPrompt`). Persisted so an app restart doesn't
+// eat a half-written review.
+const _reviewQueue = createWorktreeMap<ReviewComment[]>({ persistKey: "trickshot.reviewQueue" });
+export const reviewQueueByWorktree = _reviewQueue.store;
+// Ids are identity keys and the queue persists — seed past the stored max so a
+// restart can't mint colliding ids (remove-by-id would hit the wrong row).
+let nextReviewId =
+  1 +
+  Object.values(get(reviewQueueByWorktree)).reduce(
+    (max, list) => (list ?? []).reduce((m, c) => Math.max(m, c?.id ?? 0), max),
+    0,
+  );
+/** The selected worktree's queued review comments (empty when none). */
+export const activeReviewQueue = _reviewQueue.active<ReviewComment[]>([]);
+/** Queue a review comment (no-op on blank text). Returns whether it queued. */
+export function addReviewComment(worktree: string, c: Omit<ReviewComment, "id">): boolean {
+  if (!c.text.trim()) return false;
+  _reviewQueue.update(worktree, (cur) => [...(cur ?? []), { ...c, id: nextReviewId++ }]);
+  return true;
+}
+/** Drop one queued comment by its stable id. */
+export function removeReviewComment(worktree: string, id: number) {
+  _reviewQueue.update(worktree, (cur) => (cur ?? []).filter((c) => c.id !== id));
+}
+/** Clear a worktree's whole review queue (same identity guard as clearQueued). */
+export function clearReviewQueue(worktree: string) {
+  _reviewQueue.store.update((m) => (m[worktree]?.length ? { ...m, [worktree]: [] } : m));
+}
+
+// ---- In-app notification history (the header bell) ----
+// A session-only ring buffer of cross-worktree events (agent finished / needs
+// attention), fed by the SAME call sites that raise OS notifications
+// (agentEvents.ts turn_end, terminal.ts noteCliActivity). The bell lists them
+// with click-to-jump; `notificationsSeenAt` drives the unseen count.
+export interface AppNotification {
+  id: number;
+  worktree: string;
+  title: string;
+  body: string;
+  at: number;
+}
+const NOTIFICATION_CAP = 50;
+let nextNotificationId = 1;
+export const appNotifications = writable<AppNotification[]>([]);
+export const notificationsSeenAt = writable<number>(0);
+/** Record an event in the bell's history (newest first, capped). */
+export function pushAppNotification(worktree: string, title: string, body: string) {
+  appNotifications.update((list) =>
+    [{ id: nextNotificationId++, worktree, title, body, at: Date.now() }, ...list].slice(
+      0,
+      NOTIFICATION_CAP,
+    ),
+  );
+}
+/** Mark everything currently in the list as seen (the bell was opened). */
+export function markNotificationsSeen() {
+  notificationsSeenAt.set(Date.now());
+}
+export function clearAppNotifications() {
+  appNotifications.set([]);
 }
 
 // ---- Per-worktree agent activity (verbose loading state while a turn runs) ----
@@ -740,6 +874,7 @@ export interface FontOption {
  *  its @font-face + a `[data-font]` block in app.css and an entry here. */
 export const FONTS: FontOption[] = [
   { id: "sans-code", label: "Sans Code" },
+  { id: "sf-mono", label: "SF Mono (terminal)" },
   { id: "wenkai", label: "WenKai Mono" },
   { id: "comic", label: "Comic Sans" },
   { id: "ibm", label: "IBM Plex Mono" },
@@ -760,6 +895,47 @@ font.subscribe((f) => {
 /** Switch the active font (validated against FONTS by the store's parse). */
 export function setFont(id: string) {
   font.set(id);
+}
+
+/** Terminal (CLI chat + shell) font size in px, persisted and clamped. The
+ *  primary surface is a terminal, so its size deserves a knob; applied live by
+ *  `terminal.ts › applyTerminalFontSize` (called from Settings — terminal.ts
+ *  must not subscribe at module eval, see its CIRCULAR-IMPORT CONTRACT). */
+export const TERMINAL_FONT_SIZES = [11, 12, 13, 14, 15, 16] as const;
+export const terminalFontSize = createPersisted<number>("trickshot.terminalFontSize", 12, {
+  parse: (raw) => {
+    const v = Number(raw);
+    return TERMINAL_FONT_SIZES.some((s) => s === v) ? v : 12;
+  },
+  serialize: String,
+});
+export function setTerminalFontSize(px: number) {
+  if (TERMINAL_FONT_SIZES.some((s) => s === px)) terminalFontSize.set(px);
+}
+// The terminal size doubles as the uniform-type size (below) — expose it to
+// CSS as `--app-uniform-size` so the override block tracks the setting live.
+terminalFontSize.subscribe((px) => {
+  if (typeof document !== "undefined") {
+    document.documentElement.style.setProperty("--app-uniform-size", `${px}px`);
+  }
+});
+
+/** Uniform type: render EVERY `--text-*` step at the terminal font size — a
+ *  real TUI has exactly one glyph size, so this is the last notch of the
+ *  terminal aesthetic. Reflects to `<html data-uniform-type>`; the override
+ *  block lives in app.css. Persisted. */
+export const uniformType = createPersisted<boolean>("trickshot.uniformType", false, {
+  parse: (raw) => raw === "true",
+  serialize: String,
+});
+uniformType.subscribe((on) => {
+  if (typeof document !== "undefined") {
+    if (on) document.documentElement.dataset.uniformType = "";
+    else delete document.documentElement.dataset.uniformType;
+  }
+});
+export function setUniformType(v: boolean) {
+  uniformType.set(v);
 }
 
 // ---- Minimal mode (global, persisted) ----
@@ -832,6 +1008,7 @@ export {
   recentConversation,
   removeQueued,
   requestOnce,
+  restoreWorkspace,
   sendQueuedNow,
   sendToCli,
   submitTurnToChat,

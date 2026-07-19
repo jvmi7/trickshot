@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { get } from "svelte/store";
   import { onAgentEvent, onScriptEvent, onTermEvent, listWorktrees, worktreeStatus } from "./lib/api";
+  import { borderGlow } from "./lib/borderGlow";
   import { handleTermEvent } from "./lib/terminal";
   import { providerDisplay } from "./lib/providers";
   import {
@@ -33,7 +34,16 @@
     setGitStat,
     activeGitStat,
     activeScriptRun,
+    activeRepo,
+    changesOpen,
+    setChangesOpen,
+    toggleChanges,
+    shellOpen,
+    setShellOpen,
+    activateWorktree,
     toggleCommandPalette,
+    toggleCompose,
+    toggleShortcutsHelp,
     requestNewWorktree,
   } from "./lib/stores";
   import { handleAgentEvent, handleSessionStatus } from "./lib/agentEvents";
@@ -41,21 +51,37 @@
   import ClaudeTerminalPane from "./lib/components/ClaudeTerminalPane.svelte";
   import CommandPalette from "./lib/components/CommandPalette.svelte";
   import Header from "./lib/components/Header.svelte";
-  import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
   import ViewToggle from "./lib/components/ViewToggle.svelte";
   import RunScripts from "./lib/components/RunScripts.svelte";
   import RunOutput from "./lib/components/RunOutput.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
+  import Fleet from "./lib/components/Fleet.svelte";
   import Chat from "./lib/components/Chat.svelte";
   import ThreadPanel from "./lib/components/ThreadPanel.svelte";
-  import GitPanel from "./lib/components/GitPanel.svelte";
-  import TerminalPane from "./lib/components/TerminalPane.svelte";
   import Settings from "./lib/components/Settings.svelte";
   import Welcome from "./lib/components/Welcome.svelte";
+  import ComposeDialog from "./lib/components/ComposeDialog.svelte";
+  import ShortcutsHelp from "./lib/components/ShortcutsHelp.svelte";
+  import UsageIndicator from "./lib/components/UsageIndicator.svelte";
   import { Button } from "./lib/components/ui/button";
+  import { Toaster } from "./lib/components/ui/sonner";
   import * as Tooltip from "./lib/components/ui/tooltip";
-  import PanelLeft from "@lucide/svelte/icons/panel-left";
+  import { basename } from "./lib/utils";
   import SettingsIcon from "@lucide/svelte/icons/settings";
+  import ArrowLeftToLine from "@lucide/svelte/icons/arrow-left-to-line";
+  import ArrowRightFromLine from "@lucide/svelte/icons/arrow-right-from-line";
+
+  // Header breadcrumb: `repo / branch` reads better than the raw absolute path
+  // (which survives as the tooltip). Branch comes from the worktree list.
+  const activeBranch = $derived.by(() => {
+    const sel = $selectedWorktree;
+    if (!sel) return null;
+    for (const list of Object.values($worktreesByRepo)) {
+      const w = list.find((x) => x.path === sel);
+      if (w) return w.branch ?? "(detached)";
+    }
+    return null;
+  });
 
   // Re-probe the login when the window regains focus, but only while the
   // sign-in notice is showing — this is the "cmd-tab to a terminal, run
@@ -66,13 +92,34 @@
   }
 
   // Global shortcuts (Conductor parity): ⌘K palette, ⌘⇧N new worktree,
-  // ⌘⇧D changes/diff view, ⌘⇧P the PR block (same Changes panel). Plain ⌘K
-  // has no shift; all guard on meta/ctrl so typing stays unaffected.
+  // ⌘⇧D changes/diff view, ⌘⇧P the PR block (same Changes panel), ⌘, settings,
+  // ⌘1–9 jump to the Nth worktree (sidebar order). Esc leaves Settings. All
+  // ⌘-chords guard on meta/ctrl so typing stays unaffected (macOS ⌘-chords
+  // never reach the PTY through xterm, so nothing is stolen from the TUI).
   function onKeydown(e: KeyboardEvent) {
+    // Esc: leave Settings — unless something else (a dialog, the palette)
+    // already handled it (bits-ui prevents default when it consumes Esc).
+    if (e.key === "Escape" && !e.defaultPrevented && get(centerView) === "settings") {
+      setCenterView("chat");
+      return;
+    }
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
     const k = e.key.toLowerCase();
-    if (!e.shiftKey && k === "k") {
+    if (!e.shiftKey && k === "/") {
+      e.preventDefault();
+      toggleShortcutsHelp();
+    } else if (!e.shiftKey && k === "e") {
+      // Compose popup: a full editor for long prompts (needs a chat to send to).
+      if (get(selectedWorktree)) {
+        e.preventDefault();
+        setCenterView("chat");
+        toggleCompose();
+      }
+    } else if (!e.shiftKey && k === ",") {
+      e.preventDefault();
+      setCenterView("settings");
+    } else if (!e.shiftKey && k === "k") {
       e.preventDefault();
       toggleCommandPalette();
     } else if (e.shiftKey && k === "n") {
@@ -81,7 +128,16 @@
     } else if (e.shiftKey && (k === "d" || k === "p")) {
       e.preventDefault();
       setCenterView("chat");
-      toggleMainView("changes");
+      toggleChanges();
+    } else if (!e.shiftKey && k >= "1" && k <= "9") {
+      // Jump to the Nth worktree in sidebar order (repos, then their worktrees).
+      const flat = get(repos).flatMap((r) => get(worktreesByRepo)[r.path] ?? []);
+      const target = flat[Number(k) - 1];
+      if (target) {
+        e.preventDefault();
+        setCenterView("chat");
+        void activateWorktree(target.path).catch(() => {});
+      }
     }
   }
 
@@ -104,28 +160,44 @@
     window.addEventListener("pointerup", up);
   }
 
-  // Keep the selected worktree's change summary fresh so the header can show the
-  // Changes tab (only when dirty) with its +/- diffstat. Re-runs on selection and
-  // on gitRefreshNonce (bumped after a turn that likely touched files).
+  // Keep every worktree's change summary fresh: the header's Changes tab keys
+  // off the SELECTED one, and the sidebar rows show a ± glance per worktree
+  // (the fleet view). Re-runs on selection and on gitRefreshNonce (bumped
+  // after a turn that likely touched files); each refresh is one `git status`
+  // per worktree — cheap at sidebar scale.
   $effect(() => {
-    const wt = $selectedWorktree;
+    void $selectedWorktree;
     void $gitRefreshNonce;
-    if (!wt) return;
-    worktreeStatus(wt)
-      .then((s) =>
-        setGitStat(wt, { changed: s.files.length, insertions: s.insertions, deletions: s.deletions }),
-      )
-      // Non-git dirs / errors → treat as no changes (Worktrees surfaces real errors).
-      .catch(() => setGitStat(wt, { changed: 0, insertions: 0, deletions: 0 }));
+    const all = $repos.flatMap((r) => $worktreesByRepo[r.path] ?? []);
+    for (const w of all) {
+      worktreeStatus(w.path)
+        .then((s) =>
+          setGitStat(w.path, {
+            changed: s.files.length,
+            insertions: s.insertions,
+            deletions: s.deletions,
+            aheadOfDefault: s.ahead_of_default,
+          }),
+        )
+        // Non-git dirs / errors → treat as no changes (Worktrees surfaces real errors).
+        .catch(() =>
+          setGitStat(w.path, { changed: 0, insertions: 0, deletions: 0, aheadOfDefault: 0 }),
+        );
+    }
   });
 
-  // If the worktree on screen has no changes, don't strand the user on the (now
-  // hidden) Changes tab — fall back to chat. Same for the Run tab when the
+  // If the worktree on screen has nothing to review (clean AND not ahead of the
+  // default branch), don't strand the user on the (now hidden) Changes tab —
+  // fall back to chat. A clean-but-unmerged branch keeps the tab: its PR/checks
+  // panel must stay reachable after a commit. Same for the Run tab when the
   // worktree has no script run.
   $effect(() => {
-    if ($mainView === "changes" && ($activeGitStat?.changed ?? 0) === 0) setMainView("chat");
+    const gs = $activeGitStat;
+    // The Changes POPOVER closes when there's nothing left to review.
+    if ($changesOpen && (gs?.changed ?? 0) === 0 && (gs?.aheadOfDefault ?? 0) === 0)
+      setChangesOpen(false);
     if ($mainView === "run" && !$activeScriptRun) setMainView("chat");
-    if ($mainView === "term" && !$selectedWorktree) setMainView("chat");
+    if ($shellOpen && !$selectedWorktree) setShellOpen(false);
   });
 
   // Don't strand a worktree in CLI chat mode when its provider has no CLI
@@ -226,21 +298,11 @@
 <svelte:window onkeydown={onKeydown} onfocus={onWindowFocus} />
 
 <Tooltip.Provider delayDuration={100}>
+<Toaster position="bottom-right" />
+<ShortcutsHelp />
+<ComposeDialog />
 <CommandPalette />
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
-  <!-- Sidebar toggle floats over the top-left (just past the traffic lights) so
-       it stays put when the sidebar slides away and can always reopen it. -->
-  <Tooltip.Root>
-    <Tooltip.Trigger>
-      {#snippet child({ props })}
-        <HeaderIconButton {...props} onclick={toggleSidebar} aria-label="Toggle sidebar">
-          <PanelLeft />
-        </HeaderIconButton>
-      {/snippet}
-    </Tooltip.Trigger>
-    <Tooltip.Content>{$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}</Tooltip.Content>
-  </Tooltip.Root>
-
   <aside class="sidebar" class:collapsed={!$sidebarOpen}>
     <!-- empty strip aligning the worktree list's top with the content's top bar
          and clearing the traffic lights + floating toggle; the sidebar's right
@@ -276,30 +338,54 @@
     <!-- top bar: the workspace path sits inline in the header band. -->
     <Header>
       {#snippet left()}
-        <div class="workspace-label">
+        <!-- The breadcrumb IS the sidebar toggle (no separate floating button):
+             clicking the project/branch label collapses/expands the sidebar. -->
+        <button
+          type="button"
+          class="workspace-label"
+          onclick={toggleSidebar}
+          aria-label={$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+          title={$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+        >
+          <!-- The toggle affordance: collapse-arrow while the sidebar shows,
+               expand-arrow while hidden (replaces the ❯ prompt glyph). -->
+          {#if $sidebarOpen}
+            <ArrowLeftToLine class="ws-toggle size-3.5" />
+          {:else}
+            <ArrowRightFromLine class="ws-toggle size-3.5" />
+          {/if}
           {#if $centerView === "settings"}
             <span class="path">Settings</span>
           {:else if $selectedWorktree}
-            <span class="path">{$selectedWorktree}</span>
+            <!-- The separator lives inside ONE expression — text at element
+                 boundaries gets whitespace-collapsed ("kosha/ main"). -->
+            <span class="path" title={$selectedWorktree}>
+              {$activeRepo ? basename($activeRepo.path) : basename($selectedWorktree)}{#if activeBranch}<span
+                  class="dim">{` / ${activeBranch}`}</span
+                >{/if}
+            </span>
           {:else if $repos.length === 0}
             <span class="dim">add a repository to get started</span>
           {:else}
             <span class="dim">select or create a worktree on the left</span>
           {/if}
-        </div>
+        </button>
       {/snippet}
       {#snippet actions()}
         <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
              nothing to act on there. (ChatModeToggle is unwired under the
              CLI-first CHAT_SURFACE — the terminal IS the chat; the component
-             is preserved for the legacy GUI surface.) -->
+             is preserved for the legacy GUI surface.) UsageIndicator lives here
+             (not the deprecated Composer) so budget stays visible under
+             CLI-first chat. -->
         {#if $centerView !== "settings" && $repos.length > 0}
+          <UsageIndicator />
           <RunScripts />
           <ViewToggle />
         {/if}
       {/snippet}
     </Header>
-    <div class="content">
+    <div class="content" use:borderGlow>
       {#if $centerView === "settings"}
         <Settings />
       {:else if $repos.length === 0}
@@ -307,12 +393,13 @@
              pane, composer included. Gated on repo count — state, not a flag —
              so it reappears exactly when it's true again. -->
         <Welcome />
-      {:else if $mainView === "changes"}
-        <GitPanel />
       {:else if $mainView === "run"}
         <RunOutput />
-      {:else if $mainView === "term"}
-        <TerminalPane />
+      {:else if !$selectedWorktree}
+        <!-- No selection + repos exist: the fleet overview (mission control),
+             not a dead-end hint. The palette's "Fleet overview" deselects to
+             land here. -->
+        <Fleet />
       {:else if $selectedWorktree && (CHAT_SURFACE === "cli" || $activeChatMode === "cli")}
         <!-- The chat: the REAL Claude Code TUI (CLI-first — see CHAT_SURFACE in
              stores.ts; also the legacy per-worktree toggle state). The GUI Chat

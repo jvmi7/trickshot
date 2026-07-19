@@ -198,6 +198,19 @@ pub async fn pr_create(
     .map_err(|e| e.to_string())?
 }
 
+/// Merge the current branch's open PR (`gh pr merge --squash`). The UI gates
+/// this on an OPEN, non-draft PR with no failing checks; gh enforces the rest
+/// (review requirements, protections) and its stderr propagates on refusal.
+/// Squash matches the repo's PR-per-feature history (one commit per PR).
+#[tauri::command]
+pub async fn pr_merge(worktree_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        gh(&worktree_path, &["pr", "merge", "--squash"]).map(|out| out.trim().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::{parse_pr_view, PrCheck};
