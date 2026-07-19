@@ -76,7 +76,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Global header (slots: `title`/`left`/`actions` + sidebar toggle) | `src/lib/components/Header.svelte` |
 | shadcn-svelte primitives (the UI building blocks) | `src/lib/components/ui/` |
 | `cn()` + shadcn type helpers | `src/lib/utils.ts` |
-| DOM/interaction helpers (Svelte `use:` actions + init): custom transform-scroll, sliding active-pill highlight | `src/lib/customScroll.ts`, `src/lib/slidingHighlight.ts` |
+| DOM/interaction helpers (Svelte `use:` actions + init): custom transform-scroll, sliding active-pill highlight, cursor-proximity border glow | `src/lib/customScroll.ts`, `src/lib/slidingHighlight.ts`, `src/lib/borderGlow.ts` |
 | shadcn config (aliases, base color) | `components.json` |
 | Git review (status/diff/stage/commit/push/merge) | `src-tauri/src/worktree.rs` (commands) + `src/lib/components/GitPanel.svelte` + `DiffView.svelte` (Chat/Changes toggle in `App.svelte`) |
 | GitHub PRs (create + checks via `gh` CLI, "fix failing checks → agent") | `src-tauri/src/github.rs` (commands) + `PrPanel.svelte` (rendered by `GitPanel`) |

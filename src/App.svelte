@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { get } from "svelte/store";
   import { onAgentEvent, onScriptEvent, onTermEvent, listWorktrees, worktreeStatus } from "./lib/api";
+  import { borderGlow } from "./lib/borderGlow";
   import { handleTermEvent } from "./lib/terminal";
   import { providerDisplay } from "./lib/providers";
   import {
@@ -380,7 +381,7 @@
         {/if}
       {/snippet}
     </Header>
-    <div class="content">
+    <div class="content" use:borderGlow>
       {#if $centerView === "settings"}
         <Settings />
       {:else if $repos.length === 0}

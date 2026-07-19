@@ -754,6 +754,7 @@ html, body {
    block). Top margin 0 — the header band above is shell-colored and provides
    the visual gap. overflow:hidden clips children to the rounded corners. */
 .content {
+  position: relative; /* anchors the ::after glow ring */
   flex: 1;
   display: flex;
   min-width: 0;
@@ -763,6 +764,40 @@ html, body {
   border: 1px solid var(--app-border);
   border-radius: var(--app-pane-radius);
   overflow: hidden;
+}
+/* Cursor-proximity border highlight (borderGlow.ts writes --glow-x/y/o): a
+   radial light centered on the pointer, masked to ONLY a 1px ring — the border
+   lightens near the cursor and falls off with distance. The mask trick: paint
+   the whole box, then punch out the padding-box so just the ring survives.
+   The ring sits at inset: 0 — .content's overflow:hidden clips to its PADDING
+   box, so a ring over the real border (-1px) would be clipped; hugging the
+   border's inner edge is visually identical at 1px. Purely decorative
+   (pointer-events: none); fades on window enter/leave. */
+.content::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid transparent;
+  border-radius: var(--app-pane-radius);
+  background: radial-gradient(
+      260px circle at var(--glow-x, 50%) var(--glow-y, 50%),
+      color-mix(in oklch, var(--base-text) 45%, transparent),
+      transparent 70%
+    )
+    border-box;
+  /* Mask color is irrelevant (only alpha counts) — an opaque token keeps the
+     no-color-literals rule intact. */
+  -webkit-mask:
+    linear-gradient(var(--base-text) 0 0) padding-box,
+    linear-gradient(var(--base-text) 0 0) border-box;
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(var(--base-text) 0 0) padding-box,
+    linear-gradient(var(--base-text) 0 0) border-box;
+  mask-composite: exclude;
+  opacity: var(--glow-o, 0);
+  transition: opacity var(--app-duration-slow) var(--ease-out-soft);
+  pointer-events: none;
 }
 
 /* ---- settings page (swaps in for the chat in the center pane) ---- */
