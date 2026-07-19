@@ -772,7 +772,13 @@ html, body {
      inset — the header band above already provides some separation). */
   margin: 6px var(--app-pane-gap) var(--app-pane-gap);
   background: var(--app-bg);
-  border: 1px solid var(--app-border);
+  /* The frame is an OUTLINE, not a border: outlines paint ABOVE descendants,
+     so flush terminal content can't smear over the frame line at fractional
+     device scaling (border+overflow clipping let the top edge get eaten).
+     outline-offset -1px keeps it exactly where the border sat; it follows
+     border-radius in modern WebKit. */
+  outline: 1px solid var(--app-border);
+  outline-offset: -1px;
   border-radius: var(--app-pane-radius);
   overflow: hidden;
 }
