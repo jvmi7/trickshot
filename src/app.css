@@ -465,7 +465,7 @@
   --text-sm: 12px;
   --text-sm--line-height: 1.5; /* secondary body: empty states, errors, tool rows */
   --text-md: 13px;
-  --text-md--line-height: 1.5; /* list rows, thread messages */
+  --text-md--line-height: 1.5; /* list rows */
   --text-base: 14px;
   --text-base--line-height: 1.5; /* body (equals the :root size) */
   /* Radius ladder — every corner derives from --radius (see :root). 999px is the
@@ -570,12 +570,11 @@
   --app-danger: var(--base-danger);
   /* Text-selection colors — theme-driven, derived from the base palette (no raw hex).
      Selected text recolors to the brand accent; the highlight fill is the per-theme
-     `selection` tone rendered at 20%. Shared by ::selection and the placeholder
-     .ph-sel so they render identically. */
+     `selection` tone rendered at 20%. */
   --app-selection-text: var(--base-accent); /* selected text → brand accent */
   --app-selection-bg: color-mix(in srgb, var(--base-selection) 20%, transparent);
-  /* Markdown prose palette (see Markdown.svelte / `.markdown` below). Color is
-     reserved for CODE only — prose (titles, body, links) all share `--app-text`.
+  /* Inline-code chip palette (AuthNotice's `code` mentions). Color is
+     reserved for CODE only — prose all shares `--app-text`.
      The inline-code chip + code identifiers route through `--base-accent` so they
      follow the theme (the chart hues --base-info/warning/etc. are deliberately
      theme-CONSTANT, so building code color on them looked identical everywhere).
@@ -584,15 +583,11 @@
   /* Neutral raised surface — no accent tint, no border (the accent TEXT color is
      enough to set inline code apart from prose). */
   --app-code-bg: var(--base-surface-raised);
-  /* Max width of the chat reading column (messages + loading + composer); it
-     centers in the pane when wider. */
-  --chat-col: 740px;
   /* Z ladder for bespoke chrome. shadcn overlays own z-50 — stay below it.
      Local stacking inside one component (z-index: 0/1) stays literal; anything
      that orders ACROSS components uses these (conformance-enforced). */
   --app-z-overlay: 3; /* in-pane overlays: edge fades */
-  --app-z-float: 4; /* floating affordances over content: the reply pill */
-  --app-z-indicator: 5; /* scroll indicator (above the fades) */
+  --app-z-float: 4; /* floating affordances over content: the git-panel tray */
   --app-z-chrome: 20; /* window chrome: sidebar resize handle, titlebar buttons */
   /* Motion. `fast` is THE feedback duration (hover/color/opacity); `slow` is
      structural (panel slides, fades, reveals). Keyframe choreography (dot-pulse,
@@ -820,26 +815,18 @@ html, body {
 .settings-inner { max-width: 720px; margin: 0 auto; }
 
 /* ---- shared building-block classes. Small, single-purpose, composed by feature
-   components (class="foo chat-col") — each names its consumers so reach stays
-   greppable. ---- */
-/* Centered reading column: Chat `.messages`, `.composer`, Suggestions,
-   QueuedMessages, Chat `.auth-banner`. */
-.chat-col { width: 100%; max-width: var(--chat-col); margin-inline: auto; padding-inline: 32px; }
+   components (class="foo section-label") — each names its consumers so reach
+   stays greppable. ---- */
 /* Uppercase section label — TYPOGRAPHY ONLY (sites own their layout): sidebar
-   `.wt-section`/`.repo-name`, PrPanel title, QueuedMessages label, ThreadPanel
-   label + reply divider. */
+   `.wt-section`/`.repo-name`, PrPanel title, Fleet headings. */
 .section-label { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--app-dim); }
-/* Centered dim empty-state line: Chat `.empty`, GitPanel, RunOutput, DiffView. */
+/* Centered dim empty-state line: GitPanel, RunOutput, DiffView. */
 .empty-state { color: var(--app-dim); font-size: var(--text-sm); text-align: center; }
 /* Inline error text: GitPanel/PrPanel `.git-error`, RunScripts, TerminalPane,
-   ThreadPanel, the sidebar error line (Worktrees). */
+   the sidebar error line (Worktrees). */
 .error-text { color: var(--app-danger); font-size: var(--text-xs); white-space: pre-wrap; word-break: break-word; }
 /* Success-toned sibling of .error-text: GitPanel `.git-notice`. */
 .notice-text { color: var(--base-success); font-size: var(--text-xs); white-space: pre-wrap; word-break: break-word; }
-/* Ghost text button (chromeless inline action): QueuedMessages actions,
-   ThreadPanel quote toggle. */
-.text-action { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; font-size: var(--text-xs); font-weight: 500; color: var(--app-dim); cursor: pointer; transition: color var(--app-duration-fast) ease; }
-.text-action:hover { color: var(--app-text); }
 /* Diffstat ± counts (added green / removed red, matching DiffView's line
    colors) — shared by ViewToggle's Changes tab and GitPanel's file rows. */
 .diff-add { color: var(--base-success); font-variant-numeric: tabular-nums; }
@@ -1011,8 +998,7 @@ html, body {
    a light canvas). Crisp chip corners (terminal aesthetic), not a pill. */
 .wt-unread { flex-shrink: 0; min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-2xs); font-weight: 700; border-radius: var(--radius-2xs); background: var(--app-accent); color: var(--base-on-accent); }
 
-/* ---- chat ---- */
-.chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+/* ---- header breadcrumb ---- */
 /* workspace path shown inline in the content column's top bar (Header), as a
    subtle rounded chip. */
 /* Left-aligned in the header's flex flow (the first slot). A BUTTON now —
@@ -1078,205 +1064,23 @@ html, body {
 }
 .dim { color: var(--app-dim); }
 
-/* Custom scroll: the viewport clips, the inner content is transformed by
-   customScroll (no native scroll). See src/lib/customScroll.ts. */
-.messages-viewport { flex: 1; min-height: 0; overflow: hidden; position: relative; }
-/* The chat content (messages, loading footer, composer) shares one reading column
-   capped at --chat-col and centered when the pane is wider. The scroll viewport
-   and dividers stay full-width; only the content centers. */
-/* Width/gutter come from the composed .chat-col (see Chat markup). */
-.messages { padding-block: 16px; display: flex; flex-direction: column; gap: 22px; will-change: transform; }
-
-/* Shared "bubble" surface — the user message bubble AND the composer input use
-   the SAME gradient + faint outline + radius, so the input matches the chat
-   (edit here once and both follow). Vertical gradient: top and bottom share the
-   lighter color, with a darker band through the middle; the rise back up happens
-   unevenly — held dark until ~3/4 down, then a shallow gradient back to the top
-   color at the bottom edge. Token-based so it tracks the theme. */
-.msg.user .body,
-.composer-input {
-  border-radius: calc(var(--radius) + 8px);
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--app-bg) 22%, var(--app-panel)) 0%,
-    color-mix(in srgb, var(--app-bg) 75%, var(--app-panel)) 50%,
-    color-mix(in srgb, var(--app-bg) 75%, var(--app-panel)) 72%,
-    color-mix(in srgb, var(--app-bg) 22%, var(--app-panel)) 100%
-  );
-  border: 1px solid color-mix(in srgb, var(--app-text) 10%, transparent);
-}
-/* All messages share ONE left-aligned column (no left/right split). The user's
-   own messages get the bubble surface above so they read distinctly from the
-   assistant's plain prose; the box hugs its content. */
-.msg.user .body {
-  display: block;
-  padding: 12px 16px;
-  /* Slightly grey, not pure white — softened toward the bubble background. */
-  color: color-mix(in srgb, var(--app-text) 90%, var(--app-bg));
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-/* ---- Minimal mode: iMessage-style chat (toggled via `.messages.minimal` in
-   Chat.svelte). Your messages hug content on the RIGHT; the agent's one-sentence
-   summaries hug content on the LEFT with their own bubble surface. Tighter gap so
-   it reads as a quick back-and-forth. The normal full-width transcript view (no
-   `.minimal`) is unaffected. ---- */
-.messages.minimal { gap: 10px; }
-/* You: one bubble pinned right. Agent: a column of up to 3 bubbles stacked left
-   (a short burst of texts), tight 3px between them so they read as one reply. */
-.messages.minimal .msg.user { display: flex; justify-content: flex-end; }
-.messages.minimal .msg.assistant {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-}
-.messages.minimal .msg .body {
-  width: fit-content;
-  max-width: 78%;
-  border-radius: var(--radius-xl);
-  padding: 9px 14px;
-  line-height: 1.35;
-}
-/* Sent (you): solid accent fill, right side, with the tail corner bottom-right.
-   Overrides the shared gradient/border bubble surface for the minimal view only. */
-.messages.minimal .msg.user .body {
-  background: var(--primary);
-  border-color: transparent;
-  color: var(--primary-foreground);
-  border-bottom-right-radius: 6px;
-}
-/* Received (agent): neutral raised surface, left side. */
-.messages.minimal .msg.assistant .body {
-  background: var(--app-panel-2, var(--app-panel));
-  border: 1px solid color-mix(in srgb, var(--app-text) 8%, transparent);
-  color: var(--app-text);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-/* The tail corner sits only on the LAST bubble of the agent's burst. */
-.messages.minimal .msg.assistant .body:last-child {
-  border-bottom-left-radius: 6px;
-}
-
-/* ---- Terminal skin (`.messages[data-chat-skin="terminal"]`, set from
-   stores.ts › chatSkin via Chat.svelte): mono chat column, user turns as
-   accent `❯ ` prompt lines instead of bubbles, tighter rhythm, denser tool
-   rows. Composes with minimal mode by design: the structural overrides (gap +
-   prompt-line bubble kill) are scoped :not(.minimal) — the attribute selector
-   otherwise out-specifies minimal's bubble rules — so minimal keeps its
-   iMessage look and only the mono type applies there. Assistant turns already
-   render as plain prose in the normal view (no bubble chrome to flatten).
-   All token-derived (conformance §7). ---- */
-.messages[data-chat-skin="terminal"] {
-  font-family: var(--app-font-mono);
-  font-size: var(--text-md);
-}
-.messages[data-chat-skin="terminal"]:not(.minimal) { gap: 6px; }
-/* User turn as a prompt line: kill the bubble surface (the shared gradient +
-   outline above), left-aligned in the one shared column, accent prompt glyph. */
-.messages[data-chat-skin="terminal"]:not(.minimal) .msg.user .body {
-  background: none;
-  border: none;
-  padding: 0;
-  border-radius: 0;
-  color: var(--app-text);
-}
-.messages[data-chat-skin="terminal"]:not(.minimal) .msg.user .body::before {
-  content: "❯ ";
-  color: var(--app-accent);
-  font-weight: 600;
-}
-/* Fenced code tightens to the near-square radius, terminal-style. */
-.messages[data-chat-skin="terminal"] .markdown pre { border-radius: var(--radius-2xs); }
-/* Denser tool rows. */
-.messages[data-chat-skin="terminal"] .tool-row { margin-top: 2px; }
-.messages[data-chat-skin="terminal"] .tool-row-head { padding: 1px 0; font-size: var(--text-sm); }
-/* Composer input: same bubble surface, laid out as [textarea | send button].
-   The selector row below stays OUTSIDE this surface. */
-.composer-input {
-  display: flex;
-  align-items: flex-start; /* button pinned to top — looks centered at 1 line, stays up as it grows */
-  gap: 8px;
-  padding: 6px 8px 6px 16px;
-  /* The container chrome isn't selectable; the textarea re-enables it (select-text). */
-  -webkit-user-select: none;
-  user-select: none;
-  transition:
-    border-color var(--app-duration-fast) ease,
-    box-shadow var(--app-duration-fast) ease;
-}
-/* Brighten the border on hover, and keep it bright while the input is focused. */
-.composer-input:hover,
-.composer-input:focus-within {
-  border-color: color-mix(in srgb, var(--app-text) 22%, transparent);
-}
-/* When focused, thicken the border via an inset ring (no layout shift). */
-.composer-input:focus-within {
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--app-text) 22%, transparent);
-}
-/* ---- rendered markdown (assistant prose; see Markdown.svelte). Tight vertical
-   rhythm so a chat bubble reads as one block; code stays monospace regardless of
-   the chosen UI font (--app-font can be a non-mono theme). ---- */
-.markdown { line-height: 1.5; }
-.markdown > :first-child { margin-top: 0; }
-.markdown > :last-child { margin-bottom: 0; }
-.markdown p { margin: 0 0 8px; }
-.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 14px 0 6px; line-height: 1.3; font-weight: 600; color: var(--app-text); }
-.markdown h1 { font-size: 1.3em; }
-.markdown h2 { font-size: 1.18em; }
-.markdown h3 { font-size: 1.07em; }
-.markdown h4 { font-size: 1em; }
-.markdown ul, .markdown ol { margin: 0 0 8px; padding-left: 1.4em; }
-.markdown li { margin: 2px 0; }
-.markdown li > ul, .markdown li > ol { margin: 2px 0; }
-/* Links stay text-colored (underline is the affordance) — color is for code only. */
-.markdown a { color: var(--app-text); text-decoration: underline; text-underline-offset: 2px; }
-.markdown strong { font-weight: 600; color: var(--app-text); }
-.markdown blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 2px solid var(--app-border); color: var(--app-dim); }
-.markdown hr { border: none; border-top: 1px solid var(--app-border); margin: 12px 0; }
-/* Inline code: an info-blue chip so file/symbol mentions pop out of the prose. */
-.markdown code {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 0.9em; color: var(--app-code);
-  background: var(--app-code-bg);
-  border-radius: calc(var(--radius) - 6px); padding: 0.1em 0.35em;
-}
-/* Fenced block: surface panel so code/diagrams read as a distinct unit. A bordered
-   block needs more breathing room than the 8px inline-paragraph rhythm, so it gets
-   symmetric 12px margins (vs the surrounding text's tighter spacing). */
-.markdown pre {
-  background: var(--app-panel); border: 1px solid var(--app-border); border-radius: calc(var(--radius) - 2px);
-  padding: 10px 12px; margin: 12px 0; overflow-x: auto;
-}
-.markdown pre code { color: var(--app-text); background: none; border: none; padding: 0; font-size: 0.85em; }
-/* Data tables — the markdown table AND TextTable (tool-result tabular view)
-   share ONE look (the :where(.markdown, .diff) hljs precedent below): panel
-   header band, hairline row dividers (no per-cell side borders), zebra
-   striping, tabular numerals. display:block + overflow-x keeps a wide table
-   scrolling inside its own box. */
-:where(.markdown, .text-table) table { border-collapse: collapse; margin: 0 0 8px; display: block; overflow-x: auto; font-variant-numeric: tabular-nums; }
-:where(.markdown, .text-table) thead th { background: var(--app-panel); font-weight: 600; border-bottom: 1px solid var(--app-border); }
-:where(.markdown, .text-table) th, :where(.markdown, .text-table) td { padding: 4px 10px; text-align: left; border-bottom: 1px solid color-mix(in srgb, var(--app-border) 60%, transparent); }
-:where(.markdown, .text-table) tbody tr:nth-child(even) { background: color-mix(in srgb, var(--app-panel) 55%, transparent); }
 /* highlight.js scopes → the theme's existing chart hues (no imported hljs theme,
-   so syntax color follows the active --base-* palette). Shared by markdown fenced
-   code and the git diff (DiffView), which both emit `<span class="hljs-…">`. */
-:where(.markdown, .diff) .hljs-comment, :where(.markdown, .diff) .hljs-quote { color: var(--app-dim); font-style: italic; }
-:where(.markdown, .diff) .hljs-keyword, :where(.markdown, .diff) .hljs-built_in, :where(.markdown, .diff) .hljs-literal, :where(.markdown, .diff) .hljs-type { color: var(--base-special); }
-:where(.markdown, .diff) .hljs-string, :where(.markdown, .diff) .hljs-regexp, :where(.markdown, .diff) .hljs-char, :where(.markdown, .diff) .hljs-addition { color: var(--base-success); }
-:where(.markdown, .diff) .hljs-number, :where(.markdown, .diff) .hljs-symbol { color: var(--base-warning); }
-:where(.markdown, .diff) .hljs-title, :where(.markdown, .diff) .hljs-name, :where(.markdown, .diff) .hljs-section, :where(.markdown, .diff) .hljs-selector-tag { color: var(--app-accent); }
-:where(.markdown, .diff) .hljs-attr, :where(.markdown, .diff) .hljs-attribute, :where(.markdown, .diff) .hljs-property, :where(.markdown, .diff) .hljs-variable, :where(.markdown, .diff) .hljs-template-variable { color: var(--app-accent); }
-:where(.markdown, .diff) .hljs-meta, :where(.markdown, .diff) .hljs-tag, :where(.markdown, .diff) .hljs-punctuation { color: var(--app-dim); }
-:where(.markdown, .diff) .hljs-deletion { color: var(--app-danger); }
-:where(.markdown, .diff) .hljs-emphasis { font-style: italic; }
-:where(.markdown, .diff) .hljs-strong { font-weight: 600; }
+   so syntax color follows the active --base-* palette). Emitted by the git diff
+   (DiffView) as `<span class="hljs-…">`. */
+.diff .hljs-comment, .diff .hljs-quote { color: var(--app-dim); font-style: italic; }
+.diff .hljs-keyword, .diff .hljs-built_in, .diff .hljs-literal, .diff .hljs-type { color: var(--base-special); }
+.diff .hljs-string, .diff .hljs-regexp, .diff .hljs-char, .diff .hljs-addition { color: var(--base-success); }
+.diff .hljs-number, .diff .hljs-symbol { color: var(--base-warning); }
+.diff .hljs-title, .diff .hljs-name, .diff .hljs-section, .diff .hljs-selector-tag { color: var(--app-accent); }
+.diff .hljs-attr, .diff .hljs-attribute, .diff .hljs-property, .diff .hljs-variable, .diff .hljs-template-variable { color: var(--app-accent); }
+.diff .hljs-meta, .diff .hljs-tag, .diff .hljs-punctuation { color: var(--app-dim); }
+.diff .hljs-deletion { color: var(--app-danger); }
+.diff .hljs-emphasis { font-style: italic; }
+.diff .hljs-strong { font-weight: 600; }
 /* ---- ANSI text spans (AnsiText.svelte; classes emitted by src/lib/ansi.ts).
-   Shared by Collapsible (tool results) and RunOutput (script logs). Colors
-   route through the --app-ansi-* slots above so ANSI output follows the theme;
-   the emitter↔rule↔token pairing is conformance-tested (§8). ---- */
+   Rendered by RunOutput (script logs). Colors route through the --app-ansi-*
+   slots above so ANSI output follows the theme; the emitter↔rule↔token
+   pairing is conformance-tested (§8). ---- */
 .ansi-fg-0 { color: var(--app-ansi-0); }
 .ansi-fg-1 { color: var(--app-ansi-1); }
 .ansi-fg-2 { color: var(--app-ansi-2); }
@@ -1313,84 +1117,6 @@ html, body {
 .ansi-dim { opacity: 0.65; }
 .ansi-italic { font-style: italic; }
 .ansi-underline { text-decoration: underline; }
-/* ---- compact tool rows (a tool_call + its folded-in result; see
-   ToolActivity.svelte). Dim and one-line by default so assistant prose
-   dominates; click the head to expand input + result. ---- */
-.tool-row { margin-top: 4px; }
-.tool-row-head {
-  display: flex; align-items: center; gap: 6px; width: 100%;
-  padding: 3px 0; background: none; border: none; cursor: pointer;
-  font-size: var(--text-sm); color: var(--app-dim); text-align: left;
-}
-.tool-row-head:hover { color: var(--app-text); }
-.tool-chevron { flex-shrink: 0; opacity: 0.7; transition: transform var(--app-duration-fast) ease; }
-.tool-row-head[data-state="open"] .tool-chevron { transform: rotate(90deg); }
-.tool-label { color: var(--app-text); flex-shrink: 0; }
-.tool-detail { color: var(--app-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool-status { flex-shrink: 0; margin-left: auto; display: inline-flex; color: var(--app-dim); opacity: 0.8; }
-.tool-row.error .tool-status { color: var(--app-danger); opacity: 1; }
-.tool-pending { width: 5px; height: 5px; border-radius: 50%; background: var(--app-dim); display: inline-block; opacity: 0.6; }
-.tool-row-body { padding: 4px 0 2px 20px; }
-.tool-block { margin-top: 4px; }
-.tool-block-label { font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--app-dim); opacity: 0.7; margin-bottom: 2px; }
-/* A run of tool calls batched behind one collapsible header (see ToolGroup). */
-.tool-group { margin-top: 4px; }
-.tool-group.error .tool-status { color: var(--app-danger); opacity: 1; }
-.tool-group-body { padding-left: 14px; }
-.msg.system { align-self: center; color: var(--app-dim); font-size: var(--text-xs); }
-.msg.error { align-self: center; color: var(--app-danger); font-size: var(--text-sm); }
-
-/* ---- loading state (verbose "what's happening" footer while a turn runs) ---- */
-/* One row: the shimmer "thinking" label, with the elapsed timer inline beside it.
-   The label truncates if long so the timer stays visible right next to it. */
-/* In-flow chat item (last child of .messages): aligns with the message column,
-   spaced by the column's gap — no footer-specific max-width/padding. */
-.loading-state { display: flex; align-items: baseline; gap: 8px; }
-.loading-label { font-size: var(--text-md); color: var(--app-text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.loading-meta { font-size: var(--text-xs); color: var(--app-dim); flex-shrink: 0; }
-/* Idle end-of-turn summary ("Finished in 17s · 4 steps") in the same footer slot. */
-.loading-summary { font-size: var(--text-sm); color: var(--app-dim); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* "Thinking" text animation: a shimmer sweep (a moving highlight in a gradient
-   clipped to the glyphs) over the JS typewriter reveal (see LoadingState.svelte). */
-.loading-label .shimmer {
-  background: linear-gradient(90deg, var(--app-dim) 30%, var(--app-text) 50%, var(--app-dim) 70%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  animation: text-shimmer 2s linear infinite;
-}
-@keyframes text-shimmer {
-  0% { background-position: 100% 0; }
-  100% { background-position: -100% 0; }
-}
-
-/* ---- composer ---- */
-/* Width/gutter come from the composed .chat-col (see Composer markup). */
-.composer { position: relative; flex-shrink: 0; padding-block: 8px 12px; }
-/* Caret that rides the end of the animated placeholder as it types/backspaces,
-   matching the real textarea caret (color + blink) so the handoff is seamless. */
-.ph-caret {
-  display: inline-block;
-  width: 2px;
-  height: 1.25em;
-  margin-left: 1px;
-  /* The overlay flex-centers the line in the container; middle keeps the caret
-     centered on that line. */
-  vertical-align: middle;
-  background: var(--app-text);
-  animation: ph-caret-blink 1s step-end infinite;
-}
-
-/* The highlighted right-hand chunk when clicking into the placeholder (see
-   Composer.onPointerDown). Matches the theme ::selection (grey fill + accent text
-   + glow). Applied all at once (no sweep); the chunk is then deleted in one go. */
-.ph-sel {
-  /* Same fill + text color as the global ::selection. */
-  background-color: var(--app-selection-bg);
-  color: var(--app-selection-text);
-}
 
 }
 /* end @layer components */
@@ -1409,11 +1135,6 @@ html, body {
   transform: none;
 }
 
-@keyframes ph-caret-blink {
-  0%, 50% { opacity: 1; }
-  50.01%, 100% { opacity: 0; }
-}
-
 /* Tokenized modal scrim — overrides the shadcn dialog-overlay's hardcoded
    `bg-black/10` so the scrim follows the theme. Unlayered so it beats
    Tailwind's utilities layer WITHOUT hand-editing the generated ui/* file. */
@@ -1422,7 +1143,7 @@ html, body {
 }
 
 /* Text-selection highlight: accent-colored text on the per-theme selection tone at
-   20% — all from the base palette (shared tokens; .ph-sel matches exactly). */
+   20% — all from the base palette (shared tokens). */
 ::selection {
   background-color: var(--app-selection-bg);
   color: var(--app-selection-text);

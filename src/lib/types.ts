@@ -7,8 +7,6 @@
 // line to stdout; Rust relays each line as a worktree-tagged `agent-event` Tauri
 // event; api.ts parses them.
 
-import type { AgentMessage } from "../../shared/protocol";
-
 export type {
   AgentMessage,
   ConnectorInfo,
@@ -25,15 +23,6 @@ export type {
   SlashCommandInfo,
   TurnUsage,
 } from "../../shared/protocol";
-
-/** A rendered transcript entry: a provider-neutral `AgentMessage`, or a UI-only
- *  bubble — the optimistic user echo (`user_local`) or an error notice. `__key`
- *  is the stable per-message id assigned on append (see stores.appendMessage). */
-export type TranscriptMessage = (
-  | AgentMessage
-  | { type: "user_local"; text: string }
-  | { type: "error"; error: string }
-) & { __key?: number };
 
 /** A git worktree as reported by the worktree commands. `is_bare` marks a bare
  *  entry (no working files — can't host an agent; openRepository skips it). */

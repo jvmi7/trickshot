@@ -2,7 +2,7 @@
 // The TUI repaints continuously while a turn runs (spinner + elapsed-time
 // ticker) and is silent when idle (xterm blinks the cursor client-side), so
 // "data is flowing" IS the busy signal — no protocol events exist on this
-// path (the sidecar's turn_end never fires under CLI-first chat). Pure state
+// path (the CLI emits no structured turn events). Pure state
 // machine: the caller owns the timers and passes timestamps in, so the edge
 // logic is unit-testable (terminal.ts wires it to the real stream).
 //

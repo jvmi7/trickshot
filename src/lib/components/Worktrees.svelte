@@ -14,15 +14,11 @@
     clearStatus,
     activateWorktree,
     newWorktreeRequest,
-    resetTranscript,
-    forgetWorktreeSession,
-    removeComments,
     removeScriptRun,
     setCenterView,
     setMainView,
     unreadByWorktree,
     clearUnread,
-    pendingPermission,
     archivedWorkspaces,
     addArchived,
     removeArchived,
@@ -193,13 +189,9 @@
   async function doRemove(repoPath: string, wt: Worktree) {
     error = "";
     try {
-      await api.stopSession(wt.path);
       await api.stopScript(wt.path);
       disposeTerminal(wt.path);
       await api.removeWorktree(repoPath, wt.path, true);
-      resetTranscript(wt.path);
-      forgetWorktreeSession(wt.path);
-      removeComments(wt.path);
       clearStatus(wt.path);
       removeScriptRun(wt.path);
       removeWorktreeFromRepo(repoPath, wt.path);
@@ -209,11 +201,11 @@
     }
   }
 
-  // Archive: remove the worktree DIR (branch kept) but KEEP its persisted
-  // transcript / session id / comments — restoring the branch recreates the
-  // same worktree path, so the chat and agent context come back on restore
-  // (see stores.ts › archivedWorkspaces). The repo's archive script (if any)
-  // runs to completion FIRST, while the worktree still exists.
+  // Archive: remove the worktree DIR (branch kept). Claude Code's own session
+  // store is keyed by the worktree path, so restoring the branch recreates the
+  // same path and the conversation resumes on restore (see stores.ts ›
+  // archivedWorkspaces). The repo's archive script (if any) runs to completion
+  // FIRST, while the worktree still exists.
   async function doArchive(repoPath: string, wt: Worktree) {
     error = "";
     if (!wt.branch) return; // restore needs a branch; detached HEAD can't archive
@@ -227,7 +219,6 @@
       // A failing archive script ABORTS the archive (it exists to clean up
       // resources; deleting the dir anyway would leak them).
       if (archiveCmd) await api.runScriptBlocking(repoPath, wt.path, "archive");
-      await api.stopSession(wt.path);
       await api.stopScript(wt.path);
       disposeTerminal(wt.path);
       await api.removeWorktree(repoPath, wt.path, true);
@@ -265,12 +256,10 @@
     }
   }
 
-  // Permanently delete an archived workspace: purge the persisted chat/session
-  // state its restore would have revived, then drop the index entry.
+  // Permanently delete an archived workspace: drop the History entry. (The
+  // conversation itself lives in Claude Code's own session store on disk —
+  // the app never deletes that.)
   function purgeArchived(entry: ArchivedWorkspace) {
-    resetTranscript(entry.path);
-    forgetWorktreeSession(entry.path);
-    removeComments(entry.path);
     removeArchived(entry.repoPath, entry.branch);
   }
 
@@ -391,8 +380,7 @@
                   <IdentityGlyph
                     seed={wt.path}
                     color={profileAccent(wt.path)}
-                    loading={$sessionStatus[wt.path] === "busy" ||
-                      $sessionStatus[wt.path] === "starting"}
+                    loading={$sessionStatus[wt.path] === "busy"}
                   />
                   <span class="wt-name">{wt.branch ?? "(detached)"}</span>
                   {#if ($gitStatByWorktree[wt.path]?.changed ?? 0) > 0}
@@ -402,9 +390,6 @@
                       {#if gs?.deletions}<span class="diff-del">−{gs.deletions}</span>{/if}
                       {#if !gs?.insertions && !gs?.deletions}<span class="diff-add">●</span>{/if}
                     </span>
-                  {/if}
-                  {#if $pendingPermission[wt.path]}
-                    <span class="wt-pending" title="Waiting for permission">!</span>
                   {/if}
                   {#if ($unreadByWorktree[wt.path] ?? 0) > 0 && $selectedWorktree !== wt.path}
                     <span class="wt-unread" title="Finished while in background">{$unreadByWorktree[wt.path]}</span>
@@ -425,7 +410,7 @@
                       variant="ghost"
                       size="icon-xs"
                       class="opacity-0 transition-opacity group-hover/row:opacity-100"
-                      title="Remove worktree (drops its chat history)"
+                      title="Remove worktree (discards its working files)"
                       aria-label="Remove worktree"
                       onclick={(e: Event) => requestAction("remove", repo.path, wt, e)}
                     >
@@ -508,7 +493,7 @@
                 </Button>
               {/snippet}
             </Tooltip.Trigger>
-            <Tooltip.Content>Delete permanently (drops its chat history)</Tooltip.Content>
+            <Tooltip.Content>Remove from History</Tooltip.Content>
           </Tooltip.Root>
         </div>
       {/each}
@@ -525,8 +510,8 @@
       {#if confirmAction?.kind === "purge"}
         <Dialog.Title>Delete archived workspace?</Dialog.Title>
         <Dialog.Description>
-          "{confirmAction.entry.repoName} / {confirmAction.entry.branch}" will be gone for good —
-          its chat history is deleted (the git branch is kept).
+          "{confirmAction.entry.repoName} / {confirmAction.entry.branch}" is removed from History
+          (the git branch is kept).
         </Dialog.Description>
       {:else if confirmAction && confirmAction.fileCount > 0}
         <Dialog.Title>{confirmAction.kind === "archive" ? "Archive" : "Remove"} worktree?</Dialog.Title>
@@ -537,12 +522,12 @@
             : "Removing discards them."}
         </Dialog.Description>
       {:else if confirmAction}
-        <!-- Clean-tree remove: nothing uncommitted, but the worktree + its chat
-             history still disappear — that deserves a stop. -->
+        <!-- Clean-tree remove: nothing uncommitted, but the worktree still
+             disappears — that deserves a stop. -->
         <Dialog.Title>Remove worktree?</Dialog.Title>
         <Dialog.Description>
-          "{confirmAction.wt.branch ?? confirmAction.wt.path}" and its chat history will be removed
-          (the git branch is kept). Archive instead to keep the chat restorable.
+          "{confirmAction.wt.branch ?? confirmAction.wt.path}" will be removed (the git branch is
+          kept). Archive instead to keep it restorable from History.
         </Dialog.Description>
       {/if}
     </Dialog.Header>

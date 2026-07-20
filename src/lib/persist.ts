@@ -1,5 +1,5 @@
 // Persistence primitives — the localStorage-backed store template split out of
-// stores.ts (the transcript.ts precedent: a self-contained subsystem whose
+// stores.ts (a self-contained subsystem whose
 // invariants live in one file). This is the CANONICAL home of "the ONE template"
 // every persisted `trickshot.*` store is built from (see CLAUDE.md): a load()
 // with a shape guard + fallback, then a subscribe() write-back that swallows

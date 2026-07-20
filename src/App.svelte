@@ -1,22 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import { onAgentEvent, onScriptEvent, onTermEvent, listWorktrees, worktreeStatus } from "./lib/api";
+  import { onScriptEvent, onTermEvent, listWorktrees, worktreeStatus } from "./lib/api";
   import { borderGlow } from "./lib/borderGlow";
   import { handleTermEvent } from "./lib/terminal";
-  import { providerDisplay } from "./lib/providers";
   import {
-    activeChatMode,
-    activeProvider,
-    CHAT_SURFACE,
-    chatModeByWorktree,
-    setChatMode,
     repos,
     worktreesByRepo,
     setWorktrees,
     selectedWorktree,
     selectWorktree,
-    setStatus,
     sidebarOpen,
     toggleSidebar,
     sidebarWidth,
@@ -26,7 +19,6 @@
     refreshUsage,
     authState,
     refreshAuth,
-    ensureSession,
     mainView,
     setMainView,
     toggleMainView,
@@ -46,7 +38,6 @@
     toggleShortcutsHelp,
     requestNewWorktree,
   } from "./lib/stores";
-  import { handleAgentEvent, handleSessionStatus } from "./lib/agentEvents";
   import { handleScriptEvent } from "./lib/scriptEvents";
   import ClaudeTerminalPane from "./lib/components/ClaudeTerminalPane.svelte";
   import CommandPalette from "./lib/components/CommandPalette.svelte";
@@ -56,8 +47,6 @@
   import RunOutput from "./lib/components/RunOutput.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import Fleet from "./lib/components/Fleet.svelte";
-  import Chat from "./lib/components/Chat.svelte";
-  import ThreadPanel from "./lib/components/ThreadPanel.svelte";
   import Settings from "./lib/components/Settings.svelte";
   import Welcome from "./lib/components/Welcome.svelte";
   import ComposeDialog from "./lib/components/ComposeDialog.svelte";
@@ -200,18 +189,7 @@
     if ($shellOpen && !$selectedWorktree) setShellOpen(false);
   });
 
-  // Don't strand a worktree in CLI chat mode when its provider has no CLI
-  // (provider switched / stale persistence) — same fallback family as the
-  // stranded-tab guards above.
-  $effect(() => {
-    const wt = $selectedWorktree;
-    if (wt && $activeChatMode === "cli" && !providerDisplay($activeProvider).cliChat) {
-      setChatMode(wt, "gui");
-    }
-  });
-
   onMount(() => {
-    let unlisten: (() => void) | undefined;
     let cancelled = false;
 
     // Populate the subscription-usage chip on launch (throttled thereafter).
@@ -219,16 +197,7 @@
     // Probe the provider login for the sign-in notice (local read, silent).
     void refreshAuth();
 
-    // The dispatch logic lives in lib/agentEvents.ts (plain, testable TS); App
-    // just wires the stream to it.
-    onAgentEvent(handleAgentEvent, handleSessionStatus)
-      .then((u) => {
-        if (cancelled) u();
-        else unlisten = u;
-      })
-      .catch(() => {});
-
-    // Same wiring for the script-output stream (lib/scriptEvents.ts).
+    // Wire the script-output stream (lib/scriptEvents.ts).
     let unlistenScripts: (() => void) | undefined;
     onScriptEvent(handleScriptEvent)
       .then((u) => {
@@ -257,38 +226,19 @@
           // repo moved/deleted — leave it empty in the sidebar
         }
       }
+      // A live selection needs no session start here: ClaudeTerminalPane's
+      // mount reopens the claude PTY (resuming the newest session id).
       const sel = get(selectedWorktree);
       if (sel) {
         const exists = Object.values(get(worktreesByRepo)).some((list) =>
           list.some((w) => w.path === sel),
         );
-        if (!exists) {
-          selectWorktree(null);
-        } else if (CHAT_SURFACE === "cli" || (get(chatModeByWorktree)[sel] ?? "gui") === "cli") {
-          // The CLI — not a sidecar — owns this session (CLI-first surface, or
-          // the legacy persisted toggle state); ClaudeTerminalPane's mount
-          // reopens the PTY (resuming the newest session id). Starting a
-          // sidecar here would double-own the session.
-        } else {
-          // Resume the persisted selection's session on launch (idempotent) so
-          // the chat — and its model switcher — are usable without re-selecting.
-          // ensureSession passes the persisted session id so the agent's context
-          // resumes too. Status shows the boot gap as `starting`; the sidecar's
-          // `ready`/`models` events flip it to ready + fill the catalog.
-          try {
-            setStatus(sel, "starting");
-            await ensureSession(sel);
-          } catch {
-            // a real spawn failure surfaces via the agent-event error path
-            setStatus(sel, "stopped");
-          }
-        }
+        if (!exists) selectWorktree(null);
       }
     })();
 
     return () => {
       cancelled = true;
-      unlisten?.();
       unlistenScripts?.();
       unlistenTerm?.();
     };
@@ -373,11 +323,7 @@
       {/snippet}
       {#snippet actions()}
         <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
-             nothing to act on there. (ChatModeToggle is unwired under the
-             CLI-first CHAT_SURFACE — the terminal IS the chat; the component
-             is preserved for the legacy GUI surface.) UsageIndicator lives here
-             (not the deprecated Composer) so budget stays visible under
-             CLI-first chat. -->
+             nothing to act on there. -->
         {#if $centerView !== "settings" && $repos.length > 0}
           <UsageIndicator />
           <RunScripts />
@@ -400,19 +346,11 @@
              not a dead-end hint. The palette's "Fleet overview" deselects to
              land here. -->
         <Fleet />
-      {:else if $selectedWorktree && (CHAT_SURFACE === "cli" || $activeChatMode === "cli")}
-        <!-- The chat: the REAL Claude Code TUI (CLI-first — see CHAT_SURFACE in
-             stores.ts; also the legacy per-worktree toggle state). The GUI Chat
-             below is deprecated-but-preserved, reachable only with no worktree
-             selected (its empty state) or by flipping CHAT_SURFACE back. -->
-        <ClaudeTerminalPane />
       {:else}
-        <Chat />
+        <!-- The chat: the REAL Claude Code TUI on the worktree's claude PTY. -->
+        <ClaudeTerminalPane />
       {/if}
     </div>
-    <!-- Thread overlay: a right-side Sheet that floats over the content (driven by
-         $activeCommentId). Portals out, so it never reflows the layout above. -->
-    <ThreadPanel />
   </main>
 </div>
 </Tooltip.Provider>

@@ -21,7 +21,6 @@ import { ensureClaudeOpen, handleCliExit } from "./session";
 import {
   bumpGitRefresh,
   bumpUnread,
-  pushAppNotification,
   refreshUsage,
   selectedWorktree,
   setStatus,
@@ -203,10 +202,9 @@ export async function ensureOpen(worktree: string) {
 }
 
 // ---- CLI busy/idle detection (the multi-worktree awareness layer) ----------
-// Under CLI-first chat no sidecar events fire, so the sidebar dot / unread
-// badges / OS notifications would all be blind. The claude PTY's OUTPUT FLOW is
-// the signal instead (see cliActivity.ts): data flowing = busy; a real burst
-// ending = the turn-finished side-effects agentEvents.ts runs on `turn_end`.
+// The CLI emits no structured turn events, so the sidebar dot / unread badges /
+// OS notifications key off the claude PTY's OUTPUT FLOW instead (see
+// cliActivity.ts): data flowing = busy; a real burst ending = a turn finished.
 const cliActivity = new Map<
   string,
   { tracker: CliActivityTracker; timer: ReturnType<typeof setTimeout> | null }
@@ -243,15 +241,14 @@ function noteCliActivity(key: string) {
     const burst = entry.tracker.onIdle(Date.now());
     setStatus(wt, "ready");
     if (burst === "turn") {
-      // Mirror agentEvents.ts's turn_end side-effects: budget + git state
-      // moved, and a background worktree deserves attention. ("Finished" may
-      // also mean "waiting on a prompt" — either way, it needs the user.)
+      // A turn just finished: budget + git state moved, and a background
+      // worktree deserves attention. ("Finished" may also mean "waiting on a
+      // prompt" — either way, it needs the user.)
       refreshUsage();
       bumpGitRefresh();
       if (wt !== get(selectedWorktree)) {
         bumpUnread(wt);
         void api.notify("Agent finished", basename(wt));
-        pushAppNotification(wt, "Agent finished", basename(wt));
       }
     }
   }, CLI_IDLE_MS);
@@ -280,10 +277,9 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
       inst.open = false;
       if (inst.slot === "claude") {
         clearCliActivity(key);
-        // The CLI ended (/exit, crash, or our own termClose). session.ts
-        // decides what that means per chat surface (CLI-first: mark stopped,
-        // type-to-revive; legacy toggle: adopt the forked id + restart the
-        // sidecar). Call-time import per the CIRCULAR-IMPORT CONTRACT.
+        // The CLI ended (/exit, crash, or our own termClose): session.ts marks
+        // the session stopped (type-to-revive). Call-time import per the
+        // CIRCULAR-IMPORT CONTRACT.
         inst.term.write("\r\n\x1b[2m[claude exited — type here to restart it]\x1b[0m\r\n");
         handleCliExit(keyWorktree(key));
       } else {
