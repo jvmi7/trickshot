@@ -20,8 +20,8 @@ why raw `font-size: 11px` literals once proliferated. Consequences:
 - **There is deliberately NO bespoke spacing scale.** Primitives (`ui/*`, utility
   classes) live on Tailwind's 3.5px grid; bespoke structural CSS uses literal px
   (`padding: 0 32px`). Don't convert between them mechanically — `32px` ≠ `px-8`.
-- The radius ladder resolves against 14px too: `--radius-sm` = 10px, `--radius-xs`
-  = 6px, `--radius-2xs` = 2px, `--radius-xl` = 18px.
+- The radius ladder is px-valued and terminal-crisp: `--radius-sm` = 4px,
+  `--radius-xs` = 3px, `--radius-2xs` = 2px, `--radius-xl` = 8px.
 
 ## Token reference
 
@@ -47,9 +47,11 @@ lines excepted). The `.markdown` `em` sizes are relative-by-design and exempt.
 
 ### Radius — `@theme inline` (`rounded-*` utilities)
 
-Single source `--radius: 1rem`; the ladder is `--radius-2xs/xs/sm/md/lg/xl`
-(2/6/10/12/14/18px at the 14px root). `999px` is the blessed **pill** radius and
-stays literal, as does `50%`. Any other raw `border-radius: NNpx` fails CI — pick
+Single source `--radius: 6px` (terminal-crisp — the chat pane is a real
+terminal, so the chrome matches it); the ladder is `--radius-2xs/xs/sm/md/lg/xl`
+(2/3/4/5/6/8px). `999px` is the blessed **pill** radius and stays literal, as
+does `50%` — reserve pills for genuinely round things (dots, the scroll
+indicator); count badges are crisp chips (`--radius-2xs`). Any other raw `border-radius: NNpx` fails CI — pick
 the nearest step (that snap is a deliberate, tiny visual delta).
 
 ### Z-index — `--app-*` block

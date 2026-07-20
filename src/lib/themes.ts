@@ -85,6 +85,33 @@ export const PALETTE_VARS: Record<keyof ThemePalette, string> = {
  *  fallback in app.css `:root`, so it paints before this module runs). */
 export const THEMES: Theme[] = [
   {
+    id: "term",
+    label: "Terminal",
+    // Matches the Claude Code TUI in the chat pane so the chrome and the
+    // terminal read as ONE surface: neutral near-black, flat (surfaces barely
+    // rise off the canvas), plain light-gray text, the TUI's coral cursor as
+    // the accent, and its soft pink/amber/link-blue state hues. No glyph glow
+    // — the real TUI has none.
+    palette: {
+      bg: "#0f0f0f",
+      surface: "#161616",
+      surfaceRaised: "#1f1f1f",
+      border: "#2e2e2e",
+      text: "#e7e7e7",
+      textMuted: "#8f8f8f",
+      accent: "#d97757",
+      onAccent: "#0f0f0f",
+      danger: "#f07178",
+      success: "#5fb87a",
+      info: "#82aaff",
+      warning: "#f0b03c",
+      special: "#b48ef0",
+      overlay: "rgb(0 0 0 / 0.6)",
+      selection: "#6f6f6f",
+      termGlow: "none",
+    },
+  },
+  {
     id: "terracotta",
     label: "Terracotta",
     // Neutral ramp keyed to the #121011 canvas (near-neutral dark greys with a
@@ -105,9 +132,9 @@ export const THEMES: Theme[] = [
       special: "#b57fd9",
       overlay: "rgb(0 0 0 / 0.5)",
       selection: "#837c7c",
-      // Warm ember: a bright core plus a wide halo.
+      // Warm ember: a soft core plus a gentle halo.
       termGlow:
-        "0 0 4px color-mix(in srgb, currentColor 55%, transparent), 0 0 12px color-mix(in srgb, currentColor 50%, transparent)",
+        "0 0 3px color-mix(in srgb, currentColor 30%, transparent), 0 0 8px color-mix(in srgb, currentColor 22%, transparent)",
     },
   },
   {
@@ -129,9 +156,9 @@ export const THEMES: Theme[] = [
       special: "#9b8cf0",
       overlay: "rgb(0 0 0 / 0.5)",
       selection: "#837c7c",
-      // Cool CRT: a tight core plus a wide halo (crisper than terracotta's).
+      // Cool CRT: a tight core plus a soft halo (crisper than terracotta's).
       termGlow:
-        "0 0 3px color-mix(in srgb, currentColor 50%, transparent), 0 0 14px color-mix(in srgb, currentColor 45%, transparent)",
+        "0 0 2px color-mix(in srgb, currentColor 28%, transparent), 0 0 9px color-mix(in srgb, currentColor 20%, transparent)",
     },
   },
   {
@@ -155,7 +182,38 @@ export const THEMES: Theme[] = [
       selection: "#837c7c",
       // Phosphor: the strongest glow of the set — green-terminal nostalgia.
       termGlow:
-        "0 0 4px color-mix(in srgb, currentColor 60%, transparent), 0 0 16px color-mix(in srgb, currentColor 50%, transparent)",
+        "0 0 3px color-mix(in srgb, currentColor 35%, transparent), 0 0 10px color-mix(in srgb, currentColor 26%, transparent)",
+    },
+  },
+  {
+    id: "paper",
+    label: "Paper",
+    // The light-valued theme (DESIGN_SYSTEM.md recipe): warm paper surfaces,
+    // near-black warm text, the brand terracotta darkened for contrast on
+    // light ground. `class="dark"` stays — it's the token-activation selector,
+    // not a mode. State hues are darkened siblings of the dark themes' set so
+    // they hold ~4.5:1 on the light canvas.
+    palette: {
+      bg: "#f7f5f2",
+      surface: "#efece7",
+      surfaceRaised: "#e5e1d9",
+      border: "#cdc7bc",
+      text: "#292521",
+      textMuted: "#6e675e",
+      accent: "#b25534",
+      // Dark-on-light flips: light text over the (darker) accent fill.
+      onAccent: "#faf7f3",
+      danger: "#b3392f",
+      success: "#22764a",
+      info: "#2f6cad",
+      warning: "#8a5f0a",
+      special: "#7a4bb0",
+      // Lighter scrim — a 0.5 black wash over a light UI reads as a blackout.
+      overlay: "rgb(0 0 0 / 0.25)",
+      // Reads at the 20% render over white as a warm gray-tan.
+      selection: "#b7ac99",
+      // No glyph glow on paper — halos read as blur on a light ground.
+      termGlow: "none",
     },
   },
 ];

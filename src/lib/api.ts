@@ -11,6 +11,7 @@ import type {
   Outbound,
   PermissionMode,
   PrInfo,
+  PrText,
   ScriptEnvelope,
   ScriptsConfig,
   SessionConfig,
@@ -38,6 +39,10 @@ export const getUsage = (provider?: string) =>
  *  when the check is ambiguous (callers stay silent rather than false-alarm). */
 export const checkAuth = (provider?: string) =>
   invoke<boolean>("check_auth", { provider: provider ?? null });
+
+/** Whether the `claude` CLI resolves on the login shell's PATH (the onboarding
+ *  preflight — "is the binary installed?", distinct from checkAuth). */
+export const checkCli = () => invoke<boolean>("check_cli");
 
 /** List all worktrees of a git repo (the first entry is the main worktree). */
 export const listWorktrees = (repoPath: string) =>
@@ -88,6 +93,12 @@ export const worktreeMerge = (repoPath: string, branch: string) =>
 export const worktreePull = (worktreePath: string) =>
   invoke<string>("worktree_pull", { worktreePath });
 
+/** Move the current branch's commits onto a new `branch` and rewind the former
+ *  branch to its upstream — recovery for commits stuck on a protected branch.
+ *  Switches to the new branch; returns its name. */
+export const worktreeMoveToBranch = (worktreePath: string, branch: string) =>
+  invoke<string>("worktree_move_to_branch", { worktreePath, branch });
+
 // ---- Project scripts (.trickshot/settings.json) ---------------------------
 
 /** A repo's scripts config (setup / named run scripts / archive / run_mode). */
@@ -136,6 +147,27 @@ export const prCreate = (
   draft = false,
 ) => invoke<string>("pr_create", { worktreePath, title, body, base: base ?? null, draft });
 
+/** Merge the current branch's open PR (`gh pr merge --squash`). Returns gh's
+ *  stdout; protections/review requirements reject with gh's stderr. */
+export const prMerge = (worktreePath: string) => invoke<string>("pr_merge", { worktreePath });
+
+// ---- AI text generation (one-shot `claude -p`) ----------------------------
+
+/** Generate a commit message from the working diff (staged if any, else vs HEAD).
+ *  Rejects when there's nothing to describe or `claude` is unavailable. */
+export const generateCommitMessage = (worktreePath: string) =>
+  invoke<string>("generate_commit_message", { worktreePath });
+
+/** Generate a branch name (slugged, validate_branch-safe) from the working
+ *  diff. Rejects when there's nothing to name. */
+export const generateBranchName = (worktreePath: string) =>
+  invoke<string>("generate_branch_name", { worktreePath });
+
+/** Generate a PR title + body from the commits over `base` (default: repo
+ *  default branch). Rejects when there are no commits to propose. */
+export const generatePrText = (worktreePath: string, base?: string) =>
+  invoke<PrText>("generate_pr_text", { worktreePath, base: base ?? null });
+
 // ---- Integrated terminal (one PTY per worktree) ---------------------------
 
 /** Open (idempotent) a PTY for the worktree. Default: the user's login shell.
@@ -143,7 +175,9 @@ export const prCreate = (
  *  `resumeSessionId`) on a SEPARATE PTY keyed by the claude slot (see
  *  `claudeTermKey` in terminal.ts) — the CLI chat mode. The launch value is a
  *  fixed whitelist name; Rust resolves the actual binary (never a command
- *  string from here). */
+ *  string from here). Returns whether a PTY was SPAWNED (false = one was
+ *  already alive — a reloaded webview must force a repaint, no fresh TUI
+ *  paint is coming). */
 export const termOpen = (
   worktree: string,
   rows: number,
@@ -151,7 +185,7 @@ export const termOpen = (
   launch?: "claude",
   resumeSessionId?: string,
 ) =>
-  invoke<void>("term_open", {
+  invoke<boolean>("term_open", {
     worktree,
     rows,
     cols,

@@ -1,21 +1,36 @@
 <script lang="ts">
   import * as Select from "$lib/components/ui/select";
+  import { Switch } from "$lib/components/ui/switch";
   import { Button } from "$lib/components/ui/button";
   import { Textarea } from "$lib/components/ui/textarea";
   import * as api from "../api";
   import {
+    CHAT_SURFACE,
     font,
     setFont,
     FONTS,
     theme,
     setTheme,
     THEMES,
+    TERMINAL_FONT_SIZES,
+    terminalFontSize,
+    setTerminalFontSize,
+    uniformType,
+    setUniformType,
     systemPromptAppend,
     selectedWorktree,
     mcpServersJson,
     mcpStatus,
     agentsJson,
   } from "../stores";
+  import { applyTerminalFontSize } from "../terminal";
+
+  // Persist + live-apply (cached xterms refit; terminal.ts can't subscribe).
+  function pickTerminalFontSize(v: string) {
+    const px = Number(v);
+    setTerminalFontSize(px);
+    applyTerminalFontSize(px);
+  }
 
   let mcpError = $state("");
 
@@ -82,6 +97,44 @@
       </Select.Content>
     </Select.Root>
   </div>
+
+  <div class="flex items-center justify-between gap-4">
+    <span class="text-sm text-muted-foreground">Terminal font size</span>
+    <Select.Root type="single" value={String($terminalFontSize)} onValueChange={(v) => v && pickTerminalFontSize(v)}>
+      <Select.Trigger class="w-44" aria-label="Terminal font size">{$terminalFontSize}px</Select.Trigger>
+      <Select.Content align="end">
+        {#each TERMINAL_FONT_SIZES as s (s)}
+          <Select.Item value={String(s)} label="{s}px">{s}px</Select.Item>
+        {/each}
+      </Select.Content>
+    </Select.Root>
+  </div>
+
+  <div class="flex items-center justify-between gap-4">
+    <div class="flex flex-col gap-0.5">
+      <span class="text-sm text-muted-foreground">Match terminal text size</span>
+      <span class="text-xs text-muted-foreground">
+        Every UI label renders at the terminal's size ({$terminalFontSize}px) — one glyph size, like
+        a real TUI.
+      </span>
+    </div>
+    <Switch
+      checked={$uniformType}
+      onCheckedChange={setUniformType}
+      aria-label="Match terminal text size"
+    />
+  </div>
+
+  {#if CHAT_SURFACE === "cli"}
+    <!-- Truth-in-labeling: the knobs below configure SIDECAR sessions, which
+         CLI-first chat never starts — the CLI reads your own Claude Code
+         settings instead. Kept visible (they still apply to the preserved GUI
+         surface) but say so, rather than looking functional. -->
+    <p class="text-muted-foreground text-xs">
+      The settings below apply only to GUI (sidecar) sessions — CLI chat uses your own Claude Code
+      configuration (<code>~/.claude</code>, <code>CLAUDE.md</code>, <code>.mcp.json</code>).
+    </p>
+  {/if}
 
   <div class="flex flex-col gap-1.5">
     <span class="text-sm text-muted-foreground">Custom system prompt</span>

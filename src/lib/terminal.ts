@@ -8,14 +8,28 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import { get } from "svelte/store";
 import * as api from "./api";
+import { CLI_IDLE_MS, CliActivityTracker } from "./cliActivity";
 // CIRCULAR-IMPORT CONTRACT: session.ts imports claudeTermKey/getTerminal from
 // here while this module imports handleCliExit/ensureClaudeOpen from
-// session.ts — safe because every cross-module access is a CALL-time function
-// invocation (all hoisted function declarations), never a module-eval
-// dereference.
+// session.ts (and busy/unread mutators from stores.ts, which re-exports
+// session) — safe because every cross-module access is a CALL-time function
+// invocation (all hoisted function declarations / store handles used inside
+// functions), never a module-eval dereference.
 import { ensureClaudeOpen, handleCliExit } from "./session";
+import {
+  bumpGitRefresh,
+  bumpUnread,
+  pushAppNotification,
+  refreshUsage,
+  selectedWorktree,
+  setStatus,
+  terminalFontSize,
+} from "./stores";
+import { profileAccent, profileFor } from "./termProfiles";
 import type { TermEnvelope } from "./types";
+import { basename } from "./utils";
 
 /** PTY slot suffix for the dedicated Claude CLI terminal (the chat pane's CLI
  *  mode). NUL can't occur in a filesystem path, so the composite key can't
@@ -50,20 +64,75 @@ interface TermInstance {
 // anyway. (Cast confined to this line: globalThis has no typed slot for it.)
 const instances = ((globalThis as any).__trickshotTerms ??= new Map()) as Map<string, TermInstance>;
 
+/** xterm ITheme slot names for ANSI 0–15, in slot order (matches the app's
+ *  `--app-ansi-N` tokens — conformance §8's palette, so the TUI renders in the
+ *  SAME curated colors as AnsiText instead of xterm's stock VGA set). */
+const ANSI_SLOTS = [
+  "black",
+  "red",
+  "green",
+  "yellow",
+  "blue",
+  "magenta",
+  "cyan",
+  "white",
+  "brightBlack",
+  "brightRed",
+  "brightGreen",
+  "brightYellow",
+  "brightBlue",
+  "brightMagenta",
+  "brightCyan",
+  "brightWhite",
+] as const;
+
 /** The current `--base-*` palette values, so new terminals match the theme.
  *  Exported so the pane can RE-SYNC an existing instance on attach — the value
  *  is a snapshot, and a stale one paints xterm's background a different shade
- *  than the pane behind it (a visible seam under the last row). */
-export function themeColors() {
+ *  than the pane behind it (a visible seam under the last row). ANSI slots are
+ *  resolved through a probe element: the `--app-ansi-*` values are `var()`/
+ *  `color-mix()` EXPRESSIONS, which xterm's color parser rejects — reading a
+ *  probe's computed `color` yields a plain rgb() it accepts. */
+export function themeColors(key?: string) {
   if (typeof getComputedStyle === "undefined") return {};
   const css = getComputedStyle(document.documentElement);
   const v = (name: string) => css.getPropertyValue(name).trim() || undefined;
-  return {
-    background: v("--base-bg"),
+  const theme: Record<string, string | undefined> = {
     foreground: v("--base-text"),
-    cursor: v("--base-accent"),
     selectionBackground: v("--base-selection"),
   };
+  const probe = document.createElement("span");
+  probe.style.display = "none";
+  document.body.appendChild(probe);
+  const resolve = (expr: string) => {
+    probe.style.color = expr;
+    return getComputedStyle(probe).color || undefined;
+  };
+  if (key) {
+    // Per-workspace terminal PROFILE (termProfiles.ts): its own ANSI palette,
+    // with the workspace's identity accent as BOTH the main text color and the
+    // cursor — the EXACT color of its sidebar chip. Background stays the APP
+    // THEME's for every workspace (uniform canvas; the accent differentiates).
+    const wt = keyWorktree(key);
+    const p = profileFor(wt);
+    theme.background = "rgba(0, 0, 0, 0)"; // transparent — the backdrop div paints it
+    const accent = profileAccent(wt);
+    theme.foreground = accent;
+    theme.cursor = accent;
+    ANSI_SLOTS.forEach((slot, i) => {
+      theme[slot] = p.ansi[i];
+    });
+  } else {
+    // No workspace context: the app theme's terminal colors.
+    theme.background = "rgba(0, 0, 0, 0)"; // transparent — the backdrop div paints it
+    theme.cursor = resolve("var(--base-accent)");
+    ANSI_SLOTS.forEach((slot, i) => {
+      const resolved = resolve(`var(--app-ansi-${i})`);
+      if (resolved) theme[slot] = resolved;
+    });
+  }
+  probe.remove();
+  return theme;
 }
 
 /** Get (or lazily create) the persistent xterm instance for a PTY key (a
@@ -73,11 +142,14 @@ export function getTerminal(key: string): TermInstance {
   if (!inst) {
     const slot: TermInstance["slot"] = key.endsWith(CLAUDE_SLOT) ? "claude" : "shell";
     const term = new Terminal({
-      fontSize: 12,
+      fontSize: get(terminalFontSize),
       fontFamily: "ui-monospace, Menlo, monospace",
       cursorBlink: true,
       scrollback: 5000,
-      theme: themeColors(),
+      // The PANE's backdrop div paints the background (and hosts the cursor
+      // trail); xterm itself is transparent so the effect shows through.
+      allowTransparency: true,
+      theme: themeColors(key),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -89,6 +161,9 @@ export function getTerminal(key: string): TermInstance {
     // swallowed with zero feedback; under CLI-first chat it's also the natural
     // "type to revive" path after a /exit.
     term.onData((data) => {
+      // Mark the input BEFORE the PTY can echo it back — output that trails
+      // user input is reactive, not a turn starting (see cliActivity.ts).
+      if (slot === "claude") noteCliInput(key);
       api.termWrite(key, data).catch(async () => {
         const i = instances.get(key);
         if (!i) return;
@@ -111,12 +186,84 @@ export function getTerminal(key: string): TermInstance {
 }
 
 /** Open the PTY behind a worktree's terminal if it isn't running (idempotent
- *  on both ends — Rust no-ops while one is alive). */
+ *  on both ends — Rust no-ops while one is alive). When the PTY survived a
+ *  webview reload (already alive, fresh empty xterm), wiggle the size so the
+ *  shell/TUI repaints into the new buffer instead of showing a blank pane. */
 export async function ensureOpen(worktree: string) {
   const inst = getTerminal(worktree);
   const { rows, cols } = inst.term;
-  await api.termOpen(worktree, rows, cols);
+  const buf = inst.term.buffer.active;
+  const untouched = buf.cursorX === 0 && buf.cursorY === 0;
+  const spawned = await api.termOpen(worktree, rows, cols);
+  if (!spawned && untouched) {
+    await api.termResize(worktree, rows, Math.max(2, cols - 1)).catch(() => {});
+    await api.termResize(worktree, rows, cols).catch(() => {});
+  }
   inst.open = true;
+}
+
+// ---- CLI busy/idle detection (the multi-worktree awareness layer) ----------
+// Under CLI-first chat no sidecar events fire, so the sidebar dot / unread
+// badges / OS notifications would all be blind. The claude PTY's OUTPUT FLOW is
+// the signal instead (see cliActivity.ts): data flowing = busy; a real burst
+// ending = the turn-finished side-effects agentEvents.ts runs on `turn_end`.
+const cliActivity = new Map<
+  string,
+  { tracker: CliActivityTracker; timer: ReturnType<typeof setTimeout> | null }
+>();
+
+function cliEntry(key: string) {
+  let entry = cliActivity.get(key);
+  if (!entry) {
+    entry = { tracker: new CliActivityTracker(), timer: null };
+    cliActivity.set(key, entry);
+  }
+  return entry;
+}
+
+/** User input headed for the claude PTY (keystroke, wheel, focus, an injected
+ *  paste): output that follows shortly is reactive, not a turn starting. */
+export function noteCliInput(key: string) {
+  cliEntry(key).tracker.onInput(Date.now());
+}
+
+/** Ignore busy edges on this PTY for `ms` — bridges a known non-turn output
+ *  burst (the `--resume` boot replay, the reload repaint wiggle). */
+export function muteCliActivity(key: string, ms: number) {
+  cliEntry(key).tracker.muteUntil(Date.now() + ms);
+}
+
+function noteCliActivity(key: string) {
+  const entry = cliEntry(key);
+  const wt = keyWorktree(key);
+  if (entry.tracker.onData(Date.now()) === "busy") setStatus(wt, "busy");
+  if (entry.timer) clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => {
+    entry.timer = null;
+    const burst = entry.tracker.onIdle(Date.now());
+    setStatus(wt, "ready");
+    if (burst === "turn") {
+      // Mirror agentEvents.ts's turn_end side-effects: budget + git state
+      // moved, and a background worktree deserves attention. ("Finished" may
+      // also mean "waiting on a prompt" — either way, it needs the user.)
+      refreshUsage();
+      bumpGitRefresh();
+      if (wt !== get(selectedWorktree)) {
+        bumpUnread(wt);
+        void api.notify("Agent finished", basename(wt));
+        pushAppNotification(wt, "Agent finished", basename(wt));
+      }
+    }
+  }, CLI_IDLE_MS);
+}
+
+/** Stop tracking a claude PTY (exit/dispose): kill the pending idle timer so
+ *  it can't overwrite the `stopped` status with a stale `ready`. */
+function clearCliActivity(key: string) {
+  const entry = cliActivity.get(key);
+  if (!entry) return;
+  if (entry.timer) clearTimeout(entry.timer);
+  cliActivity.delete(key);
 }
 
 /** Route one `term-event` into the cached xterm. No-op when no instance exists:
@@ -132,10 +279,12 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
   switch (kind) {
     case "data":
       if (data) inst.term.write(data);
+      if (inst.slot === "claude") noteCliActivity(key);
       break;
     case "exit":
       inst.open = false;
       if (inst.slot === "claude") {
+        clearCliActivity(key);
         // The CLI ended (/exit, crash, or our own termClose). session.ts
         // decides what that means per chat surface (CLI-first: mark stopped,
         // type-to-revive; legacy toggle: adopt the forked id + restart the
@@ -143,7 +292,8 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
         inst.term.write("\r\n\x1b[2m[claude exited — type here to restart it]\x1b[0m\r\n");
         handleCliExit(keyWorktree(key));
       } else {
-        inst.term.write("\r\n\x1b[2m[session ended — reopen the tab to restart]\x1b[0m\r\n");
+        // Typing revives it (the onData reconnect path) — say so.
+        inst.term.write("\r\n\x1b[2m[session ended — type here to restart it]\x1b[0m\r\n");
       }
       break;
     default: {
@@ -154,10 +304,33 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
   }
 }
 
+/** Apply a font-size change to every cached terminal, refit the attached ones,
+ *  and push the resulting grids to their PTYs. Called from Settings on change
+ *  (this module must NOT subscribe to the store at eval — CIRCULAR-IMPORT
+ *  CONTRACT); new terminals pick the size up in getTerminal. */
+export function applyTerminalFontSize(px: number) {
+  for (const [key, inst] of instances) {
+    if (inst.term.options.fontSize === px) continue;
+    const before = { rows: inst.term.rows, cols: inst.term.cols };
+    inst.term.options.fontSize = px;
+    if (!inst.term.element?.isConnected) continue; // detached: refits on attach
+    try {
+      inst.fit.fit();
+    } catch {
+      // renderer not measured yet — the attach settle loop will fit it
+    }
+    const { rows, cols } = inst.term;
+    if (rows !== before.rows || cols !== before.cols) {
+      api.termResize(key, rows, cols).catch(() => {});
+    }
+  }
+}
+
 /** Kill the PTYs and drop the cached xterms (worktree removal/archive) — BOTH
  *  slots, so an archived worktree's CLI terminal can't linger. */
 export function disposeTerminal(worktree: string) {
   for (const key of [worktree, claudeTermKey(worktree)]) {
+    clearCliActivity(key);
     api.termClose(key).catch(() => {});
     const inst = instances.get(key);
     if (inst) {
@@ -187,11 +360,21 @@ export function attachTerminal(
 ): () => void {
   const inst = getTerminal(key);
   el.replaceChildren(); // drop a previous worktree's terminal DOM
+  // Start VEILED: the swapped-in terminal must not flash at full opacity for
+  // the frame(s) before the observer-driven veil lands — the open path below
+  // reveals (the left→right sweep) once the pane is fitted.
+  el.classList.remove("term-resize-rtl");
+  el.classList.add("term-resizing");
   if (inst.term.element) el.appendChild(inst.term.element);
   else inst.term.open(el);
   // Re-sync the theme snapshot to the LIVE CSS vars so xterm's background is
-  // pixel-identical to the pane behind it (also picks up theme switches).
-  inst.term.options.theme = themeColors();
+  // pixel-identical to the pane behind it (also picks up theme switches), and
+  // the font size to the setting (a cached instance may predate a change).
+  // allowTransparency FIRST: a cached instance created without it CLAMPS the
+  // transparent background's alpha and keeps painting opaque black.
+  inst.term.options.allowTransparency = true;
+  inst.term.options.theme = themeColors(key);
+  inst.term.options.fontSize = get(terminalFontSize);
   inst.term.focus();
 
   // Fit AFTER layout settles, coalesced to one rAF per burst. Fitting
@@ -200,6 +383,33 @@ export function attachTerminal(
   // render (a black pane).
   let raf = 0;
   let disposed = false;
+  // The resize veil: the pane's content SITS OUT a resize burst. Showing the
+  // old grid mid-tween slides the text with the pane's moving left edge (the
+  // sidebar collapse), and any end-of-burst swap is a re-wrap layout jump —
+  // neither can be masked in place. So the first resize event fades the
+  // glyphs out (app.css › .term-resizing; the bg + trail grid stay), the
+  // debounced fit lands while hidden, and the fresh TUI frame fades back in.
+  const REPAINT_MS = 100; // PTY round-trip allowance before the fade-in
+  let unveil: ReturnType<typeof setTimeout> | undefined;
+  let lastW = el.clientWidth;
+  const veil = () => {
+    clearTimeout(unveil); // a new burst must not be unveiled by the last one
+    unveil = undefined;
+    // Sweep direction follows the pane's moving left edge: the sidebar
+    // sliding IN shrinks the pane (edge travels right → reveal left→right,
+    // the base mask), sliding OUT grows it (edge travels left → the mirrored
+    // .term-resize-rtl mask, reveal right→left). Stamped while the pane is
+    // still fully visible, where both masks paint identically — the swap
+    // itself never shows.
+    const w = el.clientWidth;
+    if (w !== lastW) el.classList.toggle("term-resize-rtl", w > lastW);
+    lastW = w;
+    el.classList.add("term-resizing");
+  };
+  const reveal = () => {
+    clearTimeout(unveil);
+    unveil = setTimeout(() => el.classList.remove("term-resizing"), REPAINT_MS);
+  };
   const fitNow = () => {
     raf = 0;
     if (disposed || !el.clientHeight) return;
@@ -239,26 +449,65 @@ export function attachTerminal(
     }
   })();
 
-  opts
-    .onOpen()
-    .then(() => {
-      // Sync the PTY to the xterm's CURRENT grid unconditionally: the PTY may
-      // have just spawned with dims read BEFORE the first fit landed (the
-      // 80×24 xterm default), and fitNow only pushes on a CHANGE — so without
-      // this, a fit that settled while the open was in flight never reaches
-      // the PTY and a TUI keeps painting a small grid inside a big pane.
-      api.termResize(key, inst.term.rows, inst.term.cols).catch(() => {});
-      scheduleFit();
-      inst.term.focus();
-    })
-    .catch((e) => opts.onError?.(e));
+  // Open the PTY only after the renderer has measured REAL font metrics and
+  // the grid is fitted (bounded wait, ~600ms worst case). A PTY spawned at
+  // xterm's 80×24 default makes the TUI paint its FIRST frame at the wrong
+  // grid; the follow-up refit then reflows that frame into scattered fragments
+  // — the "blank chat on launch" bug. Waiting is cheap: when the pane is
+  // already measured (every re-attach after the first), the first probe
+  // succeeds and this adds one microtask.
+  (async () => {
+    for (let i = 0; i < 12 && !disposed; i++) {
+      fitNow();
+      const dims = inst.fit.proposeDimensions();
+      if (dims && Number.isFinite(dims.cols) && dims.cols >= 4 && dims.rows >= 2) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (disposed) return;
+    opts
+      .onOpen()
+      .then(() => {
+        // Sync the PTY to the xterm's CURRENT grid unconditionally: the PTY may
+        // have spawned with dims read before a LATER fit landed, and fitNow
+        // only pushes on a CHANGE — so without this, a fit that settled while
+        // the open was in flight never reaches the PTY and a TUI keeps
+        // painting a small grid inside a big pane.
+        api.termResize(key, inst.term.rows, inst.term.cols).catch(() => {});
+        scheduleFit();
+        inst.term.focus();
+        reveal(); // end the attach veil: sweep the (re)opened pane in
+      })
+      .catch((e) => {
+        reveal(); // never leave the pane hidden behind a failed open
+        opts.onError?.(e);
+      });
+  })();
 
-  const ro = new ResizeObserver(scheduleFit);
+  // Observer-driven fits wait for the size to SETTLE: an animated layout
+  // change (the sidebar collapse/expand tweens width for --app-duration-slow)
+  // streams a resize per frame, and refitting on every intermediate width
+  // reflows the TUI grid dozens of times — the jagged mid-animation redraw.
+  // The trailing debounce collapses the burst into ONE fit after the pane
+  // stops moving, veiled for the duration (see the resize veil above);
+  // direct fits (settle loop, PTY open) stay immediate and unveiled.
+  let settle: ReturnType<typeof setTimeout> | undefined;
+  const scheduleFitSettled = () => {
+    veil();
+    clearTimeout(settle);
+    settle = setTimeout(() => {
+      scheduleFit();
+      reveal(); // REPAINT_MS comfortably covers the fit's rAF + TUI repaint
+    }, 150);
+  };
+  const ro = new ResizeObserver(scheduleFitSettled);
   ro.observe(el);
   scheduleFit();
   return () => {
     disposed = true;
     ro.disconnect();
+    clearTimeout(settle);
+    clearTimeout(unveil);
+    el.classList.remove("term-resizing", "term-resize-rtl");
     if (raf) cancelAnimationFrame(raf);
   };
 }

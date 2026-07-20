@@ -1,4 +1,5 @@
 mod agent;
+mod generate;
 mod github;
 mod scripts;
 mod terminal;
@@ -38,12 +39,18 @@ pub fn run() {
             worktree::worktree_push,
             worktree::worktree_merge,
             worktree::worktree_pull,
+            worktree::worktree_move_to_branch,
             scripts::get_scripts,
             scripts::run_script,
             scripts::run_script_blocking,
             scripts::stop_script,
             github::pr_status,
             github::pr_create,
+            github::pr_merge,
+            generate::generate_commit_message,
+            generate::generate_pr_text,
+            generate::generate_branch_name,
+            terminal::check_cli,
             terminal::term_open,
             terminal::term_write,
             terminal::term_resize,

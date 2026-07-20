@@ -130,7 +130,16 @@
   </span>
 </div>
 
-{#if servers.length === 0}
+{#if CHAT_SURFACE === "cli"}
+  <!-- Truthful empty state: under CLI-first chat no sidecar exists, so a live
+       connector catalog can never arrive — "select a worktree" would be a lie.
+       Point at the CLI's own management surface instead. -->
+  <p class="py-3 text-sm text-muted-foreground">
+    Connector status isn't available in CLI chat mode — manage connectors with
+    <code>claude mcp</code> (or your project's <code>.mcp.json</code>); the CLI picks them up
+    directly.
+  </p>
+{:else if servers.length === 0}
   <p class="py-3 text-sm text-muted-foreground">
     {sourceWt && alive(sourceWt)
       ? "No connectors reported for this session."

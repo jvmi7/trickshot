@@ -59,6 +59,9 @@ export interface GitFileStatus {
   index: string;
   worktree: string;
   staged: boolean;
+  /** Per-file lines added/removed vs HEAD (null for untracked/binary files). */
+  insertions: number | null;
+  deletions: number | null;
 }
 
 /** A worktree's working-tree status (mirrors the Rust `WorktreeStatus`). */
@@ -137,6 +140,12 @@ export interface PrInfo {
   base: string;
   is_draft: boolean;
   checks: PrCheck[];
+}
+
+/** A generated pull-request title + body (mirrors the Rust `PrText`). */
+export interface PrText {
+  title: string;
+  body: string;
 }
 
 /** Envelope for a worktree-tagged script event on the `script-event` channel
