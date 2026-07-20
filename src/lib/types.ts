@@ -1,28 +1,8 @@
-// Protocol truth for the UI side. The wire unions (`Inbound`/`Outbound`/
-// `AgentMessage`/`ModelInfo`) live in `shared/protocol.ts` and are imported by
-// BOTH this file and the sidecar (`sidecar/core.ts`) so the two TS mirrors can't
-// drift. This file re-exports them and adds the app-only types (`TranscriptMessage`,
-// `Worktree`, `Repo`, the git-review `GitFileStatus`/`GitStatus`, the subscription
-// `UsageWindow`/`UsageInfo`, and the `AgentEnvelope` event wrapper). The sidecar writes one JSON object per
-// line to stdout; Rust relays each line as a worktree-tagged `agent-event` Tauri
-// event; api.ts parses them.
-
-export type {
-  AgentMessage,
-  ConnectorInfo,
-  ConnectorTool,
-  Inbound,
-  McpStatusInfo,
-  ModelInfo,
-  ModelRating,
-  Outbound,
-  PermissionMode,
-  Question,
-  QuestionOption,
-  SessionConfig,
-  SlashCommandInfo,
-  TurnUsage,
-} from "../../shared/protocol";
+// The app-side types for the UI: the git objects (`Worktree`, `Repo`,
+// `GitFileStatus`/`GitStatus`), the subscription `UsageWindow`/`UsageInfo`,
+// project scripts, PR shapes, and the worktree-tagged event envelopes
+// (`ScriptEnvelope`/`TermEnvelope`). Each mirrors its Rust struct
+// field-for-field (snake_case results — see CLAUDE.md boundary casing).
 
 /** A git worktree as reported by the worktree commands. `is_bare` marks a bare
  *  entry (no working files — can't host an agent; openRepository skips it). */
@@ -86,14 +66,6 @@ export interface UsageWindow {
  *  `UsageInfo`): an ordered list of windows, most immediate first. */
 export interface UsageInfo {
   windows: UsageWindow[];
-}
-
-/** Envelope for a worktree-tagged agent event on the `agent-event` channel
- *  (mirrors the Rust `AgentEvent` struct in agent.rs). */
-export interface AgentEnvelope {
-  worktree: string;
-  kind: "stdout" | "stderr" | "error" | "terminated";
-  data: string | null;
 }
 
 /** One named run script from `.trickshot/settings.json` (mirrors the Rust

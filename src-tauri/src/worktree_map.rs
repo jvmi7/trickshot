@@ -1,10 +1,9 @@
-// The shared per-worktree plumbing that agent.rs, scripts.rs, and terminal.rs
-// all need: a poison-safe worktree-keyed process map, the `{ worktree, kind,
-// data }` event envelope every per-worktree channel (`agent-event` /
-// `script-event` / `term-event`) emits, and the generation counter that lets a
-// detached reader/waiter prove it still owns its map entry. ONE home so the
-// three modules can't drift into three near-identical copies (they used to:
-// two pid compares + one generation counter).
+// The shared per-worktree plumbing that scripts.rs and terminal.rs both need:
+// a poison-safe worktree-keyed process map, the `{ worktree, kind, data }`
+// event envelope every per-worktree channel (`script-event` / `term-event`)
+// emits, and the generation counter that lets a detached reader/waiter prove
+// it still owns its map entry. ONE home so the modules can't drift into
+// near-identical copies (they used to: pid compares + a generation counter).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,7 +12,7 @@ use std::sync::{Mutex, MutexGuard};
 use serde::Serialize;
 
 /// One entry per worktree, keyed by worktree path. Worktrees run concurrently —
-/// each keeps its own live process (sidecar / script / PTY).
+/// each keeps its own live process (script / PTY).
 pub struct WorktreeMap<T>(Mutex<HashMap<String, T>>);
 
 // Manual impl: #[derive(Default)] would needlessly bound T: Default.
@@ -42,15 +41,14 @@ pub fn lock_ignore_poison<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// Event relayed from a worktree's process to the webview, tagged with the
 /// worktree it belongs to so the UI can route it to the right consumer. The
-/// ONE envelope shape for `agent-event`, `script-event`, and `term-event`
-/// (mirrored by the TS `AgentEnvelope`/`ScriptEnvelope`/`TermEnvelope`; the
-/// conformance test pins the seam). Field order is the wire order — keep
-/// worktree, kind, data.
+/// ONE envelope shape for `script-event` and `term-event` (mirrored by the TS
+/// `ScriptEnvelope`/`TermEnvelope`; the conformance test pins the seam).
+/// Field order is the wire order — keep worktree, kind, data.
 #[derive(Clone, Serialize)]
 pub struct WorktreeEvent {
     pub worktree: String,
-    /// Per channel: agent "stdout" | "stderr" | "error" | "terminated";
-    /// script "started" | "stdout" | "stderr" | "exit"; term "data" | "exit".
+    /// Per channel: script "started" | "stdout" | "stderr" | "exit";
+    /// term "data" | "exit".
     pub kind: String,
     pub data: Option<String>,
 }

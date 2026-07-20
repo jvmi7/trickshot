@@ -1,12 +1,9 @@
 // Cross-process conformance gates — the machine-checks for the invariants that
-// have NO compiler link across the three processes (CLAUDE.md → SYNC RULE). The
-// two TS protocol ends are already compiler-locked (shared/protocol.ts imported
-// by both, plus the `never` exhaustiveness guards in core.ts + agentEvents.ts);
-// what's left is hand-mirrored and silent on drift:
+// have NO compiler link between the webview and the Rust core (CLAUDE.md →
+// SYNC RULE). These seams are hand-mirrored and silent on drift:
 //
-//   1. wire `kind`s (shared/protocol.ts)        ↔ ARCHITECTURE.md protocol tables
 //   2. Rust command registry (lib.rs)           ↔ api.ts invoke() ↔ ARCHITECTURE.md
-//   3. Rust WorktreeEvent (worktree_map.rs)     ↔ TS Agent/Script/TermEnvelope (types.ts)
+//   3. Rust WorktreeEvent (worktree_map.rs)     ↔ TS Script/TermEnvelope (types.ts)
 //   4. default theme palette (themes.ts)        ↔ app.css :root static fallback
 //   5. selectable fonts (stores.ts FONTS)       ↔ app.css [data-font] blocks
 //   6. "api.ts is the sole IPC hook" rule       ↔ no raw invoke()/listen() in .svelte
@@ -15,6 +12,9 @@
 //      --app-* fallback idiom stays dead
 //   8. ANSI classes emitted by ansi.ts          ↔ app.css .ansi-* rules + the 16
 //      --app-ansi-N tokens they read
+//
+// (Numbering keeps the historical section ids — §1, the sidecar wire-protocol
+// check, was retired with the sidecar itself.)
 //
 // These read source/docs as text and assert the seams line up, so a one-sided
 // edit fails `bun test` instead of breaking silently in production. Run by
@@ -34,9 +34,7 @@ import { PALETTE_VARS, THEMES, type ThemePalette } from "./themes";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
-const PROTOCOL = read("shared/protocol.ts");
 const ARCH = read("ARCHITECTURE.md");
-const AGENT_RS = read("src-tauri/src/agent.rs");
 const SCRIPTS_RS = read("src-tauri/src/scripts.rs");
 const TERMINAL_RS = read("src-tauri/src/terminal.rs");
 const WORKTREE_MAP_RS = read("src-tauri/src/worktree_map.rs");
@@ -62,22 +60,6 @@ function blockAfter(src: string, header: string): string {
   }
   throw new Error(`unbalanced block after: ${header}`);
 }
-
-// ---- 1. wire kinds ↔ ARCHITECTURE.md protocol tables ----
-describe("protocol kinds are documented", () => {
-  // Every `kind: "x"` in the Inbound/Outbound unions (the only `kind:` literals
-  // in protocol.ts) must appear, backtick-quoted, in the ARCHITECTURE.md tables.
-  const kinds = matchAll(PROTOCOL, /kind:\s*"([a-z_]+)"/g);
-
-  test("protocol.ts declares a non-trivial set of kinds", () => {
-    // Sanity floor so a regex that silently matches nothing can't pass the suite.
-    expect(kinds.length).toBeGreaterThan(15);
-  });
-
-  test.each(kinds)("`%s` appears in ARCHITECTURE.md", (kind) => {
-    expect(ARCH.includes(`\`${kind}\``)).toBe(true);
-  });
-});
 
 // ---- 2. Rust commands ↔ api.ts ↔ ARCHITECTURE.md ----
 describe("Rust command surface", () => {
@@ -105,8 +87,8 @@ describe("Rust command surface", () => {
   });
 });
 
-// ---- 3. Rust WorktreeEvent ↔ TS envelopes (agent / script / term) ----
-// The three per-worktree channels share ONE Rust envelope struct
+// ---- 3. Rust WorktreeEvent ↔ TS envelopes (script / term) ----
+// The per-worktree channels share ONE Rust envelope struct
 // (worktree_map.rs's WorktreeEvent); each module emits it on its own channel.
 // Assert (a) the shared struct's fields match every TS envelope interface,
 // (b) each module actually uses the shared struct + its channel name, and
@@ -119,7 +101,6 @@ describe("WorktreeEvent ↔ TS envelopes", () => {
   ).sort();
 
   const channels: [name: string, rustSrc: string, channel: string, kindCount: number][] = [
-    ["AgentEnvelope", AGENT_RS, "agent-event", 4],
     ["ScriptEnvelope", SCRIPTS_RS, "script-event", 4],
     ["TermEnvelope", TERMINAL_RS, "term-event", 2],
   ];
