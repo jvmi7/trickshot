@@ -207,6 +207,9 @@ export function setComposeOpen(v: boolean) {
 export function toggleCompose() {
   composeOpen.update((v) => !v);
 }
+export function setComposeDraft(v: string) {
+  composeDraft.set(v);
+}
 
 /** Whether the ⌘/ keyboard-shortcuts overlay is open. Ephemeral, global. */
 export const shortcutsHelpOpen = writable<boolean>(false);

@@ -11,6 +11,7 @@
     composeOpen,
     selectedWorktree,
     sendToCli,
+    setComposeDraft,
     setComposeOpen,
   } from "../stores";
   import { getTerminal, claudeTermKey } from "../terminal";
@@ -35,7 +36,7 @@
     setComposeOpen(false);
     try {
       await sendToCli(wt, text, submit);
-      composeDraft.set("");
+      setComposeDraft("");
       getTerminal(claudeTermKey(wt)).term.focus();
     } catch (e) {
       // Delivery failed — reopen with the draft intact so nothing is lost.

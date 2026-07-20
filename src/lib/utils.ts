@@ -18,15 +18,6 @@ export function basename(path: string): string {
   );
 }
 
-/** Stable per-workspace identity hue (0–359) hashed from the worktree path —
- *  every workspace gets its own color so parallel agents are visually
- *  tellable-apart (terminal tint, header prompt, sidebar chips). */
-export function workspaceHue(path: string): number {
-  let h = 0;
-  for (let i = 0; i < path.length; i++) h = (h * 31 + path.charCodeAt(i)) >>> 0;
-  return h % 360;
-}
-
 /** Coarse relative time for list metadata ("just now", "5m ago", "3h ago",
  *  "2d ago", then a short date). `now` is injectable for tests. */
 export function relativeTime(ts: number, now: number = Date.now()): string {
