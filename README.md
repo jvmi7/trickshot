@@ -1,111 +1,84 @@
 # trickshot
 
-A desktop GUI for the **Claude Agent SDK** with **first-class git-worktree** support. Run a Claude coding agent against any local repo, spin up isolated worktrees per task, and keep a live agent session running in each one — concurrently — from a single window.
+A desktop command center for **Claude Code** with **first-class git-worktree** support. Spin up isolated worktrees per task and run the real Claude Code CLI in each one — concurrently — from a single window, with git review, PRs, and project scripts wrapped around it.
 
-Built as three processes over one event stream: a **Tauri 2** Rust core, a **Svelte 5 / TypeScript** webview, and a **Bun-compiled sidecar** that wraps `@anthropic-ai/claude-agent-sdk`. It authenticates through your existing **Claude Code login** — there is no API key to manage.
+Built as two processes: a **Tauri 2** Rust core and a **Svelte 5 / TypeScript** webview. The chat pane is the actual `claude` TUI on a per-worktree PTY — your own install, your own login, your own settings. There is no API key to manage and no agent runtime embedded in the app.
 
 ## What it does
 
 ### Repositories & git worktrees
 - **Add any local git repo** to the sidebar (native folder picker). Its worktrees are read live from `git worktree list` — git is always the source of truth, never a stale cached list.
-- **Create a worktree in one click**: type a branch name and press Enter. trickshot runs `git worktree add` under `../.<repo>-worktrees/<branch>` (creating the branch if needed) and selects it.
+- **Create a worktree in one click**: type a branch name and press Enter (or let it auto-name one). trickshot runs `git worktree add` under `../.<repo>-worktrees/<branch>` (creating the branch if needed) and selects it.
 - Worktrees let you run several tasks against the same repo in parallel, each on its own branch and working tree, with no stashing or branch-switching.
 
-### Concurrent per-worktree agent sessions
-- **Selecting a worktree activates its agent session** — there's no manual start/stop. Each worktree runs **its own sidecar process**, and sessions keep running when you switch, so you can hold multiple live chats at once.
-- The agent runs with Claude Code's system prompt and tools, in the worktree's directory, via the embedded native `claude` binary.
-- Sessions are unbounded by design (Conductor-style); each is a real ~280MB process, so many open worktrees mean real RAM.
+### Concurrent per-worktree Claude Code sessions
+- **Selecting a worktree opens its chat** — there's no manual start/stop. Each worktree gets its own PTY running `claude`, resuming that worktree's newest session from Claude Code's own session store; sessions keep running when you switch, so you can hold multiple live chats at once.
+- **It's the real CLI.** Slash commands, permission prompts, hooks, MCP connectors, model switching — everything works exactly as in your terminal, because it *is* your terminal. The app adds no config layer on top.
+- **Background awareness**: busy/idle detection from the PTY's output flow drives the sidebar status dots, unread badges, and OS notifications when a backgrounded agent finishes.
+- **Fleet overview**: with no worktree selected, a mission-control grid shows every workspace's status, diffstat, and unread count — click to jump.
 
-### The chat
-- **Streaming responses** with Markdown rendering for assistant prose.
-- **Tool activity, condensed**: consecutive tool calls collapse into a single expandable group; results fold into their call; large tool inputs/outputs are truncated with a reveal toggle so the transcript stays readable.
-- **A live "what's happening" footer** while the agent works (current action + elapsed time), replaced on completion by an end-of-turn summary (e.g. *"Cooked in 17s · 4 steps"*).
-- **Interrupt** a turn mid-flight from the composer.
-- Transcripts are **windowed and batched** for performance, and **persist across restarts** (chat history is restored, and the agent's *context* resumes via the SDK session id).
+### Git review, commits, and PRs
+- A **Changes popover** (header ±) with per-file diffs, staging, commit, push, pull, and merge — plus AI-generated commit messages, branch names, and PR title/body via one-shot `claude -p` (the same binary as the chat).
+- **Review queue**: comment on diff lines, then send them as ONE structured prompt into the chat ("fix these"); the PR panel's failing checks have the same "hand to the agent" action.
+- **GitHub PRs** via your existing `gh` login: create, watch CI checks, merge.
 
-### Model switching
-- Pick the model **per worktree** from the in-chat selector; the catalog and provider-supplied comparison ratings come from the agent itself. Your choice is sticky per worktree across restarts. Default model: `claude-opus-4-8`.
+### Project scripts
+- Per-repo scripts in a committed `.trickshot/settings.json`: **setup** (on worktree create), named **run** scripts (header Run button, output in the Run tab), and **archive** (pre-archive cleanup). Each worktree gets a deterministic `$TRICKSHOT_PORT` block so parallel dev servers never collide.
 
-### Connectors & tools (MCP)
-- A dedicated **Connectors** tab in Settings shows **every MCP connector the agent can use**, its live status (`connected` / `needs-auth` / `failed` / `pending` / `disabled`), and the tools each one exposes (flagged read-only or destructive).
-- **Enable or disable any connector live** — no restart — and **reconnect** failed ones; failure reasons are shown inline.
-- Preferences are **global** (one set across every repo) and persisted, then re-applied automatically to each session as it starts. This is your visibility-and-control surface for "what is actually turned on."
-- Note: connectors marked `needs-auth` (OAuth integrations) must be authorized in Claude Code itself — that browser flow can't be completed from the sidecar.
+### Workspaces
+- **Archive** a workspace (removes the dir, keeps the branch) and **restore** it later from History — the conversation resumes, because Claude Code's session store is keyed by the worktree path and the path scheme is deterministic.
+- A **shell terminal** popover per worktree, separate from the chat PTY.
+- **⌘K command palette**, ⌘E compose popup (long prompts, bracketed-pasted into the CLI), ⌘1–9 workspace jumping, and a keyboard-shortcuts overlay (⌘/).
 
 ### Appearance
-- A **Settings page** (opened from the sidebar foot, it replaces the chat pane) with **Appearance** and **Connectors** tabs.
-- **Themes**: Terracotta (default), Ocean, Forest — each a full palette swap. **Fonts**: Sans Code (default), WenKai Mono, Comic Sans, IBM Plex Mono, Helvetica, Geist, Mulish, Lexend, Nunito, SN Pro. Both persist.
-
-### Tool permissions
-- By default the agent runs with `bypassPermissions` — tools execute automatically without prompting. The full **Allow/Deny** approval modal is wired and becomes a real kill-switch the moment a non-bypass permission mode is used (see `ARCHITECTURE.md` → conversation flow).
-
-### Persistence
-Repos, the selected worktree, each worktree's model, theme, font, the rendered transcript, and the resumable agent session id all persist to `localStorage`. The worktree list itself is always re-read from git on launch.
+- A **Settings page** with themes (full palette swaps), fonts, terminal font size, and a "uniform type" TUI mode. Subscription usage (your Claude plan's 5-hour/weekly windows) shows in the header.
 
 ## Prerequisites
 
 - **Rust** (stable) + the Tauri v2 system deps for your OS — https://v2.tauri.app/start/prerequisites/
 - **Bun** ≥ 1.2.4 — https://bun.sh
 - **git** on `PATH` (used for worktree commands)
-- A **logged-in Claude Code CLI**. This app has **no API-key plumbing** — the sidecar embeds the native `claude` binary, which uses your existing Claude Code authentication. Sign in once (e.g. `claude` / `claude login`) and the app reuses it. See `CLAUDE.md` → Gotchas (Auth).
+- A **logged-in Claude Code CLI** on your `PATH`. The app has **no API-key plumbing** — it runs your own `claude` install with your existing authentication. Sign in once (run `claude`) and the app reuses it.
+- Optional: **gh** (GitHub CLI), authenticated, for the PR panel.
 
 ## First-time setup
 
 ```bash
 cd trickshot
-bun install                      # installs deps incl. the SDK's per-platform native CLI (optional deps)
+bun install
 
 # Generate app icons (Tauri requires these to exist). Provide any square PNG:
 bunx @tauri-apps/cli icon path/to/icon-1024.png   # writes src-tauri/icons/*
 
-# Build the sidecar for your host platform (re-run after editing sidecar/*.ts):
-bun run build:sidecar            # -> src-tauri/binaries/agent-<target-triple>
-
 bun run dev                      # launches the Tauri app (uses your Claude Code login)
 ```
-
-> ⚠️ Don't install with `--omit=optional` / `--no-optional`. The SDK ships the Claude Code CLI as per-platform **optional** dependencies; the sidecar embeds the matching one. Skipping them breaks the build with `Native CLI binary for <platform> not found`.
 
 ## Using it
 
 1. **+ Add repository** (bottom of the sidebar) → pick a git repo. Its worktrees populate from git.
 2. **+** on a repo row → type a branch name, press **Enter** to create a worktree, or click any existing worktree row to select it.
-3. Selecting a worktree **starts its agent session**; type in the composer to chat. Switch worktrees freely — each session keeps running.
+3. Selecting a worktree **opens its Claude Code chat** — type straight into the TUI. Switch worktrees freely; each session keeps running.
 4. **Settings** (bottom of the sidebar) opens the Appearance / Connectors page in place of the chat; pick a worktree again to return to its chat.
-
-## Release / cross-compilation
-
-Bun's `--target` names differ from Rust target triples, and each `--target` must embed *its* platform's CLI binary (the `import … with { type: "file" }` is platform-specific — that's why there's one `sidecar/agent.<platform>.ts` per target). Per target:
-
-```bash
-bun build sidecar/agent.darwin-arm64.ts --compile --target=bun-darwin-arm64 \
-  --outfile src-tauri/binaries/agent-aarch64-apple-darwin
-# repeat for darwin-x64 / linux-x64 / linux-arm64 / win-x64 → matching Rust triples
-```
-
-Then `bun run build`. On macOS the Bun binary must be codesigned with JIT entitlements before Tauri signs/notarizes the `.app` (see `ARCHITECTURE.md` → Packaging). On x64 Linux/Windows, ship the `-baseline` Bun target for older CPUs.
 
 ## Extending it
 
 trickshot is also a clean foundation to build on — the seams are deliberate:
 
 - **`src/lib/api.ts`** — the typed command + event surface. Import from here; don't call `invoke`/`listen` directly.
-- **`src/lib/stores.ts`** — Svelte stores for session/worktree/UI state.
-- **`src/lib/components/`** — the feature components (chat, composer, settings, …).
-- **`shared/protocol.ts`** — the provider-neutral, line-delimited JSON wire unions (`Inbound`/`Outbound`/`AgentMessage`/`ConnectorInfo`/`ModelInfo`), imported by **both** the webview (`src/lib/types.ts`) and the sidecar (`sidecar/core.ts`).
-- **`sidecar/providers/`** — pluggable model-provider adapters (`claude.ts` is the first). Add a provider by implementing `AgentProvider` and mapping its native events to the neutral `AgentMessage` schema — no UI or protocol change. See `ARCHITECTURE.md` → Providers.
-- **`src/lib/types.ts`** — the app-side protocol surface (`Worktree`, `Repo`, `AgentEnvelope`) + the re-exported wire types.
+- **`src/lib/stores.ts`** — Svelte stores for session/worktree/UI state (with `session.ts` orchestration and the `persist.ts` template behind it).
+- **`src/lib/components/`** — the feature components (terminal panes, git panel, fleet, settings, …).
+- **`src/lib/types.ts`** — the app-side types (`Worktree`, `GitStatus`, the `ScriptEnvelope`/`TermEnvelope` event envelopes), each mirroring its Rust struct.
+- **`src-tauri/src/`** — one Rust module per concern (terminal, worktree/git, scripts, github, generate, usage); the hand-mirrored seams are pinned by `src/lib/conformance.test.ts`.
 
 ## Checks
 
 ```bash
 bun run check          # svelte-check typecheck (webview)
-bun run check:sidecar  # tsc typecheck of the Bun sidecar + shared protocol
-bun run test           # bun test (TS unit tests)
+bun run test           # bun test (TS unit tests + conformance gates)
 bun run lint           # Biome lint + format check (TS/JS/JSON)
 bun run format         # Biome autofix + format
 ```
 
-CI (`.github/workflows/ci.yml`) runs these plus `bun run build:sidecar`, a full app build, `cargo fmt --check`, `cargo clippy`, and `cargo test` on every push/PR — the safety net for the hand-mirrored protocol (see `CLAUDE.md` → SYNC RULE).
+CI (`.github/workflows/ci.yml`) runs these plus a full app build, `cargo fmt --check`, `cargo clippy`, and `cargo test` on every push/PR — the safety net for the hand-mirrored command/envelope seams (see `CLAUDE.md` → SYNC RULE).
 
 See `ARCHITECTURE.md` for the full end-to-end map and the Rust command reference.

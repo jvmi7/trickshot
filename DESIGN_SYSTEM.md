@@ -38,20 +38,20 @@ the `@layer components :root` block. Never define a bare shadcn-shaped name
 | `--text-2xs` | 10px | overlines, micro-badges (`.wt-unread`) |
 | `--text-xs` | 11px | **the workhorse small size**: section labels, pills, meta, errors |
 | `--text-sm` | 12px | secondary body: empty states, tool rows |
-| `--text-md` | 13px | list rows, thread messages |
+| `--text-md` | 13px | list rows |
 | `--text-base` | 14px | body (= the `:root` size) |
 
 In markup use the utility (`text-xs`); in a scoped rule use `var(--text-xs)`. Raw
 `font-size: NNpx` fails CI (the `:root` 14px anchor and `/* conformance-allowlisted */`
-lines excepted). The `.markdown` `em` sizes are relative-by-design and exempt.
+lines excepted).
 
 ### Radius — `@theme inline` (`rounded-*` utilities)
 
 Single source `--radius: 6px` (terminal-crisp — the chat pane is a real
 terminal, so the chrome matches it); the ladder is `--radius-2xs/xs/sm/md/lg/xl`
 (2/3/4/5/6/8px). `999px` is the blessed **pill** radius and stays literal, as
-does `50%` — reserve pills for genuinely round things (dots, the scroll
-indicator); count badges are crisp chips (`--radius-2xs`). Any other raw `border-radius: NNpx` fails CI — pick
+does `50%` — reserve pills for genuinely round things (dots, status
+indicators); count badges are crisp chips (`--radius-2xs`). Any other raw `border-radius: NNpx` fails CI — pick
 the nearest step (that snap is a deliberate, tiny visual delta).
 
 ### Z-index — `--app-*` block
@@ -59,8 +59,7 @@ the nearest step (that snap is a deliberate, tiny visual delta).
 | Token | Value | Use |
 |---|---|---|
 | `--app-z-overlay` | 3 | in-pane overlays (edge fades) |
-| `--app-z-float` | 4 | floating affordances over content (reply pill) |
-| `--app-z-indicator` | 5 | scroll indicator (above the fades) |
+| `--app-z-float` | 4 | floating affordances over content (the git-panel tray) |
 | `--app-z-chrome` | 20 | window chrome (sidebar resize, titlebar buttons) |
 
 shadcn overlays own `z-50` — stay below it. Local stacking *inside* one component
@@ -77,13 +76,13 @@ shadcn overlays own `z-50` — stay below it. Local stacking *inside* one compon
 | `--ease-slide` | cubic-bezier(0.4, 0, 0.2, 1) | structural slides (sidebar collapse) |
 
 Literal `transition` durations fail CI. Keyframe `animation` choreography
-(dot-pulse, shimmer, caret blink) keeps literal durations by design — those are
-rhythms, not interaction feedback.
+(spinners, pulses) keeps literal durations by design — those are rhythms, not
+interaction feedback.
 
 ### Shadow — `--app-*` block
 
 `--app-shadow-float: 0 1px 4px rgb(0 0 0 / 0.18)` — the one elevation shadow
-(floating reply pill). Black-based on purpose so it stays legible over light-valued
+(reach for it for any floating affordance). Black-based on purpose so it stays legible over light-valued
 theme palettes. If a theme ever needs a custom shadow, promote it to a
 `ThemePalette` key via `PALETTE_VARS` (themes.ts) rather than forking per-site —
 the precedent: `termGlow` → `--base-term-glow`, the per-theme terminal glyph glow.
@@ -93,12 +92,12 @@ the precedent: `termGlow` → `--base-term-glow`, the per-theme terminal glyph g
 | Token | Value | Use |
 |---|---|---|
 | `--app-ansi-0..15` | palette-derived, zero literals: 1-5 = `--base-danger/success/warning/info/special`; 0 = border, 7 = text-muted, 15 = text; 6/14 = cyan mixes (`color-mix` of info⊕success / info⊕text); 8 = border⊕text-muted; brights 9-13 = `color-mix(in srgb, hue 75%, var(--base-text))` | the 16 ANSI slots read by `.ansi-fg-N`/`.ansi-bg-N` (emitted by `ansi.ts` → `AnsiText`); conformance §8 pins the token↔rule↔emitter pairing |
-| `--app-font-mono` | `ui-monospace, Menlo, monospace` | mono stack for terminal-flavored surfaces (the terminal chat skin) |
+| `--app-font-mono` | `ui-monospace, Menlo, monospace` | mono stack for terminal-flavored surfaces (shortcut keys, git file rows) |
 
 ### Layout + color
 
-`--chat-col: 740px` (the chat reading column, consumed via `.chat-col`); `--app-font`
-(the active font stack). Color: see THEMING.md — 16 `--base-*` palette tokens feed
+`--app-font` is
+the active font stack. Color: see THEMING.md — 16 `--base-*` palette tokens feed
 both the shadcn tokens (`.dark` block) and the `--app-*` aliases. **What bespoke CSS
 may read:** `--app-*` where an alias exists (`--app-danger`, not `--destructive`),
 `--base-*` for the state hues with no alias (`success`/`warning`/`special`), and
@@ -123,15 +122,12 @@ defined; a reintroduced fallback fails CI.
 
 | Class | What it is | Consumers (illustrative) |
 |---|---|---|
-| `.chat-col` | the centered chat reading column (`--chat-col` + 32px gutters) | messages, composer, suggestions, queued, auth banner |
-| `.section-label` | 11px/600 uppercase overline (typography only — compose layout per-site) | sidebar sections, repo names, PR title, queue/thread labels |
-| `.empty-state` | centered dim "nothing here" text | git panel, run output, diff view, chat |
-| `.error-text` / `.notice-text` | pre-wrapped danger/success feedback text | git/PR/run/terminal/thread errors |
-| `.text-action` | ghost inline text button (dim → text on hover) | queue actions, thread quote toggle |
+| `.section-label` | 11px/600 uppercase overline (typography only — compose layout per-site) | sidebar sections, repo names, PR title, Fleet headings |
+| `.empty-state` | centered dim "nothing here" text | git panel, run output, diff view |
+| `.error-text` / `.notice-text` | pre-wrapped danger/success feedback text | git/PR/run/terminal errors |
 | `.panel-section` / `.panel-spacer` / `.panel-form` | bordered panel sections + form column | git commit block, PR block |
 | `.icon-chrome-btn` | the 24px dim→hover chrome square | titlebar + sidebar icon buttons |
-| `.ansi-fg-{0..15}` / `.ansi-bg-{0..15}` / `.ansi-bold/dim/italic/underline` | ANSI SGR span styling over the `--app-ansi-*` slots (classes emitted by `ansi.ts`; conformance §8) | `AnsiText` (via Collapsible tool results, RunOutput) |
-| `.text-table` | scopes a table onto the shared `.markdown` data-table look (`:where(.markdown, .text-table)`) | `TextTable` (tool-result tabular view) |
+| `.ansi-fg-{0..15}` / `.ansi-bg-{0..15}` / `.ansi-bold/dim/italic/underline` | ANSI SGR span styling over the `--app-ansi-*` slots (classes emitted by `ansi.ts`; conformance §8) | `AnsiText` (RunOutput script logs) |
 
 ## Component tiers & primitive adoptions
 
@@ -140,15 +136,9 @@ vs feature components, both in the flat `components/` dir; `ui/` is registry out
 that `add -o` overwrites — never hand-edit it cosmetically, never place hand-built
 files there. Established adoptions to reuse, not re-invent:
 
-- **Pills/chips = `badgeVariants`** (`ui/badge`): `variant: "outline"` for bordered
-  pills (thread pill, floating reply), `"ghost"` for passive text chips (usage
-  chip). Badge brings the focus ring for free; keep only positional/one-off color
-  residuals scoped.
-- **Borderless textareas = `InputGroupTextarea`** (`ui/input-group`) — the
-  composer and thread reply inputs. Don't re-create the long
-  `border-0 bg-transparent …` class string.
-- **Chromeless Select trigger = `ghostSelectTrigger`** (`$lib/utils.ts`) — the
-  model/permission selectors' shared trigger recipe.
+- **Pills/chips = `badgeVariants`** (`ui/badge`): `variant: "outline"` for
+  bordered pills, `"ghost"` for passive text chips (usage chip). Badge brings
+  the focus ring for free; keep only positional/one-off color residuals scoped.
 - **Tabs boundary:** `ui/tabs` = content-panel tabs (Settings); `ViewToggle` = the
   app's segmented control (justified by the `slidingHighlight` pill). Don't migrate
   one into the other.

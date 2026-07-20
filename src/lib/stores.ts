@@ -1,6 +1,12 @@
 import { derived, get, type Readable, type Writable, writable } from "svelte/store";
 import * as api from "./api";
-import { createPersisted, createPersistedString, isPlainObject, parseJsonObject } from "./persist";
+import {
+  createPersisted,
+  createPersistedString,
+  isPlainObject,
+  parseJsonObject,
+  purgeRetiredKeys,
+} from "./persist";
 import { DEFAULT_PROVIDER_ID } from "./providers";
 import type { ReviewComment } from "./review";
 import { profileAccent } from "./termProfiles";
@@ -17,6 +23,10 @@ export type SessionStatus = "ready" | "busy" | "stopped";
 // ---- Persistence primitive (the ONE template) ----
 // Lives in `persist.ts` (the canonical home of createPersisted /
 // createPersistedString / isPlainObject / parseJsonObject); imported above.
+
+// Drop localStorage keys retired with the GUI chat surface (transcripts,
+// threads, sidecar-session prefs) — see persist.ts › purgeRetiredKeys.
+purgeRetiredKeys();
 
 // ---- Per-worktree map primitive (the ONE template for per-worktree state) ----
 /** A store keyed by worktree path, plus the standard `set`/`remove` mutators and
