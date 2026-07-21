@@ -100,7 +100,12 @@
           </span>
         {/if}
         {#if c.id === focusedId}
+          <!-- Three SIBLING layers, not pseudos of one: a mask clips the
+               element AND its pseudos, so arcs hanging off the masked ring
+               span would be cropped to slivers. Siblings mask independently. -->
           <span class="chat-tab-glow" aria-hidden="true"></span>
+          <span class="chat-tab-glow-arc" data-side="left" aria-hidden="true"></span>
+          <span class="chat-tab-glow-arc" data-side="right" aria-hidden="true"></span>
         {/if}
       </button>
     {/each}

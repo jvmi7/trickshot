@@ -1072,24 +1072,24 @@ html, body {
   transition: opacity var(--app-duration-slow) var(--ease-out-soft);
   pointer-events: none;
 }
-/* The flares' share of the glow: pseudo-boxes CONGRUENT with the tab's flare
-   pseudos, painting the same 260px light masked to the arc's stroke band —
-   the frame recolor turns the corner with the cursor instead of going dark
-   for 8px. Gradient centers re-anchor the tab-relative --glow-x/y into each
-   box (the right side uses the action's right-anchored --glow-xr; 28px = the
-   tab's fixed height). Masks reuse the flares' exact band geometry. */
-.chat-tab-glow::before,
-.chat-tab-glow::after {
-  content: "";
+/* The flares' share of the glow: SIBLING spans congruent with the tab's
+   flare pseudos (same containing block — the button's padding box — so the
+   same offsets land the same boxes), painting the 260px light masked to the
+   arc's stroke band. The frame recolor turns the corner with the cursor.
+   Gradient centers re-anchor the tab-relative --glow-x/y into each box (the
+   right side uses the action's right-anchored --glow-xr; 28px = the tab's
+   fixed height). z-index 1 floats them above the flares' own stroke. */
+.chat-tab-glow-arc {
   position: absolute;
-  top: 100%;
+  bottom: 0;
   width: calc(var(--radius-xl) + 1px);
   height: var(--radius-xl);
+  z-index: 1;
+  opacity: var(--glow-o, 0);
+  transition: opacity var(--app-duration-slow) var(--ease-out-soft);
   pointer-events: none;
 }
-.chat-tab-glow::before {
-  /* Offsets resolve against the span's PADDING box (its 1px side borders
-     shift it inward) — -R here lands the box exactly on the flare's. */
+.chat-tab-glow-arc[data-side="left"] {
   left: calc(-1 * var(--radius-xl));
   background: radial-gradient(
       260px circle at calc(var(--glow-x, 0px) + var(--radius-xl) - 1px) calc(var(--glow-y, 0px) - 28px + var(--radius-xl)),
@@ -1099,7 +1099,7 @@ html, body {
   -webkit-mask: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px));
   mask: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px));
 }
-.chat-tab-glow::after {
+.chat-tab-glow-arc[data-side="right"] {
   right: calc(-1 * var(--radius-xl));
   background: radial-gradient(
       260px circle at calc(var(--glow-xr, 0px) + 2px) calc(var(--glow-y, 0px) - 28px + var(--radius-xl)),
@@ -1117,7 +1117,7 @@ html, body {
 .chat-tab[data-active]:first-child::before { content: none; }
 /* …and its glow's left share is a straight 1px column (the border's
    continuation into the card), not an arc. */
-.chat-tab[data-active]:first-child .chat-tab-glow::before {
+.chat-tab[data-active]:first-child .chat-tab-glow-arc[data-side="left"] {
   -webkit-mask: linear-gradient(to left, var(--base-text) 1px, transparent 1px);
   mask: linear-gradient(to left, var(--base-text) 1px, transparent 1px);
 }
