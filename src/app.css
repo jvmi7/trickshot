@@ -1032,6 +1032,37 @@ html, body {
 .chat-tab[data-active]::before,
 .chat-tab[data-active]::after { content: ""; position: absolute; bottom: 0; width: var(--radius-xl); height: var(--radius-xl); }
 .chat-tab[data-active]::before { left: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.5px), var(--chat-frame) calc(var(--radius-xl) - 0.5px), var(--app-bg) calc(var(--radius-xl) + 0.5px)); }
+/* The tab's share of the cursor glow: a ring overlay at -1px over its OWN
+   border (top + sides only — a zero bottom border keeps the ring out of the
+   tab's opening), same radial recipe as .content::after, driven by the tab's
+   own use:borderGlow vars — the light reads as ONE continuous frame across
+   card + tab. The flare arcs stay at the base frame color: an 8px gap the
+   260px-radius light makes imperceptible. */
+.chat-tab-glow {
+  position: absolute;
+  inset: -1px;
+  bottom: 0;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0;
+  background: radial-gradient(
+      260px circle at var(--glow-x, 50%) var(--glow-y, 50%),
+      color-mix(in oklch, var(--base-text) 45%, transparent),
+      transparent 70%
+    )
+    border-box;
+  -webkit-mask:
+    linear-gradient(var(--base-text) 0 0) padding-box,
+    linear-gradient(var(--base-text) 0 0) border-box;
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(var(--base-text) 0 0) padding-box,
+    linear-gradient(var(--base-text) 0 0) border-box;
+  mask-composite: exclude;
+  opacity: var(--glow-o, 0);
+  transition: opacity var(--app-duration-slow) var(--ease-out-soft);
+  pointer-events: none;
+}
 /* FIRST tab active: flush-left merge (the Safari/Chrome first-tab). The strip
    already starts at the card's left edge, so drop the left flare and square
    the card's top-left corner — its left border runs straight up into the

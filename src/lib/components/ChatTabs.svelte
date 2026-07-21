@@ -17,6 +17,7 @@
     selectedWorktree,
     setChatLayout,
   } from "../stores";
+  import { borderGlow } from "../borderGlow";
   import { claudeTermKey, disposeChatTerminal } from "../terminal";
   import IconButton from "./IconButton.svelte";
   import * as Tooltip from "$lib/components/ui/tooltip";
@@ -60,6 +61,9 @@
     data-first-active={chats[0]?.id === focusedId ? "" : undefined}
   >
     {#each chats as c, i (c.id)}
+      <!-- use:borderGlow per tab: the action writes ITS node-relative glow
+           vars, so the tab's ring overlay (below) lights in the same sweep as
+           the card frame — one continuous cursor effect across both. -->
       <button
         type="button"
         role="tab"
@@ -67,6 +71,7 @@
         aria-selected={c.id === focusedId}
         data-active={c.id === focusedId ? "" : undefined}
         onclick={() => focusChat(wt, c.id)}
+        use:borderGlow
       >
         <span
           class="chat-dot"
@@ -93,6 +98,9 @@
           >
             <X class="size-3" />
           </span>
+        {/if}
+        {#if c.id === focusedId}
+          <span class="chat-tab-glow" aria-hidden="true"></span>
         {/if}
       </button>
     {/each}
