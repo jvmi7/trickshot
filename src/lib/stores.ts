@@ -339,6 +339,153 @@ export const sessionStatus = _status.store;
 export const setStatus = _status.set;
 /** Drop a worktree's status entry entirely (e.g. on removal). */
 export const clearStatus = _status.remove;
+
+// ---- Multi-chat sessions (several concurrent CLI chats per worktree) ----
+// The MODEL is "chat sessions"; tabs and the n-up grid are two RENDERINGS of
+// the same store (ClaudeTerminalPane). Each chat owns a claude-slot PTY (key =
+// terminal.ts › claudeTermKey(worktree, chat.id)) and a Claude Code session id
+// — deterministic from birth (`--session-id`) or adopted on first resume; the
+// modern CLI's `--resume` KEEPS the id (`--fork-session` is opt-in), so a
+// stored id stays the live thread across restarts.
+
+/** The default chat's id — its PTY key stays the BARE claude slot so
+ *  pre-multi-chat sessions keep working. Hand-mirrored by `DEFAULT_CHAT`
+ *  in src-tauri/src/terminal.rs. */
+export const DEFAULT_CHAT_ID = "main";
+
+export interface ChatSession {
+  id: string;
+  /** The Claude Code session id (transcript identity). Set at first open. */
+  sessionId?: string;
+  createdAt: number;
+}
+
+/** Chats per worktree (persisted — the tab set survives restarts; each chat's
+ *  conversation lives in Claude Code's own session store via its sessionId). */
+const _chats = createWorktreeMap<ChatSession[]>({
+  persistKey: "trickshot.chats",
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    if (!isPlainObject(v)) return {};
+    const out: Record<string, ChatSession[]> = {};
+    for (const [wt, list] of Object.entries(v)) {
+      if (Array.isArray(list) && list.every((c) => isPlainObject(c) && typeof c.id === "string")) {
+        out[wt] = list as ChatSession[];
+      }
+    }
+    return out;
+  },
+});
+export const chatSessionsByWorktree = _chats.store;
+
+/** Which chat owns the keyboard: the visible one in tabs layout, the focused
+ *  cell in grid layout. Persisted so re-selection lands where you left off. */
+const _focusedChat = createWorktreeMap<string>({ persistKey: "trickshot.focusedChat" });
+export const focusedChatByWorktree = _focusedChat.store;
+/** The selected worktree's focused chat id. */
+export const activeFocusedChat = _focusedChat.active<string>(DEFAULT_CHAT_ID);
+
+/** How multiple chats render: a tab strip showing one, or an n-up grid
+ *  showing all. Presentation only — the chats store is layout-agnostic. */
+export type ChatLayout = "tabs" | "grid";
+export const chatLayout = createPersistedString("trickshot.chatLayout", "tabs", (raw) =>
+  raw === "tabs" || raw === "grid" ? raw : "tabs",
+);
+export function setChatLayout(v: ChatLayout) {
+  chatLayout.set(v);
+}
+
+/** Seed a worktree's chat list with the default chat if it has none; returns
+ *  the (post-seed) list. Idempotent — the surface calls it on render. */
+export function ensureDefaultChat(worktree: string): ChatSession[] {
+  const cur = get(chatSessionsByWorktree)[worktree];
+  if (cur?.length) return cur;
+  const seeded = [{ id: DEFAULT_CHAT_ID, createdAt: Date.now() }];
+  _chats.set(worktree, seeded);
+  return seeded;
+}
+
+/** Add (and focus) a fresh chat. Its session id is chosen NOW (`--session-id`
+ *  at first open), so the transcript identity is known from birth. */
+export function addChat(worktree: string): ChatSession {
+  const chat: ChatSession = {
+    id: Math.random().toString(36).slice(2, 8),
+    sessionId: crypto.randomUUID(),
+    createdAt: Date.now(),
+  };
+  _chats.update(worktree, (cur) => [...(cur ?? []), chat]);
+  focusChat(worktree, chat.id);
+  return chat;
+}
+
+/** Drop a chat from the list (the caller disposes its terminal/PTY first —
+ *  see terminal.ts › disposeChatTerminal). Refocuses a neighbor when the
+ *  focused chat closes; the last chat can't be removed (the UI hides ×). */
+export function removeChat(worktree: string, id: string) {
+  const cur = get(chatSessionsByWorktree)[worktree] ?? [];
+  if (cur.length <= 1) return;
+  const next = cur.filter((c) => c.id !== id);
+  _chats.set(worktree, next);
+  if ((get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID) === id) {
+    const last = next[next.length - 1];
+    if (last) focusChat(worktree, last.id);
+  }
+}
+
+/** Focus a chat (tabs: show it; grid: route keyboard/injected turns to it). */
+export function focusChat(worktree: string, id: string) {
+  _focusedChat.set(worktree, id);
+}
+
+/** Record a chat's Claude session id once known (no-op when unchanged). */
+export function setChatSessionId(worktree: string, chatId: string, sessionId: string) {
+  _chats.update(worktree, (cur) =>
+    (cur ?? []).map((c) =>
+      c.id === chatId && c.sessionId !== sessionId ? { ...c, sessionId } : c,
+    ),
+  );
+}
+
+/** Drop a worktree's chats + focus state (worktree removal / archive purge). */
+export function forgetChats(worktree: string) {
+  _chats.remove(worktree);
+  _focusedChat.remove(worktree);
+}
+
+// Per-PTY-KEY chat status (the per-tab/per-cell dot). The worktree-level
+// `sessionStatus` above stays the AGGREGATE (busy if any chat busy) so its
+// consumers (sidebar dot, Fleet, unread gating) needed no change — the two
+// write sites below maintain it.
+export const chatStatusByKey = writable<Record<string, SessionStatus>>({});
+/** One chat's status changed: record it per key and refresh the worktree
+ *  aggregate. Keys are the claude-slot composites (`{worktree}\0claude…`), so
+ *  the aggregate scans by prefix — the NUL scheme is the hand-mirrored
+ *  terminal.ts/terminal.rs seam. */
+export function setChatStatus(worktree: string, key: string, status: SessionStatus) {
+  chatStatusByKey.update((m) => (m[key] === status ? m : { ...m, [key]: status }));
+  const m = get(chatStatusByKey);
+  const prefix = `${worktree}\u0000claude`;
+  const statuses = Object.entries(m)
+    .filter(([k]) => k.startsWith(prefix))
+    .map(([, s]) => s);
+  const agg: SessionStatus = statuses.includes("busy")
+    ? "busy"
+    : statuses.includes("ready")
+      ? "ready"
+      : "stopped";
+  setStatus(worktree, agg);
+}
+/** Drop every chat-status entry for a worktree (terminal disposal). */
+export function clearChatStatuses(worktree: string) {
+  const prefix = `${worktree}\u0000claude`;
+  chatStatusByKey.update((m) => {
+    const keys = Object.keys(m).filter((k) => k.startsWith(prefix));
+    if (keys.length === 0) return m;
+    const next = { ...m };
+    for (const k of keys) delete next[k];
+    return next;
+  });
+}
 /** Remove a repo from trickshot's sidebar. Does NOT delete the git repo on disk —
  *  it just drops it from the app: stops any running scripts for its worktrees,
  *  removes its worktree list, and clears the selection if it pointed into the repo. */

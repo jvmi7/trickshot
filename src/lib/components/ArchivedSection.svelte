@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     archivedWorkspaces,
+    forgetChats,
     removeArchived,
     restoreWorkspace,
     type ArchivedWorkspace,
@@ -41,6 +42,7 @@
   // conversation itself lives in Claude Code's own session store on disk —
   // the app never deletes that.)
   function purgeArchived(entry: ArchivedWorkspace) {
+    forgetChats(entry.path);
     removeArchived(entry.repoPath, entry.branch);
   }
 

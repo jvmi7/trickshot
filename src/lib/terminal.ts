@@ -21,26 +21,33 @@ import { ensureClaudeOpen, handleCliExit } from "./session";
 import {
   bumpGitRefresh,
   bumpUnread,
+  clearChatStatuses,
+  DEFAULT_CHAT_ID,
   refreshUsage,
   selectedWorktree,
-  setStatus,
+  setChatStatus,
   terminalFontSize,
 } from "./stores";
 import { profileAccent, profileFor } from "./termProfiles";
 import type { TermEnvelope } from "./types";
 
-/** PTY slot suffix for the dedicated Claude CLI terminal (the chat pane's CLI
- *  mode). NUL can't occur in a filesystem path, so the composite key can't
- *  collide with a real worktree. Hand-mirrored by `CLAUDE_SLOT` in
+/** PTY slot suffix for the dedicated Claude CLI terminals (the chat pane).
+ *  NUL can't occur in a filesystem path, so the composite key can't collide
+ *  with a real worktree. Hand-mirrored by `CLAUDE_SLOT` in
  *  src-tauri/src/terminal.rs — keep the pair in sync (see ARCHITECTURE.md). */
 const CLAUDE_SLOT = "\u0000claude";
-/** The claude-slot PTY key for a worktree (see CLAUDE_SLOT). */
-export function claudeTermKey(worktree: string): string {
-  return worktree + CLAUDE_SLOT;
+/** The claude-slot PTY key for one of a worktree's chats. The DEFAULT chat
+ *  keeps the bare slot (pre-multi-chat sessions keep working); additional
+ *  chats append `:<chat id>`. Mirrors Rust's `claude_key` — keep in sync. */
+export function claudeTermKey(worktree: string, chatId?: string): string {
+  return chatId && chatId !== DEFAULT_CHAT_ID
+    ? `${worktree}${CLAUDE_SLOT}:${chatId}`
+    : worktree + CLAUDE_SLOT;
 }
 /** The real worktree path behind a PTY key (identity for shell keys). */
-function keyWorktree(key: string): string {
-  return key.endsWith(CLAUDE_SLOT) ? key.slice(0, -CLAUDE_SLOT.length) : key;
+export function keyWorktree(key: string): string {
+  const i = key.indexOf(CLAUDE_SLOT);
+  return i >= 0 ? key.slice(0, i) : key;
 }
 
 interface TermInstance {
@@ -138,7 +145,7 @@ export function themeColors(key?: string) {
 export function getTerminal(key: string): TermInstance {
   let inst = instances.get(key);
   if (!inst) {
-    const slot: TermInstance["slot"] = key.endsWith(CLAUDE_SLOT) ? "claude" : "shell";
+    const slot: TermInstance["slot"] = key.includes(CLAUDE_SLOT) ? "claude" : "shell";
     const term = new Terminal({
       fontSize: get(terminalFontSize),
       fontFamily: "ui-monospace, Menlo, monospace",
@@ -233,12 +240,12 @@ export function muteCliActivity(key: string, ms: number) {
 function noteCliActivity(key: string) {
   const entry = cliEntry(key);
   const wt = keyWorktree(key);
-  if (entry.tracker.onData(Date.now()) === "busy") setStatus(wt, "busy");
+  if (entry.tracker.onData(Date.now()) === "busy") setChatStatus(wt, key, "busy");
   if (entry.timer) clearTimeout(entry.timer);
   entry.timer = setTimeout(() => {
     entry.timer = null;
     const burst = entry.tracker.onIdle(Date.now());
-    setStatus(wt, "ready");
+    setChatStatus(wt, key, "ready");
     if (burst === "turn") {
       // A turn just finished: budget + git state moved, and a background
       // worktree deserves attention. ("Finished" may also mean "waiting on a
@@ -279,7 +286,7 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
         // the session stopped (type-to-revive). Call-time import per the
         // CIRCULAR-IMPORT CONTRACT.
         inst.term.write("\r\n\x1b[2m[claude exited — type here to restart it]\x1b[0m\r\n");
-        handleCliExit(keyWorktree(key));
+        handleCliExit(keyWorktree(key), key);
       } else {
         // Typing revives it (the onData reconnect path) — say so.
         inst.term.write("\r\n\x1b[2m[session ended — type here to restart it]\x1b[0m\r\n");
@@ -315,18 +322,33 @@ export function applyTerminalFontSize(px: number) {
   }
 }
 
-/** Kill the PTYs and drop the cached xterms (worktree removal/archive) — BOTH
- *  slots, so an archived worktree's CLI terminal can't linger. */
-export function disposeTerminal(worktree: string) {
-  for (const key of [worktree, claudeTermKey(worktree)]) {
-    clearCliActivity(key);
-    api.termClose(key).catch(() => {});
-    const inst = instances.get(key);
-    if (inst) {
-      inst.term.dispose();
-      instances.delete(key);
-    }
+/** Kill ONE PTY and drop its cached xterm. */
+function disposeKey(key: string) {
+  clearCliActivity(key);
+  api.termClose(key).catch(() => {});
+  const inst = instances.get(key);
+  if (inst) {
+    inst.term.dispose();
+    instances.delete(key);
   }
+}
+
+/** Kill the PTYs and drop the cached xterms (worktree removal/archive) — the
+ *  shell slot AND every chat slot, so nothing lingers. Sweeps the instance
+ *  cache by key identity (a worktree can have any number of chat PTYs), plus
+ *  the default chat key (its PTY may be alive with no cached xterm yet). */
+export function disposeTerminal(worktree: string) {
+  const keys = new Set<string>([worktree, claudeTermKey(worktree)]);
+  for (const key of instances.keys()) if (keyWorktree(key) === worktree) keys.add(key);
+  for (const key of keys) disposeKey(key);
+  clearChatStatuses(worktree);
+}
+
+/** Kill one CHAT's PTY + xterm (closing a tab/cell). The chat's transcript in
+ *  Claude Code's session store is untouched — only the process and the app-side
+ *  terminal go. */
+export function disposeChatTerminal(worktree: string, chatId: string) {
+  disposeKey(claudeTermKey(worktree, chatId));
 }
 
 /** Attach a cached xterm to a pane element and keep it fitted — the ONE

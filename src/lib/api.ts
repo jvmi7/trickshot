@@ -186,6 +186,8 @@ export const termOpen = (
   cols: number,
   launch?: "claude",
   resumeSessionId?: string,
+  chat?: string,
+  sessionId?: string,
 ) =>
   invoke<boolean>("term_open", {
     worktree,
@@ -193,6 +195,10 @@ export const termOpen = (
     cols,
     launch: launch ?? null,
     resumeSessionId: resumeSessionId ?? null,
+    // Multi-chat: `chat` picks the claude-slot PTY (default chat when absent);
+    // `sessionId` names a NEW session deterministically (`--session-id`).
+    chat: chat ?? null,
+    sessionId: sessionId ?? null,
   });
 
 /** Write keystrokes to a worktree's PTY. */
@@ -225,3 +231,9 @@ export function onTermEvent(
  *  Provider-gated like getUsage/checkAuth. */
 export const latestSessionId = (worktree: string, provider?: string) =>
   invoke<string | null>("latest_session_id", { worktree, provider: provider ?? null });
+
+/** Whether a session's transcript exists in the worktree's session store —
+ *  the multi-chat open decision: existing → `--resume`, never-written (the
+ *  CLI creates transcripts lazily) → re-create under the same `--session-id`. */
+export const sessionExists = (worktree: string, sessionId: string, provider?: string) =>
+  invoke<boolean>("session_exists", { worktree, sessionId, provider: provider ?? null });

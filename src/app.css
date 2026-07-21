@@ -993,6 +993,26 @@ html, body {
 /* Text styling is the shared .error-text; this just pads it off the pane edges. */
 .term-error { padding: 6px 12px; }
 
+/* ---- multi-chat surface: tab strip + one cell, or an n-up grid ---- */
+.chat-surface { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* The strip: chat tabs + new-chat + layout toggle. Slim, terminal-adjacent. */
+.chat-tabs { flex-shrink: 0; display: flex; align-items: center; gap: 4px; padding: 6px 10px 2px 14px; }
+/* Per-chat status dot in the tab label (mirrors the sidebar's busy signal). */
+.chat-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 999px; background: var(--app-dim); }
+.chat-dot[data-status="busy"] { background: var(--app-accent); }
+.chat-dot[data-status="stopped"] { background: transparent; border: 1px solid var(--app-dim); }
+/* Close ✕ inside a tab: quiet until the tab is hovered. */
+.chat-close { display: inline-flex; align-items: center; opacity: 0; color: var(--app-dim); transition: opacity var(--app-duration-fast) ease, color var(--app-duration-fast) ease; }
+.chat-tab:hover .chat-close { opacity: 1; }
+.chat-close:hover { color: var(--app-text); }
+/* n-up grid: every chat visible at once. 1px gaps over the border color read
+   as hairline dividers (each cell paints its own bg). */
+.chat-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(var(--chat-cols, 2), minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 1px; background: var(--app-border); }
+.chat-grid-cell { display: flex; min-width: 0; min-height: 0; background: var(--app-bg); }
+/* The keyboard-owning cell gets a quiet inner ring (grid only — in tabs the
+   frame-level focus ring on .content already tells the story). */
+.chat-grid-cell:has(.xterm.focus) { outline: 1px solid color-mix(in oklch, var(--app-text) 14%, var(--app-border)); outline-offset: -1px; }
+
 /* ---- sidebar v2: repos + worktrees (Conductor-style) ---- */
 .wt { display: flex; flex-direction: column; }
 /* Section header above the repo list: "Repositories" label + inline add button.

@@ -9,15 +9,21 @@
 // function invocation (all hoisted declarations), never a module-eval
 // dereference. Keep it that way.
 
+import { get } from "svelte/store";
 import * as api from "./api";
 import {
   type ArchivedWorkspace,
   addRepo,
   addWorktree,
   clearUnread,
+  DEFAULT_CHAT_ID,
+  ensureDefaultChat,
+  focusedChatByWorktree,
   removeArchived,
   selectWorktree,
   setCenterView,
+  setChatSessionId,
+  setChatStatus,
   setStatus,
   setWorktrees,
 } from "./stores";
@@ -83,27 +89,55 @@ export async function restoreWorkspace(entry: ArchivedWorkspace): Promise<void> 
   await activateWorktree(wt.path);
 }
 
-/** The session id the next open should resume: the newest `.jsonl` in the
- *  worktree's Claude session store (resume FORKS a new id, so any remembered
- *  id goes stale the moment the CLI runs — the disk scan finds the live
- *  thread). undefined when the worktree has no sessions yet or the scan fails
- *  (the CLI then starts a fresh conversation). */
+/** The session id the DEFAULT chat's first open should resume: the newest
+ *  `.jsonl` in the worktree's Claude session store — the migration path from
+ *  the single-session era, before the app stored per-chat ids. undefined when
+ *  the worktree has no sessions yet or the scan fails (fresh conversation). */
 async function resumeIdFor(worktree: string): Promise<string | undefined> {
   return (await api.latestSessionId(worktree).catch(() => null)) ?? undefined;
 }
 
-/** (Re)open the claude-slot PTY for a worktree, resuming the live session id.
- *  Idempotent (Rust no-ops while one is alive) — the pane's (re)mount path.
- *  Marks the session `ready` on success: the PTY IS the session; busy/idle
- *  then comes from the PTY's output flow (terminal.ts › noteCliActivity). */
-export async function ensureClaudeOpen(worktree: string): Promise<void> {
-  const key = claudeTermKey(worktree);
+/** (Re)open one chat's claude-slot PTY (the FOCUSED chat when unspecified).
+ *  Idempotent (Rust no-ops while one is alive) — the cell's (re)mount path.
+ *  Session identity: the chat's stored id is resumed (the modern CLI's
+ *  `--resume` KEEPS the id — `--fork-session` is opt-in); a chat with no id
+ *  yet either adopts the newest on-disk session (the default chat's migration
+ *  path) or names a brand-new one deterministically via `--session-id`.
+ *  Marks the chat `ready` on success: the PTY IS the session; busy/idle then
+ *  comes from the PTY's output flow (terminal.ts › noteCliActivity). */
+export async function ensureClaudeOpen(worktree: string, chatId?: string): Promise<void> {
+  const chats = ensureDefaultChat(worktree);
+  const id = chatId ?? get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID;
+  const chat = chats.find((c) => c.id === id) ?? chats[0];
+  if (!chat) return; // unreachable (ensureDefaultChat seeds), but typed honest
+  const key = claudeTermKey(worktree, chat.id);
   const inst = getTerminal(key);
   const { rows, cols } = inst.term;
-  const resumeId = await resumeIdFor(worktree);
+  // The chat's identity: its stored id, the newest-on-disk id (the default
+  // chat's migration path), or a fresh uuid. Resume ONLY when the transcript
+  // exists — the CLI writes it lazily on the first message, and resuming a
+  // transcript-less id errors; re-creating under the SAME `--session-id` is
+  // idempotent and keeps the identity.
+  const stored =
+    chat.sessionId ?? (chat.id === DEFAULT_CHAT_ID ? await resumeIdFor(worktree) : undefined);
+  let resumeId: string | undefined;
+  let newSessionId: string | undefined;
+  if (stored && (await api.sessionExists(worktree, stored).catch(() => false))) resumeId = stored;
+  else newSessionId = stored ?? crypto.randomUUID();
   const buf = inst.term.buffer.active;
   const untouched = buf.cursorX === 0 && buf.cursorY === 0;
-  const spawned = await api.termOpen(worktree, rows, cols, "claude", resumeId);
+  const spawned = await api.termOpen(
+    worktree,
+    rows,
+    cols,
+    "claude",
+    resumeId,
+    chat.id,
+    newSessionId,
+  );
+  // Pin the chat's transcript identity once the open sticks — resume keeps
+  // the id and a new session was named by us, so this stays the live thread.
+  if (spawned) setChatSessionId(worktree, chat.id, resumeId ?? (newSessionId as string));
   // Neither of the bursts below is a turn — don't let them light the busy
   // indicator: a fresh spawn streams the TUI's boot/resume paint for seconds;
   // the reload wiggle triggers a full repaint (see cliActivity.ts).
@@ -125,7 +159,7 @@ export async function ensureClaudeOpen(worktree: string): Promise<void> {
     await api.termResize(key, rows, cols).catch(() => {});
   }
   inst.open = true;
-  setStatus(worktree, "ready");
+  setChatStatus(worktree, key, "ready");
 }
 
 /** Inject a prompt into the worktree's CLI chat as keystrokes: bracketed paste
@@ -134,11 +168,15 @@ export async function ensureClaudeOpen(worktree: string): Promise<void> {
  *  just inserts into the TUI's input for further editing — the compose
  *  popup's "Insert" action. */
 export async function sendToCli(worktree: string, text: string, submit = true): Promise<void> {
-  await ensureClaudeOpen(worktree);
+  // Injected turns land in the FOCUSED chat — same target in both layouts
+  // (tabs: the visible one; grid: the cell owning the keyboard).
+  const chatId = get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID;
+  await ensureClaudeOpen(worktree, chatId);
+  const key = claudeTermKey(worktree, chatId);
   // Injected keystrokes are user input too — their echo must not read as a
   // turn starting (the real turn's output keeps flowing past the echo window).
-  noteCliInput(claudeTermKey(worktree));
-  await api.termWrite(claudeTermKey(worktree), `\x1b[200~${text}\x1b[201~${submit ? "\r" : ""}`);
+  noteCliInput(key);
+  await api.termWrite(key, `\x1b[200~${text}\x1b[201~${submit ? "\r" : ""}`);
 }
 
 /** Submit a prompt to the chat via keystroke-injection into the CLI. The one
@@ -148,7 +186,8 @@ export async function sendToCli(worktree: string, text: string, submit = true): 
  *  a toast receipt so the action doesn't feel like it vanished. */
 export async function submitTurnToChat(worktree: string, text: string): Promise<void> {
   await sendToCli(worktree, text);
-  getTerminal(claudeTermKey(worktree)).term.focus();
+  const chatId = get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID;
+  getTerminal(claudeTermKey(worktree, chatId)).term.focus();
   toastSuccess("Sent to the agent");
 }
 
@@ -157,6 +196,6 @@ export async function submitTurnToChat(worktree: string, text: string): Promise<
  *  rejection channel). The terminal IS the chat — just mark the session
  *  stopped. No auto-reopen (a crash-looping CLI would respawn forever); the
  *  next keystroke or worktree re-activation revives it. */
-export function handleCliExit(worktree: string): void {
-  setStatus(worktree, "stopped");
+export function handleCliExit(worktree: string, key: string): void {
+  setChatStatus(worktree, key, "stopped");
 }

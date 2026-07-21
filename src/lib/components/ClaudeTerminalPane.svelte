@@ -1,68 +1,138 @@
 <script lang="ts">
-  // The CLI chat mode pane: the REAL Claude Code TUI on the worktree's
-  // dedicated claude-slot PTY (see ARCHITECTURE.md › "CLI chat mode"),
-  // rendered in place of the GUI chat while `chatModeByWorktree` is "cli".
-  // Same attach machinery as TerminalPane; the PTY (re)open path resumes the
-  // worktree's newest session id (session.ts › ensureClaudeOpen), which is
-  // also how a relaunch with a persisted "cli" mode gets its CLI back.
-  // Feature component (reads stores + session orchestration).
-  import { ensureClaudeOpen, selectedWorktree, sessionStatus } from "../stores";
-  import { cursorTrail } from "../cursorTrail";
-  import { attachTerminal, claudeTermKey } from "../terminal";
-  import { Button } from "$lib/components/ui/button";
-  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  // The chat SURFACE: one worktree's concurrent CLI chats. The MODEL is the
+  // chats store (stores.ts › chatSessionsByWorktree); tabs and the n-up grid
+  // are two RENDERINGS of it (`chatLayout`), sharing ClaudeTerminalCell as
+  // the unit — tabs mounts the focused chat's cell, grid mounts them all.
+  // The strip renders in both layouts: it switches chats in tabs mode and
+  // acts as the focus/close controls in grid mode. Feature component.
+  import {
+    addChat,
+    chatLayout,
+    chatSessionsByWorktree,
+    chatStatusByKey,
+    DEFAULT_CHAT_ID,
+    ensureDefaultChat,
+    focusChat,
+    focusedChatByWorktree,
+    removeChat,
+    selectedWorktree,
+    setChatLayout,
+  } from "../stores";
+  import { claudeTermKey, disposeChatTerminal } from "../terminal";
+  import ClaudeTerminalCell from "./ClaudeTerminalCell.svelte";
+  import IconButton from "./IconButton.svelte";
+  import * as Tabs from "$lib/components/ui/tabs";
+  import * as Tooltip from "$lib/components/ui/tooltip";
+  import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+  import Plus from "@lucide/svelte/icons/plus";
+  import X from "@lucide/svelte/icons/x";
 
-  let container = $state<HTMLDivElement | null>(null);
-  let error = $state("");
-
-  // The CLI died (/exit, crash) — the dim in-terminal note scrolls away, so
-  // give the state a persistent affordance. Type-to-revive still works too.
-  const stopped = $derived(!!$selectedWorktree && $sessionStatus[$selectedWorktree] === "stopped");
-
-  function restart() {
-    const wt = $selectedWorktree;
-    if (!wt) return;
-    error = "";
-    ensureClaudeOpen(wt).catch((e) => (error = String(e)));
-  }
-
+  const wt = $derived($selectedWorktree);
+  // Seed the default chat on render (idempotent) so the list below is never
+  // empty for a selected worktree.
   $effect(() => {
-    const wt = $selectedWorktree;
-    const el = container;
-    if (!wt || !el) return;
-    error = "";
-    return attachTerminal(claudeTermKey(wt), el, {
-      onOpen: () => ensureClaudeOpen(wt),
-      onError: (e) => (error = String(e)),
-    });
+    if (wt) ensureDefaultChat(wt);
   });
+  const chats = $derived(wt ? ($chatSessionsByWorktree[wt] ?? []) : []);
+  // The focused id, healed against the list (a persisted focus may point at a
+  // chat closed in an earlier run).
+  const focusedId = $derived.by(() => {
+    const f = wt ? $focusedChatByWorktree[wt] : undefined;
+    return chats.some((c) => c.id === f) ? (f as string) : (chats[0]?.id ?? DEFAULT_CHAT_ID);
+  });
+  const grid = $derived($chatLayout === "grid" && chats.length > 1);
+  // n-up shape: 2 side-by-side, 3-4 in a 2×2, beyond that 3 columns.
+  const cols = $derived(chats.length <= 1 ? 1 : chats.length <= 4 ? 2 : 3);
+
+  function close(id: string) {
+    if (!wt) return;
+    disposeChatTerminal(wt, id); // PTY + xterm; the transcript on disk stays
+    removeChat(wt, id);
+  }
 </script>
 
-<div class="term-pane">
-  {#if error}
-    <div class="term-error error-text">{error}</div>
-  {/if}
-  {#if stopped}
-    <div class="term-stopped">
-      <span class="notice-text">Session ended.</span>
-      <Button size="sm" variant="outline" class="h-7 text-xs" onclick={restart}>
-        <RotateCcw class="size-3.5" /> Restart
-      </Button>
+{#if wt}
+  <div class="chat-surface">
+    <div class="chat-tabs">
+      <Tabs.Root
+        value={focusedId}
+        onValueChange={(v: string) => v && wt && focusChat(wt, v)}
+        class="min-w-0"
+      >
+        <Tabs.List>
+          {#each chats as c, i (c.id)}
+            <Tabs.Trigger value={c.id} class="chat-tab">
+              <span
+                class="chat-dot"
+                data-status={$chatStatusByKey[claudeTermKey(wt, c.id)] ?? "stopped"}
+              ></span>
+              Chat {i + 1}
+              {#if chats.length > 1}
+                <span
+                  class="chat-close"
+                  role="button"
+                  tabindex="-1"
+                  aria-label="Close chat"
+                  onclick={(e: MouseEvent) => {
+                    e.stopPropagation();
+                    close(c.id);
+                  }}
+                  onkeydown={(e: KeyboardEvent) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      close(c.id);
+                    }
+                  }}
+                >
+                  <X class="size-3" />
+                </span>
+              {/if}
+            </Tabs.Trigger>
+          {/each}
+        </Tabs.List>
+      </Tabs.Root>
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          {#snippet child({ props })}
+            <IconButton {...props} aria-label="New chat" onclick={() => wt && addChat(wt)}>
+              <Plus />
+            </IconButton>
+          {/snippet}
+        </Tooltip.Trigger>
+        <Tooltip.Content>New chat session in this worktree</Tooltip.Content>
+      </Tooltip.Root>
+      {#if chats.length > 1}
+        <Tooltip.Root>
+          <Tooltip.Trigger>
+            {#snippet child({ props })}
+              <IconButton
+                {...props}
+                aria-label={grid ? "Tab layout" : "Grid layout"}
+                class={grid ? "text-foreground" : ""}
+                onclick={() => setChatLayout(grid ? "tabs" : "grid")}
+              >
+                <LayoutGrid />
+              </IconButton>
+            {/snippet}
+          </Tooltip.Trigger>
+          <Tooltip.Content>{grid ? "Show one chat (tabs)" : "Show all chats (grid)"}</Tooltip.Content>
+        </Tooltip.Root>
+      {/if}
     </div>
-  {/if}
-  <!-- Backdrop: carries the bg color + the trailing cursor glow; xterm above
-       is transparent (allowTransparency), so the glow shows through between
-       the glyphs. -->
-  <div class="term-bg" aria-hidden="true" use:cursorTrail></div>
-  <div class="term-host" bind:this={container}></div>
-</div>
-
-<style>
-  /* One-component banner (split-by-reach): sits above the host, not over it. */
-  .term-stopped {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-  }
-</style>
+    {#if grid}
+      <div class="chat-grid" style="--chat-cols: {cols}">
+        {#each chats as c (c.id)}
+          <!-- focusin (not click): focusing the cell's terminal — however it
+               happens — routes injected turns to it. Bubbles from xterm's
+               hidden textarea; no interactive-element a11y surface needed. -->
+          <div class="chat-grid-cell" onfocusin={() => focusChat(wt, c.id)}>
+            <ClaudeTerminalCell worktree={wt} chatId={c.id} />
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <ClaudeTerminalCell worktree={wt} chatId={focusedId} />
+    {/if}
+  </div>
+{/if}

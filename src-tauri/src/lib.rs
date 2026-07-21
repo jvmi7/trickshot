@@ -19,6 +19,7 @@ pub fn run() {
         .manage(Terminals::default())
         .invoke_handler(tauri::generate_handler![
             agent::latest_session_id,
+            agent::session_exists,
             worktree::pick_directory,
             worktree::repo_icon,
             worktree::home_dir,
