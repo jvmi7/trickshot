@@ -351,6 +351,7 @@
       <ChatTabs />
     {/if}
     <div class="content" use:borderGlow>
+      <div class="content-clip">
       {#if $centerView === "settings"}
         <Settings />
       {:else if $repos.length === 0}
@@ -369,6 +370,7 @@
         <!-- The chat: the REAL Claude Code TUI on the worktree's claude PTY. -->
         <ClaudeTerminalPane />
       {/if}
+      </div>
     </div>
   </main>
 </div>

@@ -779,7 +779,9 @@ html, body {
   padding: 1px;
   border: 1px solid var(--app-border);
   border-radius: var(--app-pane-radius);
-  overflow: hidden;
+  /* NO overflow:hidden here — clipping lives on .content-clip below, so the
+     ::after glow ring can sit at -1px, exactly ON the border line (a recolor
+     of the same pixel row, never a second ring beside it). */
   /* The terminal-focus ring (below): an OUTLINE, not a pseudo — overflow:hidden
      would clip a child ring, and outline both escapes the clip and follows the
      corner radius. Always present (transparent at rest) so only the color
@@ -797,24 +799,22 @@ html, body {
 .content:has(.xterm.focus) {
   outline-color: color-mix(in oklch, var(--app-text) 14%, var(--app-border));
 }
+/* The card's clipping box: children clip to the rounded PADDING box here
+   (not on .content itself) so the glow ring above can overlay the border. */
+.content-clip { flex: 1; display: flex; min-width: 0; min-height: 0; overflow: hidden; border-radius: var(--app-pane-radius-inner); }
 /* Cursor-proximity border highlight (borderGlow.ts writes --glow-x/y/o): a
-   radial light centered on the pointer, masked to ONLY a 1px ring — the border
-   lightens near the cursor and falls off with distance. The mask trick: paint
-   the whole box, then punch out the padding-box so just the ring survives.
-   The ring sits at inset: 0 — .content's overflow:hidden clips to its PADDING
-   box, so a ring over the real border (-1px) would be clipped; hugging the
-   border's inner edge is visually identical at 1px. Purely decorative
-   (pointer-events: none); fades on window enter/leave. */
+   radial light centered on the pointer, masked to ONLY a 1px ring sitting at
+   -1px — EXACTLY over the real border, so proximity is a pure RECOLOR of the
+   border line (never a second ring beside it, which read as thickening). The
+   mask trick: paint the whole box, then punch out the padding-box so just
+   the ring survives. Purely decorative (pointer-events: none); fades on
+   window enter/leave. */
 .content::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: -1px;
   border: 1px solid transparent;
-  /* CONCENTRIC radius: this ring sits 1px inside the frame's border, so its
-     radius must shrink by that 1px — reusing the outer radius verbatim makes
-     the ring drift off the real border exactly at the curves, which reads as
-     the border thinning at the corners once either ring lights up. */
-  border-radius: var(--app-pane-radius-inner);
+  border-radius: var(--app-pane-radius);
   background: radial-gradient(
       260px circle at var(--glow-x, 50%) var(--glow-y, 50%),
       color-mix(in oklch, var(--base-text) 45%, transparent),
