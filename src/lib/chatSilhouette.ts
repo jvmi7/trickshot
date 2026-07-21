@@ -34,6 +34,7 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
     const y0 = parentR.top + 1 - hostR.top;
     const r = pxVar("--app-pane-radius-inner", 13); // card inner corners
     const t = pxVar("--app-tab-radius", 10); // tab top corners
+    const f = pxVar("--radius-xl", 8); // flare (concave foot) radius
 
     const tab = document.querySelector<HTMLElement>(".chat-tab[data-active]");
     const b = H - r;
@@ -50,10 +51,12 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       // Flush first tab: its left edge merges with the card's — the bump's
       // left side IS the card's left edge, no top-left card corner.
       const flush = xL < 2;
+      // The concave FEET are part of the silhouette (sweep 0 = the arc hugs
+      // the corner): the one surface fills them, the flares paint stroke only.
       const rise = flush
         ? `M 0 ${yT + t} A ${t} ${t} 0 0 1 ${t} ${yT}`
-        : `M 0 ${y0 + r} A ${r} ${r} 0 0 1 ${r} ${y0} L ${xL} ${y0} L ${xL} ${yT + t} A ${t} ${t} 0 0 1 ${xL + t} ${yT}`;
-      d = `${rise} L ${xR - t} ${yT} A ${t} ${t} 0 0 1 ${xR} ${yT + t} L ${xR} ${y0} L ${W - r} ${y0} A ${r} ${r} 0 0 1 ${W} ${y0 + r} L ${W} ${b} A ${r} ${r} 0 0 1 ${W - r} ${H} L ${r} ${H} A ${r} ${r} 0 0 1 0 ${b} Z`;
+        : `M 0 ${y0 + r} A ${r} ${r} 0 0 1 ${r} ${y0} L ${xL - f} ${y0} A ${f} ${f} 0 0 0 ${xL} ${y0 - f} L ${xL} ${yT + t} A ${t} ${t} 0 0 1 ${xL + t} ${yT}`;
+      d = `${rise} L ${xR - t} ${yT} A ${t} ${t} 0 0 1 ${xR} ${yT + t} L ${xR} ${y0 - f} A ${f} ${f} 0 0 0 ${xR + f} ${y0} L ${W - r} ${y0} A ${r} ${r} 0 0 1 ${W} ${y0 + r} L ${W} ${b} A ${r} ${r} 0 0 1 ${W - r} ${H} L ${r} ${H} A ${r} ${r} 0 0 1 0 ${b} Z`;
     }
     host.style.clipPath = `path("${d}")`;
     if (tab) {
@@ -64,8 +67,9 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       // the feet). Coordinates are in the ::after's box (inset -1px of the
       // card, so shifted +1 from border-box).
       const tr = tab.getBoundingClientRect();
-      const nL = tr.left + 2 - parentR.left;
-      const nR = tr.right - parentR.left;
+      // The opening now spans the feet too (silhouette includes them).
+      const nL = tr.left - f + 1 - parentR.left;
+      const nR = tr.right + f + 1 - parentR.left;
       const cW = parentR.width + 2;
       const cH = parentR.height + 2;
       parent.style.setProperty(
