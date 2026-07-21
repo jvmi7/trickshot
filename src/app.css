@@ -1010,8 +1010,8 @@ html, body {
 /* Fixed height (not text-metric padding): the -1px overlap below must land on
    an integer row or the card border ghosts through at fractional layouts. */
 .chat-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: var(--app-tab-radius); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
-/* Inactive hover: a rounded chip (Chrome's hover treatment). */
-.chat-tab:not([data-active]):hover { color: var(--app-text); background: var(--app-panel); }
+/* Inactive hover: just the text brightening — no chip fill. */
+.chat-tab:not([data-active]):hover { color: var(--app-text); }
 /* -1px overlap: the tab's bottom row lands exactly ON the card's top border
    row, swallowing it for the tab's width — no deeper, or the side borders
    overshoot visibly below the frame line. (The cursor-glow ring sits ON the
