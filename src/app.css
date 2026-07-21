@@ -993,11 +993,27 @@ html, body {
 /* Text styling is the shared .error-text; this just pads it off the pane edges. */
 .term-error { padding: 6px 12px; }
 
-/* ---- multi-chat surface: shell-band tab strip + cells in the card ---- */
-/* The strip: chat tabs + new-chat + layout toggle. Lives OUTSIDE the content
-   card, on the shell band between the header and the frame (App.svelte) —
-   side padding lines it up with the card's margins. */
-.chat-tabs { flex-shrink: 0; display: flex; align-items: center; gap: 4px; padding: 2px var(--app-pane-gap) 0; }
+/* ---- multi-chat: Chrome-style tab strip CONNECTED to the card ---- */
+/* The strip lives OUTSIDE the content card, on the shell band (App.svelte).
+   The ACTIVE tab merges with the card below: card-bg fill, top-rounded, a 1px
+   overlap that swallows the card's top border along its width, and concave
+   flares (the Chrome curve) where it meets the frame. Tabs start past the
+   card's rounded top-left corner so the merge lands on a straight edge. */
+.chat-tabs { position: relative; z-index: 1; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; margin-top: 2px; padding: 0 var(--app-pane-gap) 0 calc(var(--app-pane-gap) + var(--app-pane-radius)); }
+/* The card follows flush — the strip owns the vertical gap, and the active
+   tab's 1px overlap must land exactly ON the card's top border. */
+.chat-tabs + .content { margin-top: 0; }
+.chat-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 6px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 0; border-radius: var(--radius-lg); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
+/* Inactive hover: a rounded chip (Chrome's hover treatment). */
+.chat-tab:not([data-active]):hover { color: var(--app-text); background: var(--app-panel); }
+.chat-tab[data-active] { color: var(--app-text); background: var(--app-bg); border-radius: var(--radius-lg) var(--radius-lg) 0 0; margin-bottom: -1px; padding-bottom: 7px; }
+/* The concave flares: squares beside the tab's foot whose fill is the card
+   bg carved by a transparent quarter-circle — the tab appears to flow into
+   the frame. They also sit over the card border, widening the "opening". */
+.chat-tab[data-active]::before,
+.chat-tab[data-active]::after { content: ""; position: absolute; bottom: 0; width: var(--radius-xl); height: var(--radius-xl); }
+.chat-tab[data-active]::before { left: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1px), var(--app-bg) var(--radius-xl)); }
+.chat-tab[data-active]::after { right: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1px), var(--app-bg) var(--radius-xl)); }
 /* Per-chat status dot in the tab label (mirrors the sidebar's busy signal). */
 .chat-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 999px; background: var(--app-dim); }
 .chat-dot[data-status="busy"] { background: var(--app-accent); }

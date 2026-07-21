@@ -19,7 +19,6 @@
   } from "../stores";
   import { claudeTermKey, disposeChatTerminal } from "../terminal";
   import IconButton from "./IconButton.svelte";
-  import * as Tabs from "$lib/components/ui/tabs";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import Plus from "@lucide/svelte/icons/plus";
@@ -48,45 +47,48 @@
 </script>
 
 {#if wt}
-  <div class="chat-tabs">
-    <Tabs.Root
-      value={focusedId}
-      onValueChange={(v: string) => v && wt && focusChat(wt, v)}
-      class="min-w-0"
-    >
-      <Tabs.List>
-        {#each chats as c, i (c.id)}
-          <Tabs.Trigger value={c.id} class="chat-tab">
-            <span
-              class="chat-dot"
-              data-status={$chatStatusByKey[claudeTermKey(wt, c.id)] ?? "stopped"}
-            ></span>
-            Chat {i + 1}
-            {#if chats.length > 1}
-              <span
-                class="chat-close"
-                role="button"
-                tabindex="-1"
-                aria-label="Close chat"
-                onclick={(e: MouseEvent) => {
-                  e.stopPropagation();
-                  close(c.id);
-                }}
-                onkeydown={(e: KeyboardEvent) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    close(c.id);
-                  }
-                }}
-              >
-                <X class="size-3" />
-              </span>
-            {/if}
-          </Tabs.Trigger>
-        {/each}
-      </Tabs.List>
-    </Tabs.Root>
+  <!-- Hand-rolled tabs (NOT ui/tabs — a deliberate exception): the connected
+       Chrome-style chrome (card-bg fill, top radius, concave flares, border
+       overlap) is bespoke app chrome the registry trigger's own utility
+       styles can't be overridden into. Styled in app.css › .chat-tab. -->
+  <div class="chat-tabs" role="tablist" aria-label="Chat sessions">
+    {#each chats as c, i (c.id)}
+      <button
+        type="button"
+        role="tab"
+        class="chat-tab"
+        aria-selected={c.id === focusedId}
+        data-active={c.id === focusedId ? "" : undefined}
+        onclick={() => focusChat(wt, c.id)}
+      >
+        <span
+          class="chat-dot"
+          data-status={$chatStatusByKey[claudeTermKey(wt, c.id)] ?? "stopped"}
+        ></span>
+        Chat {i + 1}
+        {#if chats.length > 1}
+          <span
+            class="chat-close"
+            role="button"
+            tabindex="-1"
+            aria-label="Close chat"
+            onclick={(e: MouseEvent) => {
+              e.stopPropagation();
+              close(c.id);
+            }}
+            onkeydown={(e: KeyboardEvent) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                close(c.id);
+              }
+            }}
+          >
+            <X class="size-3" />
+          </span>
+        {/if}
+      </button>
+    {/each}
     <Tooltip.Root>
       <Tooltip.Trigger>
         {#snippet child({ props })}
