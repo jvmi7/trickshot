@@ -35,8 +35,12 @@ export function borderGlow(node: HTMLElement): { destroy(): void } {
   };
   // Repaint when the NODE moves under a stationary cursor (the sliding tab
   // chrome springs its position every frame): its style mutations re-derive
-  // the vars from the fresh rect — no pointer movement required.
-  const mo = new MutationObserver(schedule);
+  // the vars from the fresh rect — no pointer movement required. SYNCHRONOUS
+  // (not rAF): deferring lands one frame behind the moving node, and under
+  // main-thread jank (the xterm re-attach during a tab switch) that smears
+  // the lit border off the chrome. paint()'s identical-value guard keeps the
+  // observer from re-firing on its own writes.
+  const mo = new MutationObserver(paint);
   mo.observe(node, { attributes: true, attributeFilter: ["style"] });
   const onMove = (e: PointerEvent) => {
     x = e.clientX;
