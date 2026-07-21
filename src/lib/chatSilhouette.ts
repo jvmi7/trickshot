@@ -20,6 +20,13 @@ function pxVar(name: string, fallback: number): number {
 
 export function chatSilhouette(host: HTMLElement): { destroy(): void } {
   let raf = 0;
+  // Last-written values: every style write is guarded so the SYNCHRONOUS
+  // mutation-observer path below can't ping-pong on its own writes, and
+  // unchanged frames cost nothing.
+  let lastPath = "";
+  let lastClip = "";
+  let lastTl = "";
+  let lastFl = "";
 
   const update = () => {
     raf = 0;
@@ -78,10 +85,21 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
         fl > 0.5 ? `L ${xl - fl} ${y0} A ${fl} ${fl} 0 0 0 ${xl} ${y0 - fl}` : `L ${xl} ${y0}`;
       const rise = `${corner} ${foot} L ${xl} ${yT + t} A ${t} ${t} 0 0 1 ${xl + t} ${yT}`;
       d = `${rise} L ${xr - t} ${yT} A ${t} ${t} 0 0 1 ${xr} ${yT + t} L ${xr} ${y0 - f} A ${f} ${f} 0 0 0 ${xr + f} ${y0} L ${W - r} ${y0} A ${r} ${r} 0 0 1 ${W} ${y0 + r} L ${W} ${b} A ${r} ${r} 0 0 1 ${W - r} ${H} L ${r} ${H} A ${r} ${r} 0 0 1 0 ${b} Z`;
-      parent.style.setProperty("--card-tl", rl > 0.5 ? `${rl + 1}px` : "0px");
-      if (tab === chromeEl) chromeEl.style.setProperty("--flare-l", `${fl}px`);
+      const tl = rl > 0.5 ? `${rl + 1}px` : "0px";
+      if (tl !== lastTl) {
+        lastTl = tl;
+        parent.style.setProperty("--card-tl", tl);
+      }
+      const flv = `${fl}px`;
+      if (tab === chromeEl && flv !== lastFl) {
+        lastFl = flv;
+        chromeEl.style.setProperty("--flare-l", flv);
+      }
     }
-    host.style.clipPath = `path("${d}")`;
+    if (d !== lastPath) {
+      lastPath = d;
+      host.style.clipPath = `path("${d}")`;
+    }
     if (tab) {
       // The cursor-glow ring (.content::after) paints ABOVE the card's
       // children — with the tab transparent, its top segment would shine
@@ -103,10 +121,11 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       const cW = parentR.width + 2;
       const cH = parentR.height + 2;
       // (box is border-box-sized +2 for the -1px inset on both axes)
-      parent.style.setProperty(
-        "--frame-clip",
-        `path("M 0 0 L ${nL} 0 L ${nL} 3 L ${nR} 3 L ${nR} 0 L ${cW} 0 L ${cW} ${cH} L 0 ${cH} Z")`,
-      );
+      const clip = `path("M 0 0 L ${nL} 0 L ${nL} 3 L ${nR} 3 L ${nR} 0 L ${cW} 0 L ${cW} ${cH} L 0 ${cH} Z")`;
+      if (clip !== lastClip) {
+        lastClip = clip;
+        parent.style.setProperty("--frame-clip", clip);
+      }
     }
   };
   const schedule = () => {
@@ -116,9 +135,14 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
   const ro = new ResizeObserver(schedule);
   ro.observe(host);
   // The bump follows the ACTIVE tab: switching tabs moves data-active
-  // (attributes), adding/closing tabs shifts every box (childList).
+  // (attributes), adding/closing tabs shifts every box (childList). The
+  // rebuild runs SYNCHRONOUSLY in the observer callback (a microtask, still
+  // within the same rendering frame): routing it through rAF would land one
+  // frame behind the sprung chrome, and at peak spring velocity that reads
+  // as the filled bump sliding beside the stroke. The write guards above
+  // stop the observer re-firing on update()'s own style writes.
   const strip = document.querySelector(".chat-tabs");
-  const mo = new MutationObserver(schedule);
+  const mo = new MutationObserver(update);
   if (strip) {
     mo.observe(strip, { subtree: true, attributes: true, childList: true });
     ro.observe(strip);
