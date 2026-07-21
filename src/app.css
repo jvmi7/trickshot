@@ -844,6 +844,9 @@ html, body {
   opacity: var(--glow-o, 0);
   transition: opacity var(--app-duration-slow) var(--ease-out-soft);
   pointer-events: none;
+  /* chatSilhouette notches the ring out across the active tab's opening —
+     the ring paints above the (transparent) tab and would underline it. */
+  clip-path: var(--frame-clip, none);
 }
 
 /* ---- settings page (swaps in for the chat in the center pane) ---- */

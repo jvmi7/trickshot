@@ -41,6 +41,7 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
     if (!tab) {
       // No tab (shouldn't happen while the chat surface shows) — card only.
       d = `M 0 ${y0 + r} A ${r} ${r} 0 0 1 ${r} ${y0} L ${W - r} ${y0} A ${r} ${r} 0 0 1 ${W} ${y0 + r} L ${W} ${b} A ${r} ${r} 0 0 1 ${W - r} ${H} L ${r} ${H} A ${r} ${r} 0 0 1 0 ${b} Z`;
+      parent.style.removeProperty("--frame-clip");
     } else {
       const tr = tab.getBoundingClientRect();
       const xL = tr.left - hostR.left;
@@ -55,6 +56,23 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       d = `${rise} L ${xR - t} ${yT} A ${t} ${t} 0 0 1 ${xR} ${yT + t} L ${xR} ${y0} L ${W - r} ${y0} A ${r} ${r} 0 0 1 ${W} ${y0 + r} L ${W} ${b} A ${r} ${r} 0 0 1 ${W - r} ${H} L ${r} ${H} A ${r} ${r} 0 0 1 0 ${b} Z`;
     }
     host.style.clipPath = `path("${d}")`;
+    if (tab) {
+      // The cursor-glow ring (.content::after) paints ABOVE the card's
+      // children — with the tab transparent, its top segment would shine
+      // through the opening as an underline. Publish a clip that notches the
+      // ring out across the tab's inner width (the flares' opaque fill covers
+      // the feet). Coordinates are in the ::after's box (inset -1px of the
+      // card, so shifted +1 from border-box).
+      const tr = tab.getBoundingClientRect();
+      const nL = tr.left + 2 - parentR.left;
+      const nR = tr.right - parentR.left;
+      const cW = parentR.width + 2;
+      const cH = parentR.height + 2;
+      parent.style.setProperty(
+        "--frame-clip",
+        `path("M 0 0 L ${nL} 0 L ${nL} 3 L ${nR} 3 L ${nR} 0 L ${cW} 0 L ${cW} ${cH} L 0 ${cH} Z")`,
+      );
+    }
   };
   const schedule = () => {
     if (!raf) raf = requestAnimationFrame(update);
