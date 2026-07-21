@@ -51,16 +51,12 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       // No tab (shouldn't happen while the chat surface shows) — card only.
       d = `M 0 ${y0 + r} A ${r} ${r} 0 0 1 ${r} ${y0} L ${W - r} ${y0} A ${r} ${r} 0 0 1 ${W} ${y0 + r} L ${W} ${b} A ${r} ${r} 0 0 1 ${W - r} ${H} L ${r} ${H} A ${r} ${r} 0 0 1 0 ${b} Z`;
       parent.style.removeProperty("--frame-clip");
+      parent.style.removeProperty("--card-tl");
     } else {
       const tr = tab.getBoundingClientRect();
       const xL = tr.left - hostR.left;
       const xR = tr.right - hostR.left;
       const yT = tr.top - hostR.top;
-      // Flush first tab: its left edge merges with the card's — the bump's
-      // left side IS the card's left edge, no top-left card corner. Read the
-      // DELAYED signal (slidingTabChrome sets it when the slide lands), not
-      // raw geometry — the merge must not appear before the tab arrives.
-      const flush = !!document.querySelector(".chat-tabs[data-first-active]");
       // The concave FEET are part of the silhouette (sweep 0 = the arc hugs
       // the corner): the one surface fills them, the flares paint stroke only.
       // The bump's sides sit at the tab's border INNER edges (±1) and the feet
@@ -69,10 +65,21 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       // than the stroke covers, leaving a gap in the frame line at each foot.
       const xl = xL + 1;
       const xr = xR - 1;
-      const rise = flush
-        ? `M 0 ${yT + t} A ${t} ${t} 0 0 1 ${t} ${yT}`
-        : `M 0 ${y0 + r} A ${r} ${r} 0 0 1 ${r} ${y0} L ${xl - f} ${y0} A ${f} ${f} 0 0 0 ${xl} ${y0 - f} L ${xl} ${yT + t} A ${t} ${t} 0 0 1 ${xl + t} ${yT}`;
+      // CONTINUOUS flush: as the (sprung) chrome approaches the card's left
+      // edge, the left foot arc (fl) and then the card's top-left corner (rl)
+      // shrink as functions of the remaining space — the tab MORPHS into the
+      // first-tab merge during the flight, no end-of-slide snap. The same
+      // radii feed the CSS corner (--card-tl) and the chrome's left flare
+      // (--flare-l) so canvas, border, and stroke morph in lockstep.
+      const fl = Math.max(0, Math.min(f, xl));
+      const rl = Math.max(0, Math.min(r, xl - fl));
+      const corner = rl > 0.5 ? `M 0 ${y0 + rl} A ${rl} ${rl} 0 0 1 ${rl} ${y0}` : `M 0 ${y0}`;
+      const foot =
+        fl > 0.5 ? `L ${xl - fl} ${y0} A ${fl} ${fl} 0 0 0 ${xl} ${y0 - fl}` : `L ${xl} ${y0}`;
+      const rise = `${corner} ${foot} L ${xl} ${yT + t} A ${t} ${t} 0 0 1 ${xl + t} ${yT}`;
       d = `${rise} L ${xr - t} ${yT} A ${t} ${t} 0 0 1 ${xr} ${yT + t} L ${xr} ${y0 - f} A ${f} ${f} 0 0 0 ${xr + f} ${y0} L ${W - r} ${y0} A ${r} ${r} 0 0 1 ${W} ${y0 + r} L ${W} ${b} A ${r} ${r} 0 0 1 ${W - r} ${H} L ${r} ${H} A ${r} ${r} 0 0 1 0 ${b} Z`;
+      parent.style.setProperty("--card-tl", rl > 0.5 ? `${rl + 1}px` : "0px");
+      if (tab === chromeEl) chromeEl.style.setProperty("--flare-l", `${fl}px`);
     }
     host.style.clipPath = `path("${d}")`;
     if (tab) {
@@ -90,7 +97,8 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       // at fractional x, and two shapes meeting at a fractional boundary
       // each contribute partial coverage — a darker seam pixel. A doubled
       // pixel reads as connected; a partial one reads as a gap.
-      const nL = tr.left - f + 2 - parentR.left;
+      const fl2 = Math.max(0, Math.min(f, tr.left + 2 - (parentR.left + 1)));
+      const nL = tr.left - fl2 + 2 - parentR.left;
       const nR = tr.right + f - 2 - parentR.left;
       const cW = parentR.width + 2;
       const cH = parentR.height + 2;

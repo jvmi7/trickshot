@@ -1072,10 +1072,13 @@ html, body {
 /* The two 1px patch layers pin the arc's tangent ENDS to the strokes it
    meets (tab side above, card border below) — at grazing angles the arc's
    own AA is too faint to close the joint. */
-.chat-tab-chrome::before { left: calc(-1 * var(--radius-xl)); background:
+/* The LEFT side is the one that merges with the card — its flare radius is
+   var(--flare-l) (chatSilhouette, per frame): full radius normally, shrinking
+   to nothing as the chrome docks into the corner. */
+.chat-tab-chrome::before { left: calc(-1 * var(--flare-l, var(--radius-xl))); width: calc(var(--flare-l, var(--radius-xl)) + 1px); background:
   linear-gradient(var(--chat-frame), var(--chat-frame)) right 1px top 0 / 1px 2px no-repeat,
   linear-gradient(var(--chat-frame), var(--chat-frame)) left 0 bottom 0 / 2px 1px no-repeat,
-  radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.25px), var(--chat-frame) calc(var(--radius-xl) - 0.75px), var(--chat-frame) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px)); }
+  radial-gradient(circle at 0 0, transparent calc(var(--flare-l, var(--radius-xl)) - 1.25px), var(--chat-frame) calc(var(--flare-l, var(--radius-xl)) - 0.75px), var(--chat-frame) calc(var(--flare-l, var(--radius-xl)) - 0.25px), transparent calc(var(--flare-l, var(--radius-xl)) + 0.25px)); }
 /* The tab's share of the cursor glow: a ring overlay at -1px over its OWN
    border (top + sides only — a zero bottom border keeps the ring out of the
    tab's opening), same radial recipe as .content::after, driven by the tab's
@@ -1130,7 +1133,8 @@ html, body {
   pointer-events: none;
 }
 .chat-tab-glow-arc[data-side="left"] {
-  left: calc(-1 * var(--radius-xl));
+  left: calc(-1 * var(--flare-l, var(--radius-xl)));
+  width: calc(var(--flare-l, var(--radius-xl)) + 1px);
   background: radial-gradient(
       260px circle at calc(var(--glow-x, 0px) + var(--radius-xl) - 1px) calc(var(--glow-y, 0px) - 28px + var(--radius-xl)),
       color-mix(in oklch, var(--base-text) 45%, transparent),
@@ -1165,6 +1169,12 @@ html, body {
    already starts at the card's left edge, so drop the left flare and square
    the card's top-left corner — its left border runs straight up into the
    tab's left border, one continuous line. */
+/* The card's top-left corner follows --card-tl (chatSilhouette sets it per
+   frame from the chrome's live distance to the corner) — it shrinks/regrows
+   CONTINUOUSLY as the tab approaches/leaves, in lockstep with the canvas
+   silhouette and the flare morph. */
+.chat-tabs + .content { border-top-left-radius: var(--card-tl, var(--app-pane-radius)); }
+.chat-tabs + .content::after { border-top-left-radius: var(--card-tl, var(--app-pane-radius)); }
 .chat-tab-chrome[data-flush] { border-bottom-left-radius: 0; }
 /* No left flare — its slot becomes the straight 1px border continuation from
    the frame's end down to the card (a pseudo of the UNMASKED chrome; the
@@ -1179,10 +1189,6 @@ html, body {
   -webkit-mask: linear-gradient(to left, transparent 1px, var(--base-text) 1px, var(--base-text) 2px, transparent 2px);
   mask: linear-gradient(to left, transparent 1px, var(--base-text) 1px, var(--base-text) 2px, transparent 2px);
 }
-.chat-tabs[data-first-active] + .content { border-top-left-radius: 0; }
-/* The cursor-glow ring hugs the frame — it must square the SAME corner, or
-   its own rounded arc peeks out under the flush tab on hover. */
-.chat-tabs[data-first-active] + .content::after { border-top-left-radius: 0; }
 .chat-tab-chrome::after { right: calc(-1 * var(--radius-xl)); background:
   linear-gradient(var(--chat-frame), var(--chat-frame)) left 1px top 0 / 1px 2px no-repeat,
   linear-gradient(var(--chat-frame), var(--chat-frame)) right 0 bottom 0 / 2px 1px no-repeat,
