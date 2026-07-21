@@ -1029,9 +1029,14 @@ html, body {
    shell-transparent inside the quarter-circle, a 1px FRAME-colored arc on it
    (tangent to the card border below and the tab's side border above — the
    stroke turns the corner), then card-bg out to the tab. */
+/* One px WIDER than the radius: the extra inward column covers the tab's own
+   side border where it descends through the flare region — below the arc
+   junction that border is INTERIOR to the merged shape, and left exposed it
+   cuts a 1px line through the foot (glaring once the glow lights it).
+   z-index 1 keeps the flares above the glow overlay for the same reason. */
 .chat-tab[data-active]::before,
-.chat-tab[data-active]::after { content: ""; position: absolute; bottom: 0; width: var(--radius-xl); height: var(--radius-xl); }
-.chat-tab[data-active]::before { left: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.5px), var(--chat-frame) calc(var(--radius-xl) - 0.5px), var(--app-bg) calc(var(--radius-xl) + 0.5px)); }
+.chat-tab[data-active]::after { content: ""; position: absolute; bottom: 0; width: calc(var(--radius-xl) + 1px); height: var(--radius-xl); z-index: 1; }
+.chat-tab[data-active]::before { left: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.25px), var(--chat-frame) calc(var(--radius-xl) - 0.75px), var(--chat-frame) calc(var(--radius-xl) - 0.25px), var(--app-bg) calc(var(--radius-xl) + 0.25px)); }
 /* The tab's share of the cursor glow: a ring overlay at -1px over its OWN
    border (top + sides only — a zero bottom border keeps the ring out of the
    tab's opening), same radial recipe as .content::after, driven by the tab's
@@ -1073,7 +1078,7 @@ html, body {
 /* The cursor-glow ring hugs the frame — it must square the SAME corner, or
    its own rounded arc peeks out under the flush tab on hover. */
 .chat-tabs[data-first-active] + .content::after { border-top-left-radius: 0; }
-.chat-tab[data-active]::after { right: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.5px), var(--chat-frame) calc(var(--radius-xl) - 0.5px), var(--app-bg) calc(var(--radius-xl) + 0.5px)); }
+.chat-tab[data-active]::after { right: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.25px), var(--chat-frame) calc(var(--radius-xl) - 0.75px), var(--chat-frame) calc(var(--radius-xl) - 0.25px), var(--app-bg) calc(var(--radius-xl) + 0.25px)); }
 /* Per-chat status dot in the tab label (mirrors the sidebar's busy signal). */
 .chat-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 999px; background: var(--app-dim); }
 .chat-dot[data-status="busy"] { background: var(--app-accent); }
