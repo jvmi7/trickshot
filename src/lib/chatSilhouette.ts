@@ -36,7 +36,15 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
     const t = pxVar("--app-tab-radius", 10); // tab top corners
     const f = pxVar("--radius-xl", 8); // flare (concave foot) radius
 
-    const tab = document.querySelector<HTMLElement>(".chat-tab[data-active]");
+    // Anchor on the sliding CHROME when it's live: the spring writes its
+    // style every frame, the strip MutationObserver fires, and the bump/notch
+    // re-derive from the chrome's CURRENT rect — background and border move
+    // as one object, physics included. (Falls back to the tab pre-mount.)
+    const chromeEl = document.querySelector<HTMLElement>(".chat-tab-chrome");
+    const tab =
+      chromeEl && chromeEl.style.opacity !== "0" && chromeEl.style.width
+        ? chromeEl
+        : document.querySelector<HTMLElement>(".chat-tab[data-active]");
     const b = H - r;
     let d: string;
     if (!tab) {

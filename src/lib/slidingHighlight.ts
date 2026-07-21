@@ -1,3 +1,5 @@
+import { spring } from "svelte/motion";
+
 // A single background element that slides to the currently-highlighted item,
 // instead of each item fading its own background in/out. Apply to the element
 // wrapping the items; it watches `data-highlighted` (bits-ui sets that on the
@@ -242,18 +244,30 @@ export function slidingToggle(wrap: HTMLElement) {
 
 // The chat-tab chrome slider: ONE overlay carrying the active tab's frame /
 // flares / glow layers (ChatTabs › .chat-tab-chrome), positioned over
-// `[data-active]` and CSS-transitioned so switching tabs GLIDES the chrome
-// left/right instead of teleporting it. The silhouette bump and the glow-ring
-// notch animate in step via their own clip-path transitions (app.css).
+// `[data-active]` by a REAL damped spring (svelte/motion — the platform's
+// framer-motion equivalent), so switching tabs glides with a bouncy,
+// smoothly-settling overshoot. The silhouette bump and the glow-ring notch
+// need no transitions of their own: chatSilhouette measures the CHROME's
+// live rect each frame, so background and border are glued by construction.
 // data-flush mirrors the first-tab merge state for the flush-specific rules.
 export function slidingTabChrome(el: HTMLElement) {
   const strip = el.parentElement;
   if (!strip) return { destroy() {} };
   let raf = 0;
   let first = true;
+  // Fluid with a whisper of spring: strongly damped, one soft overshoot.
+  const pos = spring({ left: 0, top: 0, width: 0, height: 0 }, { stiffness: 0.18, damping: 0.62 });
+  const unsub = pos.subscribe((v) => {
+    el.style.left = `${v.left}px`;
+    el.style.top = `${v.top}px`;
+    el.style.width = `${v.width}px`;
+    el.style.height = `${v.height}px`;
+  });
+  let lastKey = "";
+  let flying = false; // spring in flight (target set, not yet settled)
   // FLUSH CHOREOGRAPHY: the first-tab merge (squared card corner, straight
   // left stroke, flush silhouette) must not flip while the chrome is still
-  // in flight. Applied LATE — on transitionend, when the slide lands — and
+  // in flight. Applied LATE — when the spring SETTLES on the first tab — and
   // removed EARLY — the moment the target isn't the first tab — so the
   // corner stays rounded whenever the tab isn't actually there. This action
   // owns the signal: data-flush on the chrome AND data-first-active on the
@@ -277,31 +291,38 @@ export function slidingTabChrome(el: HTMLElement) {
     }
     const s = strip.getBoundingClientRect();
     const t = tab.getBoundingClientRect();
-    // First placement lands without animating (no slide-in from nowhere).
-    if (first) el.style.transition = "none";
     el.style.opacity = "1";
-    const targetLeft = `${t.left - s.left}px`;
-    const moving = el.style.left !== targetLeft && !first;
-    el.style.left = targetLeft;
-    el.style.top = `${t.top - s.top}px`;
-    el.style.width = `${t.width}px`;
-    // +1: the chrome dips one row into the card, swallowing its top border
-    // (the overlap the active button itself used to provide).
-    el.style.height = `${t.height + 1}px`;
+    // +1 height: the chrome dips one row into the card, swallowing its top
+    // border (the overlap the active button itself used to provide).
+    const target = {
+      left: t.left - s.left,
+      top: t.top - s.top,
+      width: t.width,
+      height: t.height + 1,
+    };
+    const key = `${target.left},${target.top},${target.width},${target.height}`;
     wantFlush = strip.querySelector(".chat-tab") === tab;
-    // Un-flush immediately; flush only once the slide arrives (or when the
-    // placement doesn't animate at all).
-    if (!wantFlush || !moving) setFlush(wantFlush);
+    if (!wantFlush) setFlush(false);
     if (first) {
-      void el.offsetWidth; // flush styles before re-enabling the transition
-      el.style.transition = "";
+      // First placement lands without animating (no slide-in from nowhere).
+      void pos.set(target, { hard: true });
+      if (wantFlush) setFlush(true);
       first = false;
+    } else if (key !== lastKey) {
+      // set() resolves when the spring settles — the flush merge lands then,
+      // unless a newer target superseded this flight.
+      flying = true;
+      pos.set(target).then(() => {
+        if (lastKey !== key) return; // superseded
+        flying = false;
+        if (wantFlush) setFlush(true);
+      });
+    } else if (wantFlush && !flying) {
+      // Same target and settled (e.g. re-clicking the active first tab).
+      setFlush(true);
     }
+    lastKey = key;
   };
-  const onArrive = (e: TransitionEvent) => {
-    if (e.target === el && e.propertyName === "left" && wantFlush) setFlush(true);
-  };
-  el.addEventListener("transitionend", onArrive);
   const schedule = () => {
     if (!raf) raf = requestAnimationFrame(update);
   };
@@ -319,7 +340,7 @@ export function slidingTabChrome(el: HTMLElement) {
   schedule();
   return {
     destroy() {
-      el.removeEventListener("transitionend", onArrive);
+      unsub();
       mo.disconnect();
       ro.disconnect();
       if (raf) cancelAnimationFrame(raf);
