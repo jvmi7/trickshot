@@ -54,7 +54,7 @@
   <!-- Backdrop: carries the bg color + the trailing cursor glow; xterm above
        is transparent (allowTransparency), so the glow shows through between
        the glyphs. -->
-  <div class="term-bg" aria-hidden="true" use:cursorTrail></div>
+  <div class="term-bg" aria-hidden="true" use:cursorTrail={{ reach: true }}></div>
   <div class="term-host" bind:this={container}></div>
 </div>
 

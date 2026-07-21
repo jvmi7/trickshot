@@ -565,8 +565,10 @@
      (the .content::after glow) — outer radius minus the 1px border. */
   --app-pane-radius-inner: calc(var(--app-pane-radius) - 1px);
   /* Chat-tab top corners (the connected Chrome-style tabs) — rounder than the
-     control ladder, shy of the pane. */
+     control ladder, shy of the pane. Inner = minus the 1px tab border (the
+     trail-canvas clip). */
   --app-tab-radius: 10px;
+  --app-tab-radius-inner: calc(var(--app-tab-radius) - 1px);
   --app-panel: var(--base-surface);
   --app-panel-2: var(--base-surface-raised);
   --app-border: var(--base-border);
@@ -1023,7 +1025,15 @@ html, body {
    row, swallowing it for the tab's width — no deeper, or the side borders
    overshoot visibly below the frame line. (The cursor-glow ring sits ON the
    border row too — .content::after at -1px — so one row covers both.) */
-.chat-tab[data-active] { color: var(--app-text); background: var(--app-bg); border-color: var(--chat-frame); border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0; margin-bottom: -1px; }
+/* z-index 0 makes the tab its own stacking context, so the trail canvas's
+   z:-1 slots between the tab's background and its label instead of escaping
+   behind the button entirely. */
+.chat-tab[data-active] { color: var(--app-text); background: var(--app-bg); border-color: var(--chat-frame); border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0; margin-bottom: -1px; z-index: 0; }
+/* The active tab's slice of the trailing-cursor surface (see ChatTabs +
+   cursorTrail's viewport-aligned grid): a clipped canvas host painted between
+   the tab's fill and its label. */
+.chat-tab-bg { position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: var(--app-tab-radius-inner) var(--app-tab-radius-inner) 0 0; pointer-events: none; }
+.chat-tab-bg canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 /* The concave flares: squares beside the tab's foot. The radial gradient is
    shell-transparent inside the quarter-circle, a 1px FRAME-colored arc on it
    (tangent to the card border below and the tab's side border above — the

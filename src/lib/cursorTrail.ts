@@ -19,7 +19,15 @@ const MAX_ALPHA = 0.04; // alpha of a fully lit square (keep it subtle)
 const LEVELS = 5; // quantized brightness steps — the digital ramp
 const EPS = 0.004; // intensity below which a cell counts as dark
 
-export function cursorTrail(node: HTMLElement): { destroy(): void } {
+/** `reach: true` keeps the trail lit while the pointer is within the trail
+ *  RADIUS outside the node — so canvases that share one visual surface (the
+ *  terminal backdrop and the active chat tab) stay lit together while the
+ *  cursor crosses their seam instead of one fading at the boundary. */
+export function cursorTrail(
+  node: HTMLElement,
+  opts: { reach?: boolean } = {},
+): { destroy(): void } {
+  const pad = opts.reach ? RADIUS : 0;
   const canvas = document.createElement("canvas");
   node.appendChild(canvas);
   const ctx = canvas.getContext("2d");
@@ -37,6 +45,11 @@ export function cursorTrail(node: HTMLElement): { destroy(): void } {
   let h = 0;
   let cols = 0;
   let rows = 0;
+  // Grid phase: cell boundaries anchor to the VIEWPORT, not the node, so two
+  // trail canvases on one visual surface (terminal backdrop + active tab)
+  // share the same grid — squares line up across their seam.
+  let phaseX = 0;
+  let phaseY = 0;
   let cells = new Float32Array(0); // per-cell intensity, row-major
   let color = "";
 
@@ -48,8 +61,10 @@ export function cursorTrail(node: HTMLElement): { destroy(): void } {
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
     ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
-    cols = Math.ceil(w / CELL);
-    rows = Math.ceil(h / CELL);
+    phaseX = ((r.left % CELL) + CELL) % CELL;
+    phaseY = ((r.top % CELL) + CELL) % CELL;
+    cols = Math.ceil((w + phaseX) / CELL);
+    rows = Math.ceil((h + phaseY) / CELL);
     cells = new Float32Array(cols * rows); // reset on resize — rare + cheap
     kick();
   };
@@ -66,11 +81,11 @@ export function cursorTrail(node: HTMLElement): { destroy(): void } {
     const r2 = RADIUS * RADIUS;
     let lit = false;
     for (let cy = 0; cy < rows; cy++) {
-      const dy = cy * CELL + CELL / 2 - y;
+      const dy = cy * CELL - phaseY + CELL / 2 - y;
       for (let cx = 0; cx < cols; cx++) {
         const i = cy * cols + cx;
         const v = cells[i] ?? 0;
-        const dx = cx * CELL + CELL / 2 - x;
+        const dx = cx * CELL - phaseX + CELL / 2 - x;
         const d2 = dx * dx + dy * dy;
         if (v === 0 && d2 >= r2) continue; // dark + out of range: no work
         // Quadratic falloff (squared distance — no sqrt on the hot path).
@@ -84,7 +99,7 @@ export function cursorTrail(node: HTMLElement): { destroy(): void } {
         lit = true;
         // Quantize the ramp into discrete levels — the digital feel.
         ctx.globalAlpha = (Math.ceil(next * LEVELS) / LEVELS) * MAX_ALPHA;
-        ctx.fillRect(cx * CELL, cy * CELL, CELL, CELL);
+        ctx.fillRect(cx * CELL - phaseX, cy * CELL - phaseY, CELL, CELL);
       }
     }
     ctx.globalAlpha = 1;
@@ -106,7 +121,10 @@ export function cursorTrail(node: HTMLElement): { destroy(): void } {
   const onMove = (e: PointerEvent) => {
     const r = node.getBoundingClientRect();
     const inside =
-      e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      e.clientX >= r.left - pad &&
+      e.clientX <= r.right + pad &&
+      e.clientY >= r.top - pad &&
+      e.clientY <= r.bottom + pad;
     tx = e.clientX - r.left;
     ty = e.clientY - r.top;
     to = inside ? 1 : 0;

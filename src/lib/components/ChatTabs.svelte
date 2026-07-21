@@ -18,6 +18,7 @@
     setChatLayout,
   } from "../stores";
   import { borderGlow } from "../borderGlow";
+  import { cursorTrail } from "../cursorTrail";
   import { claudeTermKey, disposeChatTerminal } from "../terminal";
   import IconButton from "./IconButton.svelte";
   import * as Tooltip from "$lib/components/ui/tooltip";
@@ -73,6 +74,12 @@
         onclick={() => focusChat(wt, c.id)}
         use:borderGlow
       >
+        {#if c.id === focusedId}
+          <!-- The tab shares the terminal backdrop's trailing-cursor surface:
+               its own trail canvas, viewport-grid-aligned with the cell's, so
+               the pixel wake flows continuously between card and tab. -->
+          <span class="chat-tab-bg" aria-hidden="true" use:cursorTrail={{ reach: true }}></span>
+        {/if}
         <span
           class="chat-dot"
           data-status={$chatStatusByKey[claudeTermKey(wt, c.id)] ?? "stopped"}
