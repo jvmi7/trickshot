@@ -51,7 +51,14 @@
        Chrome-style chrome (card-bg fill, top radius, concave flares, border
        overlap) is bespoke app chrome the registry trigger's own utility
        styles can't be overridden into. Styled in app.css › .chat-tab. -->
-  <div class="chat-tabs" role="tablist" aria-label="Chat sessions">
+  <!-- data-first-active drives the flush-left merge (app.css): the card and
+       its glow ring square their top-left corner under the first tab. -->
+  <div
+    class="chat-tabs"
+    role="tablist"
+    aria-label="Chat sessions"
+    data-first-active={chats[0]?.id === focusedId ? "" : undefined}
+  >
     {#each chats as c, i (c.id)}
       <button
         type="button"

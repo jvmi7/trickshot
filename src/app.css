@@ -1038,7 +1038,10 @@ html, body {
    tab's left border, one continuous line. */
 .chat-tab[data-active]:first-child { border-bottom-left-radius: 0; }
 .chat-tab[data-active]:first-child::before { content: none; }
-.chat-tabs:has(> .chat-tab[data-active]:first-child) + .content { border-top-left-radius: 0; }
+.chat-tabs[data-first-active] + .content { border-top-left-radius: 0; }
+/* The cursor-glow ring hugs the frame — it must square the SAME corner, or
+   its own rounded arc peeks out under the flush tab on hover. */
+.chat-tabs[data-first-active] + .content::after { border-top-left-radius: 0; }
 .chat-tab[data-active]::after { right: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.5px), var(--chat-frame) calc(var(--radius-xl) - 0.5px), var(--app-bg) calc(var(--radius-xl) + 0.5px)); }
 /* Per-chat status dot in the tab label (mirrors the sidebar's busy signal). */
 .chat-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 999px; background: var(--app-dim); }
