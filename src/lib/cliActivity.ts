@@ -2,7 +2,7 @@
 // The TUI repaints continuously while a turn runs (spinner + elapsed-time
 // ticker) and is silent when idle (xterm blinks the cursor client-side), so
 // "data is flowing" IS the busy signal — no protocol events exist on this
-// path (the sidecar's turn_end never fires under CLI-first chat). Pure state
+// path (the CLI emits no structured turn events). Pure state
 // machine: the caller owns the timers and passes timestamps in, so the edge
 // logic is unit-testable (terminal.ts wires it to the real stream).
 //
@@ -68,7 +68,7 @@ export class CliActivityTracker {
   }
 
   /** The caller's idle timer fired at `now`: the burst is over. Returns
-   *  whether it was a real "turn" (worth unread/notify side-effects) or a
+   *  whether it was a real "turn" (worth unread side-effects) or a
    *  trivial "blip" (echo, repaint, replay). A burst that never announced
    *  busy is always a blip — muted/reactive output can't fire side-effects.
    *  Resets for the next burst either way. */

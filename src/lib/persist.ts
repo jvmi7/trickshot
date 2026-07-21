@@ -1,5 +1,5 @@
 // Persistence primitives — the localStorage-backed store template split out of
-// stores.ts (the transcript.ts precedent: a self-contained subsystem whose
+// stores.ts (a self-contained subsystem whose
 // invariants live in one file). This is the CANONICAL home of "the ONE template"
 // every persisted `trickshot.*` store is built from (see CLAUDE.md): a load()
 // with a shape guard + fallback, then a subscribe() write-back that swallows
@@ -71,4 +71,45 @@ export function isPlainObject(v: unknown): v is Record<string, unknown> {
 export function parseJsonObject<V>(raw: string): Record<string, V> {
   const v = JSON.parse(raw);
   return isPlainObject(v) ? (v as Record<string, V>) : {};
+}
+
+// ---- One-time purge of retired keys ----
+// Keys written by the removed GUI-chat surface (sidecar sessions, transcripts,
+// threads, chat prefs). Left behind they'd sit in localStorage forever — the
+// per-worktree transcript blobs alone can be multi-MB. Exact keys plus the
+// per-worktree transcript prefix; runs once per launch from stores.ts's module
+// eval (idempotent, best-effort).
+const RETIRED_KEYS = [
+  "trickshot.transcripts.v2",
+  "trickshot.commentsByWorktree.v2",
+  "trickshot.chatModeByWorktree",
+  "trickshot.modelByWorktree",
+  "trickshot.permissionModeByWorktree",
+  "trickshot.sessionByWorktree",
+  "trickshot.minimalMode",
+  "trickshot.chatSkin",
+  "trickshot.mcpServersJson",
+  "trickshot.agentsJson",
+  "trickshot.systemPromptAppend",
+  "trickshot.connectorPrefs.global",
+];
+const RETIRED_PREFIXES = ["trickshot.transcript.v3."];
+
+/** Delete every retired `trickshot.*` key (see RETIRED_KEYS). Safe to call on
+ *  every launch: removing an absent key is a no-op, and failures are ignored
+ *  (localStorage is best-effort everywhere in this app). */
+export function purgeRetiredKeys() {
+  if (!hasLS) return;
+  try {
+    for (const key of RETIRED_KEYS) localStorage.removeItem(key);
+    // Collect first: removing while iterating shifts localStorage's index order.
+    const prefixed: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && RETIRED_PREFIXES.some((p) => key.startsWith(p))) prefixed.push(key);
+    }
+    for (const key of prefixed) localStorage.removeItem(key);
+  } catch {
+    /* best-effort */
+  }
 }

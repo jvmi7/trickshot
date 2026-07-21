@@ -7,7 +7,6 @@ mod usage;
 mod worktree;
 mod worktree_map;
 
-use agent::Sessions;
 use scripts::ScriptProcs;
 use tauri::{Manager, RunEvent};
 use terminal::Terminals;
@@ -15,19 +14,14 @@ use terminal::Terminals;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
-        .manage(Sessions::default())
         .manage(ScriptProcs::default())
         .manage(Terminals::default())
         .invoke_handler(tauri::generate_handler![
-            agent::start_session,
-            agent::send_to_session,
-            agent::stop_session,
             agent::latest_session_id,
-            agent::notify,
             worktree::pick_directory,
+            worktree::repo_icon,
+            worktree::home_dir,
             worktree::list_worktrees,
             worktree::create_worktree,
             worktree::remove_worktree,
@@ -61,13 +55,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // Kill all sidecars AND running scripts when the app quits so we
-            // don't orphan the (large) per-worktree agent processes or a dev
-            // server a run script started.
+            // Kill all running scripts and PTYs when the app quits so we don't
+            // orphan a dev server a run script started or a claude CLI on a PTY.
             if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
-                if let Some(state) = app_handle.try_state::<Sessions>() {
-                    agent::kill_all(&state);
-                }
                 if let Some(state) = app_handle.try_state::<ScriptProcs>() {
                     scripts::kill_all(&state);
                 }

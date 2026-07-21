@@ -1,14 +1,13 @@
 <script lang="ts">
   // Fleet overview — mission control for every worktree across repos: status
-  // dot (working/idle/off), unread + pending-permission badges, live ±
-  // diffstat, and commits-over-base, each card a click-to-jump. Rendered in
-  // the center pane when repos exist but NO worktree is selected (the former
-  // "select a worktree on the left" dead end); the palette's "Fleet overview"
-  // deselects to get here. Feature component (reads stores by design).
+  // dot (working/idle/off), unread badge, live ± diffstat, and
+  // commits-over-base, each card a click-to-jump. Rendered in the center pane
+  // when repos exist but NO worktree is selected (the former "select a
+  // worktree on the left" dead end); the palette's "Fleet overview" deselects
+  // to get here. Feature component (reads stores by design).
   import {
     activateWorktree,
     gitStatByWorktree,
-    pendingPermission,
     repos,
     requestNewWorktree,
     sessionStatus,
@@ -34,7 +33,7 @@
   /** Human status for a worktree's card. */
   function statusLabel(path: string): { label: string; kind: "busy" | "on" | "off" } {
     const s = $sessionStatus[path];
-    if (s === "busy" || s === "starting") return { label: "working…", kind: "busy" };
+    if (s === "busy") return { label: "working…", kind: "busy" };
     if (s === "ready") return { label: "idle", kind: "on" };
     return { label: "off", kind: "off" };
   }
@@ -63,9 +62,6 @@
             <div class="fleet-card-head">
               <span class="shrink-0" style="color: {profileAccent(wt.path)}"><GitBranch class="size-3.5" /></span>
               <span class="fleet-branch">{wt.branch ?? "(detached)"}</span>
-              {#if $pendingPermission[wt.path]}
-                <span class="fleet-pending" title="Waiting for permission">!</span>
-              {/if}
               {#if ($unreadByWorktree[wt.path] ?? 0) > 0}
                 <span class="fleet-unread">{$unreadByWorktree[wt.path]}</span>
               {/if}
@@ -186,13 +182,7 @@
   .fleet-ahead {
     color: var(--app-dim);
   }
-  /* Badge twins of the sidebar's wt-pending/wt-unread, card-scaled. */
-  .fleet-pending {
-    flex-shrink: 0;
-    font-size: var(--text-xs);
-    font-weight: 700;
-    color: var(--base-warning);
-  }
+  /* Badge twin of the sidebar's wt-unread, card-scaled. */
   .fleet-unread {
     flex-shrink: 0;
     min-width: 16px;

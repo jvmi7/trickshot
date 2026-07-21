@@ -13,17 +13,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# tauri-plugin-shell pins tauri ^2.10, so resolve tauri to a compatible 2.x.
 tauri = { version = "2", features = [] }
-tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
-tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Subscription-usage endpoint (src/usage.rs). rustls avoids an OpenSSL build dep;
 # `json` pulls the response-deserialization helper.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 portable-pty = "0.9.0"
+# Repo favicons ride to the webview as data: URIs (src/worktree.rs › repo_icon).
+base64 = "0.22"
 
 # Release builds default to an unoptimized, unstripped binary; for a shipped
 # desktop app, optimize for size and strip symbols.

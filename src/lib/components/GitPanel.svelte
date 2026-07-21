@@ -160,8 +160,7 @@
     const w = wt;
     const draft = draftComment();
     if (!w || !draft) return;
-    // Routes to the ACTIVE chat surface (CLI keystroke injection under
-    // CLI-first, the GUI transcript otherwise); fire-and-forget like the send.
+    // Keystroke-injected into the CLI chat; fire-and-forget like the send.
     void submitTurnToChat(w, formatReviewPrompt([{ ...draft, id: 0 }]));
     lineComment = null;
     lineCommentText = "";

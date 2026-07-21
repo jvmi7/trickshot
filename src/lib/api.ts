@@ -1,20 +1,15 @@
-// Typed wrapper over the Tauri command surface + agent event stream.
-// THIS IS THE PRIMARY HOOK POINT for the UI layer: import from here, don't call
-// invoke()/listen() directly in components.
+// Typed wrapper over the Tauri command surface + the script/terminal event
+// streams. THIS IS THE PRIMARY HOOK POINT for the UI layer: import from here,
+// don't call invoke()/listen() directly in components.
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  AgentEnvelope,
   GitStatus,
-  Inbound,
-  Outbound,
-  PermissionMode,
   PrInfo,
   PrText,
   ScriptEnvelope,
   ScriptsConfig,
-  SessionConfig,
   TermEnvelope,
   UsageInfo,
   Worktree,
@@ -25,8 +20,15 @@ import type {
 /** Native folder picker. Returns the chosen absolute path, or null if cancelled. */
 export const pickDirectory = () => invoke<string | null>("pick_directory");
 
-/** Show a desktop (OS) notification. */
-export const notify = (title: string, body: string) => invoke<void>("notify", { title, body });
+/** A repo's favicon as a `data:` URI, or null when the repo has none. A
+ *  bounded repo walk: an icon DECLARED by an `index.html`/`app.html`
+ *  `<link rel="icon">` wins (the site's actual icon); otherwise it ranks
+ *  `favicon.*` / `apple-touch-icon.png` anywhere and `icon.png`/`icon.svg`
+ *  inside icon-ish dirs (icons/public/static/assets/app). ≤256KB files only. */
+export const repoIcon = (repoPath: string) => invoke<string | null>("repo_icon", { repoPath });
+
+/** The user's home directory — the sidebar Home workspace root (~). */
+export const homeDir = () => invoke<string>("home_dir");
 
 /** The subscription usage windows for a provider's account (for Claude: rolling
  *  5-hour + weekly). Rejects when unavailable (not logged in, token expired,
@@ -215,151 +217,11 @@ export function onTermEvent(
   });
 }
 
-// ---- Per-worktree agent sessions ----------------------------------------
-// Each worktree runs its own sidecar concurrently, keyed by its path.
-
-/** Start (or no-op if already running) the agent session for a worktree. The
- *  whole start-up config rides in one JSON blob (`SessionConfig`): `resumeSessionId`
- *  restores a prior session's context, `permissionMode` sets the initial
- *  tool-permission gate (default bypassPermissions; a non-bypass value activates
- *  the Allow/Deny modal), `systemPromptAppend` adds custom prompt text, `provider`
- *  picks a model-provider adapter (default "claude"). Rust forwards the blob
- *  opaquely; the sidecar parses it once (see SessionConfig). */
-export const startSession = (worktree: string, config: SessionConfig = {}) =>
-  invoke<void>("start_session", { worktree, config: JSON.stringify(config) });
-
-/** Kill a worktree's agent session. */
-export const stopSession = (worktree: string) => invoke<void>("stop_session", { worktree });
+// ---- Agent sessions (Claude Code's own session store) ---------------------
 
 /** The newest Claude Code session id recorded for a worktree (resume forks a
- *  new id, so after a CLI chat-mode stint the persisted id is stale — this
+ *  new id, so any remembered id goes stale the moment the CLI runs — this
  *  scan finds the live thread). null when the worktree has no sessions yet.
  *  Provider-gated like getUsage/checkAuth. */
 export const latestSessionId = (worktree: string, provider?: string) =>
   invoke<string | null>("latest_session_id", { worktree, provider: provider ?? null });
-
-const send = (worktree: string, msg: Inbound) =>
-  invoke<void>("send_to_session", { worktree, payload: JSON.stringify(msg) });
-
-/** Send a user message to a worktree's agent. */
-export const sendUserTurn = (worktree: string, text: string) =>
-  send(worktree, { kind: "user_turn", text });
-
-/** Answer a pending tool-permission request (active only when a non-bypass
- *  permissionMode is set on the session — see startSession). */
-export const replyPermission = (
-  worktree: string,
-  id: string,
-  behavior: "allow" | "deny",
-  message?: string,
-) => send(worktree, { kind: "permission_reply", id, behavior, message });
-
-/** Answer a pending question (the agent's `ask_user`) with the user's choices —
- *  per question, the chosen option labels (one for single-select, more for multi). */
-export const replyQuestion = (worktree: string, id: string, answers: string[][]) =>
-  send(worktree, { kind: "question_reply", id, answers });
-
-/** Interrupt a worktree's agent mid-task. */
-export const interruptAgent = (worktree: string) => send(worktree, { kind: "interrupt" });
-
-/** Ask the agent to generate suggested next replies for the recent conversation.
- *  Answered async via a `suggestions` event on the agent stream. */
-export const requestSuggestions = (worktree: string, conversation: string) =>
-  send(worktree, { kind: "suggest", conversation });
-
-/** Run an OUT-OF-BAND agent turn for an inline comment thread. `prompt` is the
- *  app-assembled thread context; the answer streams back via `comment_reply`
- *  events tagged with `id`. Never touches the main session/transcript. */
-export const sendCommentTurn = (worktree: string, id: string, prompt: string) =>
-  send(worktree, { kind: "comment_turn", id, prompt });
-
-/** Abort an in-flight comment answer for thread `id` (popup close / supersede). */
-export const cancelComment = (worktree: string, id: string) =>
-  send(worktree, { kind: "comment_cancel", id });
-
-/** Switch the model this worktree's chat uses. The sidecar confirms by
- *  re-emitting a `models` event with the updated `current`. */
-export const setModel = (worktree: string, model: string) =>
-  send(worktree, { kind: "set_model", model });
-
-/** Ask a session to (re-)emit its `models` event. Used to fetch the catalog
- *  on demand, since the one-shot broadcast at `ready` can race the listener. */
-export const requestModels = (worktree: string) => send(worktree, { kind: "get_models" });
-
-/** Ask a session to (re-)emit its `connectors` event (MCP servers + tools).
- *  Resilient fetch, mirroring requestModels — the ready-time broadcast can race. */
-export const requestConnectors = (worktree: string) => send(worktree, { kind: "get_connectors" });
-
-/** Enable or disable an MCP connector for a worktree's live session. The sidecar
- *  confirms by re-emitting a `connectors` event with the updated status. */
-export const toggleConnector = (worktree: string, name: string, enabled: boolean) =>
-  send(worktree, { kind: "toggle_connector", name, enabled });
-
-/** Reconnect an MCP connector (e.g. after a failure / needs-auth). */
-export const reconnectConnector = (worktree: string, name: string) =>
-  send(worktree, { kind: "reconnect_connector", name });
-
-/** Ask a session to (re-)emit its `commands` event (available slash commands). */
-export const requestCommands = (worktree: string) => send(worktree, { kind: "get_commands" });
-
-/** Replace a session's live MCP server set (an opaque provider config blob). */
-export const setMcpServers = (worktree: string, servers: Record<string, unknown>) =>
-  send(worktree, { kind: "set_mcp_servers", servers });
-
-/** Switch a worktree's tool-permission mode live (mid-session). */
-export const setPermissionMode = (worktree: string, mode: PermissionMode) =>
-  send(worktree, { kind: "set_permission_mode", mode });
-
-// ---- Event stream --------------------------------------------------------
-
-/** Subscribe to agent output across ALL worktrees. `onMessage` fires per parsed
- *  protocol message (tagged with its worktree); `onStatus` fires on session
- *  lifecycle (terminated/error). Returns an unlisten function. */
-export async function onAgentEvent(
-  onMessage: (worktree: string, evt: Outbound) => void,
-  onStatus?: (worktree: string, kind: "terminated" | "error", data: string | null) => void,
-): Promise<UnlistenFn> {
-  // Keep a bounded tail of each session's stderr. Sidecar/native-CLI stderr is
-  // otherwise dropped entirely, so a session that dies WITHOUT emitting a JSON
-  // error (e.g. the Bun process or claude binary crashes) would surface only a
-  // bare exit code. We attach this tail to the death so there's a diagnostic.
-  const STDERR_TAIL = 40;
-  const stderrTail = new Map<string, string[]>();
-
-  return listen<AgentEnvelope>("agent-event", (e) => {
-    const { worktree, kind, data } = e.payload;
-    if (kind === "stdout" && data) {
-      for (const line of data.split("\n")) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          onMessage(worktree, JSON.parse(trimmed) as Outbound);
-        } catch {
-          // ignore non-JSON noise on stdout
-        }
-      }
-    } else if (kind === "stderr" && data) {
-      const buf = stderrTail.get(worktree) ?? [];
-      for (const line of data.split("\n")) {
-        const trimmed = line.trim();
-        if (trimmed) buf.push(trimmed);
-      }
-      if (buf.length > STDERR_TAIL) buf.splice(0, buf.length - STDERR_TAIL);
-      stderrTail.set(worktree, buf);
-    } else if (kind === "terminated" || kind === "error") {
-      const tail = stderrTail.get(worktree)?.join("\n") ?? "";
-      stderrTail.delete(worktree);
-      if (kind === "error") {
-        onStatus?.(worktree, "error", [data, tail].filter(Boolean).join("\n") || data);
-      } else {
-        // Surface a bubble only when the sidecar actually wrote stderr (which is
-        // otherwise dropped). A bare non-zero exit code is NOT surfaced: a fatal
-        // agent-loop exit already showed the cause via an in-band `error`, and a
-        // normal kill (stop_session) exits clean. onStatus still fires either way
-        // so the session is reset to `stopped`.
-        const detail = tail ? `sidecar exited (code ${data ?? "?"})\n${tail}` : null;
-        onStatus?.(worktree, "terminated", detail);
-      }
-    }
-  });
-}

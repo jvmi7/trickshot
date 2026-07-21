@@ -1,11 +1,10 @@
 // One-shot AI text generation for the git workflow: a commit message from the
 // working diff, and a PR title/body from the commit range. Runs the user's
-// `claude` CLI once in print mode (`-p`) — the SAME binary the CLI-first chat
-// resolves (`terminal::claude_cli`), so it needs no API key and no sidecar
-// (~279MB) spawn. Deliberately claude-specific, matching terminal.rs; a
-// provider-neutral version would route a one-shot query through the sidecar
-// adapter instead. JSON-free stdin/stdout, with pure output-cleaning helpers
-// split out so they're unit-testable without invoking the model.
+// `claude` CLI once in print mode (`-p`) — the SAME binary the chat resolves
+// (`terminal::claude_cli`), so it needs no API key. Deliberately
+// claude-specific, matching terminal.rs. JSON-free stdin/stdout, with pure
+// output-cleaning helpers split out so they're unit-testable without invoking
+// the model.
 
 use std::io::Write;
 use std::process::{Command, Stdio};

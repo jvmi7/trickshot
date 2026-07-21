@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
@@ -75,6 +76,294 @@ pub async fn pick_directory(app: AppHandle) -> Option<String> {
         .blocking_pick_folder()
         .and_then(|p| p.into_path().ok())
         .map(|p| p.to_string_lossy().to_string())
+}
+
+/// A favicon is a per-row sidebar decoration — anything bigger than this is
+/// some other asset that happens to share the name; skip it.
+const ICON_MAX_BYTES: u64 = 256 * 1024;
+/// Dirs never worth descending into for an icon (deps / build output / VCS).
+const ICON_SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "out",
+    "vendor",
+    "coverage",
+];
+/// Directory names where a generic `icon.png`/`icon.svg` really is the project
+/// icon (Tauri's `src-tauri/icons/`, Next's `app/`, web roots) — anywhere else
+/// that name is just some asset.
+const ICONISH_DIRS: &[&str] = &["icons", "public", "static", "assets", "app"];
+/// Walk bounds: monorepo icons live at e.g. `apps/web/public/favicon.ico`
+/// (file depth 4); the dir cap keeps a pathological tree from stalling the scan.
+const ICON_MAX_FILE_DEPTH: usize = 4;
+const ICON_MAX_DIRS: usize = 4096;
+
+/// Rank an icon candidate filename (lower = better), or None when the name
+/// isn't an icon. `depth` is the file's depth below the repo root (root = 1);
+/// `parent` is the containing dir's lowercased name (None at the root).
+fn icon_rank(name: &str, parent: Option<&str>, depth: usize) -> Option<u8> {
+    let lower = name.to_ascii_lowercase();
+    if !(lower.ends_with(".svg") || lower.ends_with(".png") || lower.ends_with(".ico")) {
+        return None;
+    }
+    match lower.as_str() {
+        // svg/png outrank ico — WKWebView renders those data URIs most reliably.
+        "favicon.svg" => return Some(0),
+        "favicon.png" => return Some(1),
+        "favicon.ico" => return Some(2),
+        "apple-touch-icon.png" => return Some(4),
+        _ => {}
+    }
+    // Sized variants (favicon-32x32.png etc.) beat the fallbacks below.
+    if lower.starts_with("favicon") {
+        return Some(3);
+    }
+    let iconish = depth == 1 || parent.is_some_and(|p| ICONISH_DIRS.contains(&p));
+    if iconish && (lower == "icon.svg" || lower == "icon.png") {
+        return Some(if lower.ends_with(".svg") { 5 } else { 6 });
+    }
+    None
+}
+
+/// Mime for an icon file an HTML `<link rel="icon">` may point at (broader
+/// than the filename heuristic's svg/png/ico), or None for a non-image path.
+fn icon_mime(path: &Path) -> Option<&'static str> {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())?
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => Some("image/png"),
+        "svg" => Some("image/svg+xml"),
+        "ico" => Some("image/x-icon"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "webp" => Some("image/webp"),
+        "gif" => Some("image/gif"),
+        _ => None,
+    }
+}
+
+/// Value of `name="…"` inside a tag. `tag_lower` locates the attribute
+/// case-insensitively; the value is sliced from `tag` so its case survives
+/// (hrefs are case-sensitive paths).
+fn attr_value<'a>(tag_lower: &str, tag: &'a str, name: &str) -> Option<&'a str> {
+    let pat = format!("{name}=");
+    let mut from = 0;
+    loop {
+        let i = tag_lower[from..].find(&pat)? + from;
+        // Word boundary: `href=` must not match inside `data-href=`/`hreflang`.
+        if i > 0
+            && (tag_lower.as_bytes()[i - 1].is_ascii_alphanumeric()
+                || tag_lower.as_bytes()[i - 1] == b'-')
+        {
+            from = i + pat.len();
+            continue;
+        }
+        let vstart = i + pat.len();
+        let quote = *tag.as_bytes().get(vstart)?;
+        if quote != b'"' && quote != b'\'' {
+            let rest = &tag[vstart..];
+            let end = rest
+                .find(|c: char| c.is_ascii_whitespace() || c == '>' || c == '/')
+                .unwrap_or(rest.len());
+            return Some(&rest[..end]);
+        }
+        let rest = &tag[vstart + 1..];
+        let end = rest.find(quote as char)?;
+        return Some(&rest[..end]);
+    }
+}
+
+/// Icon hrefs declared in an HTML document, best-first: `rel="icon"`-family
+/// links in document order, then apple-touch-icon fallbacks. A plain string
+/// scan over `<link …>` tags (no HTML-parser dep) — head links are simple
+/// enough that this holds. External/data URLs are dropped (nothing on disk to
+/// read); query strings/fragments and template asset prefixes are stripped.
+fn parse_icon_hrefs(html: &str) -> Vec<String> {
+    let lower = html.to_ascii_lowercase();
+    let mut primary = Vec::new();
+    let mut secondary = Vec::new();
+    let mut at = 0;
+    while let Some(start) = lower[at..].find("<link") {
+        let start = at + start;
+        let Some(end) = lower[start..].find('>') else {
+            break;
+        };
+        let end = start + end;
+        let (tag_lower, tag) = (&lower[start..end], &html[start..end]);
+        at = end + 1;
+        let Some(rel) = attr_value(tag_lower, tag_lower, "rel") else {
+            continue;
+        };
+        let is_apple = rel.contains("apple-touch-icon");
+        // "icon" / "shortcut icon" as a whole word — mask-icon etc. excluded.
+        let is_icon = rel.split_ascii_whitespace().any(|w| w == "icon");
+        if !is_icon && !is_apple {
+            continue;
+        }
+        let Some(href) = attr_value(tag_lower, tag, "href") else {
+            continue;
+        };
+        if href.starts_with("http:")
+            || href.starts_with("https:")
+            || href.starts_with("//")
+            || href.starts_with("data:")
+        {
+            continue;
+        }
+        let href = href
+            .split(['?', '#'])
+            .next()
+            .unwrap_or("")
+            .replace("%sveltekit.assets%", "");
+        if href.is_empty() {
+            continue;
+        }
+        if is_icon {
+            primary.push(href);
+        } else {
+            secondary.push(href);
+        }
+    }
+    primary.extend(secondary);
+    primary
+}
+
+/// Resolve an HTML icon href to a file on disk. Dev servers mount a "public
+/// root" at `/`, so try the html's sibling `public/`/`static/` dirs (the
+/// Vite/SvelteKit convention) and its own dir, then the same trio at the repo
+/// root (SvelteKit's `src/app.html` points at root-level `static/`).
+fn resolve_icon_href(html_dir: &Path, root: &Path, href: &str) -> Option<std::path::PathBuf> {
+    let rel = href.trim_start_matches("./").trim_start_matches('/');
+    for base in [
+        html_dir.join("public"),
+        html_dir.join("static"),
+        html_dir.to_path_buf(),
+        root.join("public"),
+        root.join("static"),
+        root.to_path_buf(),
+    ] {
+        let path = base.join(rel);
+        let ok = path
+            .metadata()
+            .is_ok_and(|m| m.is_file() && m.len() <= ICON_MAX_BYTES);
+        if ok && icon_mime(&path).is_some() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// `<link rel=icon>` lives in <head>; reading a bounded prefix is plenty.
+const ICON_HTML_MAX_BYTES: usize = 128 * 1024;
+
+/// Best icon file in the repo. Two signals, in trust order:
+/// 1. An icon DECLARED by an `index.html`/`app.html` found during the walk —
+///    the site's actual icon (a `favicon.svg` can exist unreferenced while the
+///    HTML points at some other file); shallowest HTML first (BFS order).
+/// 2. Filename heuristic: minimize (icon_rank, depth) over the walked files,
+///    so a proper favicon anywhere beats a generic `icons/icon.png`.
+fn find_repo_icon(root: &Path) -> Option<std::path::PathBuf> {
+    let mut queue = std::collections::VecDeque::from([(root.to_path_buf(), 0usize)]);
+    let mut best: Option<(u8, usize, std::path::PathBuf)> = None;
+    let mut html_files: Vec<std::path::PathBuf> = Vec::new();
+    let mut visited = 0usize;
+    while let Some((dir, depth)) = queue.pop_front() {
+        visited += 1;
+        if visited > ICON_MAX_DIRS {
+            break;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let parent_name = dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(str::to_ascii_lowercase);
+        for entry in entries.flatten() {
+            let Ok(ft) = entry.file_type() else { continue };
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if ft.is_dir() {
+                if depth + 1 < ICON_MAX_FILE_DEPTH
+                    && !name.starts_with('.')
+                    && !ICON_SKIP_DIRS.contains(&name)
+                {
+                    queue.push_back((entry.path(), depth + 1));
+                }
+            } else if ft.is_file() {
+                if name == "index.html" || name == "app.html" {
+                    html_files.push(entry.path());
+                    continue;
+                }
+                // Root files get no parent check — the repo dir's own name is
+                // meaningless (a repo named "app" must not promote its assets).
+                let parent = if depth == 0 {
+                    None
+                } else {
+                    parent_name.as_deref()
+                };
+                let Some(rank) = icon_rank(name, parent, depth + 1) else {
+                    continue;
+                };
+                if !entry.metadata().is_ok_and(|m| m.len() <= ICON_MAX_BYTES) {
+                    continue;
+                }
+                if best
+                    .as_ref()
+                    .is_none_or(|(br, bd, _)| (rank, depth + 1) < (*br, *bd))
+                {
+                    best = Some((rank, depth + 1, entry.path()));
+                }
+            }
+        }
+    }
+    for html in &html_files {
+        let Ok(mut bytes) = std::fs::read(html) else {
+            continue;
+        };
+        bytes.truncate(ICON_HTML_MAX_BYTES);
+        let text = String::from_utf8_lossy(&bytes);
+        let html_dir = html.parent().unwrap_or(root);
+        for href in parse_icon_hrefs(&text) {
+            if let Some(p) = resolve_icon_href(html_dir, root, &href) {
+                return Some(p);
+            }
+        }
+    }
+    best.map(|(_, _, p)| p)
+}
+
+/// The repo's favicon (best `find_repo_icon` hit) as a `data:` URI, or None.
+/// A favicon is cosmetic: an unreadable file is just None — never an error
+/// the UI would have to surface.
+#[tauri::command]
+pub async fn repo_icon(repo_path: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = find_repo_icon(Path::new(&repo_path)) else {
+            return Ok(None);
+        };
+        let Ok(bytes) = std::fs::read(&path) else {
+            return Ok(None);
+        };
+        let mime = icon_mime(&path).unwrap_or("image/x-icon");
+        Ok(Some(format!(
+            "data:{mime};base64,{}",
+            BASE64_STANDARD.encode(bytes)
+        )))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The user's home directory — the sidebar Home workspace root. Same
+/// $HOME-first pattern as agent.rs / usage.rs.
+#[tauri::command]
+pub fn home_dir() -> Result<String, String> {
+    std::env::var("HOME").map_err(|_| "HOME is not set".to_string())
 }
 
 /// List worktrees via `git worktree list --porcelain`. The first entry is the main worktree.
@@ -759,9 +1048,88 @@ pub async fn worktree_move_to_branch(
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_numstat, parse_shortstat, parse_status, parse_worktree_list, pick_default_branch,
-        validate_branch, worktree_path_for,
+        find_repo_icon, icon_rank, parse_icon_hrefs, parse_numstat, parse_shortstat, parse_status,
+        parse_worktree_list, pick_default_branch, validate_branch, worktree_path_for,
     };
+
+    // ---- parse_icon_hrefs (<link rel="icon"> extraction) ----
+
+    #[test]
+    fn icon_hrefs_prefers_rel_icon_over_apple_touch() {
+        let html = r#"<head>
+            <link rel="apple-touch-icon" href="/pwa-192.png" />
+            <link rel="icon" type="image/png" href="/machi.png" />
+        </head>"#;
+        assert_eq!(parse_icon_hrefs(html), vec!["/machi.png", "/pwa-192.png"]);
+    }
+
+    #[test]
+    fn icon_hrefs_strips_templates_and_drops_external() {
+        // SvelteKit's asset placeholder resolves to the static root.
+        let html = r#"<link rel="icon" href="%sveltekit.assets%/favicon.png" />"#;
+        assert_eq!(parse_icon_hrefs(html), vec!["/favicon.png"]);
+        // Query strings are cache-busting noise; external/data URLs aren't on disk.
+        let html = r#"<link rel="shortcut icon" href="/fav.ico?v=2" />
+                      <link rel="icon" href="https://cdn.example.com/i.png" />
+                      <link rel="mask-icon" href="/mask.svg" />"#;
+        assert_eq!(parse_icon_hrefs(html), vec!["/fav.ico"]);
+    }
+
+    // ---- icon_rank / find_repo_icon (repo favicon scan) ----
+
+    #[test]
+    fn icon_rank_prefers_favicons_and_gates_generic_icons() {
+        // Any favicon.* counts anywhere, svg < png < ico.
+        assert!(
+            icon_rank("favicon.svg", Some("public"), 3).unwrap()
+                < icon_rank("favicon.ico", None, 1).unwrap()
+        );
+        assert_eq!(icon_rank("favicon-32x32.png", Some("img"), 2), Some(3));
+        // Generic icon.* only counts at the root or in an icon-ish dir.
+        assert!(icon_rank("icon.png", Some("icons"), 3).is_some());
+        assert!(icon_rank("icon.png", None, 1).is_some());
+        assert!(icon_rank("icon.png", Some("emoji"), 3).is_none());
+        // Non-image names never match.
+        assert!(icon_rank("favicon.txt", None, 1).is_none());
+        assert!(icon_rank("logo.svg", Some("public"), 2).is_none());
+    }
+
+    #[test]
+    fn find_repo_icon_trusts_html_declared_icon_over_filename_heuristic() {
+        // The real-world trap: a favicon.svg EXISTS in public/ but the site's
+        // index.html points its icon at a different file — the declared one wins.
+        let root = std::env::temp_dir().join(format!("trickshot-icon-html-{}", std::process::id()));
+        let pub_dir = root.join("apps/web/public");
+        std::fs::create_dir_all(&pub_dir).unwrap();
+        std::fs::write(pub_dir.join("favicon.svg"), b"x").unwrap();
+        std::fs::write(pub_dir.join("machi.png"), b"x").unwrap();
+        std::fs::write(
+            root.join("apps/web/index.html"),
+            r#"<html><head><link rel="icon" type="image/png" href="/machi.png" /></head></html>"#,
+        )
+        .unwrap();
+        assert_eq!(find_repo_icon(&root), Some(pub_dir.join("machi.png")));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn find_repo_icon_walks_nested_dirs_and_ranks() {
+        // A unique temp tree: monorepo-style nested favicon + a Tauri-style
+        // icons/icon.png; the favicon must win despite being deeper.
+        let root = std::env::temp_dir().join(format!("trickshot-icon-test-{}", std::process::id()));
+        let deep = root.join("apps/web/public");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::create_dir_all(root.join("src-tauri/icons")).unwrap();
+        std::fs::write(deep.join("favicon.ico"), b"x").unwrap();
+        std::fs::write(root.join("src-tauri/icons/icon.png"), b"x").unwrap();
+        let found = find_repo_icon(&root);
+        assert_eq!(found, Some(deep.join("favicon.ico")));
+        // Remove the favicon: the generic icon (inside `icons/`) is the fallback.
+        std::fs::remove_file(deep.join("favicon.ico")).unwrap();
+        let found = find_repo_icon(&root);
+        assert_eq!(found, Some(root.join("src-tauri/icons/icon.png")));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     // ---- parse_worktree_list (git worktree list --porcelain) ----
 
