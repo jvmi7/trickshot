@@ -291,6 +291,10 @@ export function loadRepoIcon(repoPath: string) {
  *  the sidebar's Home row renders only once this is known. Not persisted —
  *  it's an OS fact, refetched each run. */
 export const homePath = writable<string | null>(null);
+/** Set the resolved Home workspace root (null when the OS lookup fails). */
+export function setHomePath(p: string | null) {
+  homePath.set(p);
+}
 
 /** Worktrees per repo path. Git is the source of truth — repopulated from
  *  `list_worktrees` on launch and after create/remove. */
