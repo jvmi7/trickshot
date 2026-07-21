@@ -564,6 +564,9 @@
   /* The concentric inner radius for rings drawn 1px inside the pane frame
      (the .content::after glow) — outer radius minus the 1px border. */
   --app-pane-radius-inner: calc(var(--app-pane-radius) - 1px);
+  /* Chat-tab top corners (the connected Chrome-style tabs) — rounder than the
+     control ladder, shy of the pane. */
+  --app-tab-radius: 10px;
   --app-panel: var(--base-surface);
   --app-panel-2: var(--base-surface-raised);
   --app-border: var(--base-border);
@@ -1001,7 +1004,7 @@ html, body {
    flares whose gradient carries the border STROKE around the curve — the
    card border flows into the tab's sides without a break. Tabs start past
    the card's rounded top-left corner so the merge lands on a straight edge. */
-.chat-tabs { position: relative; z-index: 1; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; margin-top: 2px; padding: 0 var(--app-pane-gap) 0 calc(var(--app-pane-gap) + var(--app-pane-radius) + var(--radius-xl)); }
+.chat-tabs { position: relative; z-index: 1; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; margin-top: 2px; padding: 0 var(--app-pane-gap); }
 /* ONE frame color feeds the card border, the active tab's border, and the
    flare strokes — and carries the terminal-focus tint: the detached focus
    ring would cross the connected tabs, so WITH tabs the frame tint IS the
@@ -1013,7 +1016,7 @@ html, body {
 .chat-tabs + .content { margin-top: 0; outline: none; border-color: var(--chat-frame); transition: border-color var(--app-duration-slow) var(--ease-out-soft); }
 /* Fixed height (not text-metric padding): the -1px overlap below must land on
    an integer row or the card border ghosts through at fractional layouts. */
-.chat-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius-lg); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
+.chat-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: var(--app-tab-radius); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
 /* Inactive hover: a rounded chip (Chrome's hover treatment). */
 .chat-tab:not([data-active]):hover { color: var(--app-text); background: var(--app-panel); }
 /* -2px overlap: row 1 swallows the card's top border, row 2 swallows the
@@ -1021,7 +1024,7 @@ html, body {
    a 1px overlap it peeks out under the tab whenever the pointer nears the
    top). The flare gradients' bottom rows cover the same two rows, and their
    stroke arc still lands tangent on the border row. */
-.chat-tab[data-active] { color: var(--app-text); background: var(--app-bg); border-color: var(--chat-frame); border-radius: var(--radius-lg) var(--radius-lg) 0 0; margin-bottom: -2px; }
+.chat-tab[data-active] { color: var(--app-text); background: var(--app-bg); border-color: var(--chat-frame); border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0; margin-bottom: -2px; }
 /* The concave flares: squares beside the tab's foot. The radial gradient is
    shell-transparent inside the quarter-circle, a 1px FRAME-colored arc on it
    (tangent to the card border below and the tab's side border above — the
@@ -1029,6 +1032,13 @@ html, body {
 .chat-tab[data-active]::before,
 .chat-tab[data-active]::after { content: ""; position: absolute; bottom: 0; width: var(--radius-xl); height: var(--radius-xl); }
 .chat-tab[data-active]::before { left: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.5px), var(--chat-frame) calc(var(--radius-xl) - 0.5px), var(--app-bg) calc(var(--radius-xl) + 0.5px)); }
+/* FIRST tab active: flush-left merge (the Safari/Chrome first-tab). The strip
+   already starts at the card's left edge, so drop the left flare and square
+   the card's top-left corner — its left border runs straight up into the
+   tab's left border, one continuous line. */
+.chat-tab[data-active]:first-child { border-bottom-left-radius: 0; }
+.chat-tab[data-active]:first-child::before { content: none; }
+.chat-tabs:has(> .chat-tab[data-active]:first-child) + .content { border-top-left-radius: 0; }
 .chat-tab[data-active]::after { right: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.5px), var(--chat-frame) calc(var(--radius-xl) - 0.5px), var(--app-bg) calc(var(--radius-xl) + 0.5px)); }
 /* Per-chat status dot in the tab label (mirrors the sidebar's busy signal). */
 .chat-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 999px; background: var(--app-dim); }
