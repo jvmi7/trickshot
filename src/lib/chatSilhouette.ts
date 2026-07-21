@@ -49,8 +49,10 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       const xR = tr.right - hostR.left;
       const yT = tr.top - hostR.top;
       // Flush first tab: its left edge merges with the card's — the bump's
-      // left side IS the card's left edge, no top-left card corner.
-      const flush = xL < 2;
+      // left side IS the card's left edge, no top-left card corner. Read the
+      // DELAYED signal (slidingTabChrome sets it when the slide lands), not
+      // raw geometry — the merge must not appear before the tab arrives.
+      const flush = !!document.querySelector(".chat-tabs[data-first-active]");
       // The concave FEET are part of the silhouette (sweep 0 = the arc hugs
       // the corner): the one surface fills them, the flares paint stroke only.
       // The bump's sides sit at the tab's border INNER edges (±1) and the feet

@@ -251,6 +251,23 @@ export function slidingTabChrome(el: HTMLElement) {
   if (!strip) return { destroy() {} };
   let raf = 0;
   let first = true;
+  // FLUSH CHOREOGRAPHY: the first-tab merge (squared card corner, straight
+  // left stroke, flush silhouette) must not flip while the chrome is still
+  // in flight. Applied LATE — on transitionend, when the slide lands — and
+  // removed EARLY — the moment the target isn't the first tab — so the
+  // corner stays rounded whenever the tab isn't actually there. This action
+  // owns the signal: data-flush on the chrome AND data-first-active on the
+  // strip (the card/ring corner rules + chatSilhouette all read the latter).
+  let wantFlush = false;
+  const setFlush = (on: boolean) => {
+    if (on) {
+      el.setAttribute("data-flush", "");
+      strip.setAttribute("data-first-active", "");
+    } else {
+      el.removeAttribute("data-flush");
+      strip.removeAttribute("data-first-active");
+    }
+  };
   const update = () => {
     raf = 0;
     const tab = strip.querySelector<HTMLElement>(".chat-tab[data-active]");
@@ -263,20 +280,28 @@ export function slidingTabChrome(el: HTMLElement) {
     // First placement lands without animating (no slide-in from nowhere).
     if (first) el.style.transition = "none";
     el.style.opacity = "1";
-    el.style.left = `${t.left - s.left}px`;
+    const targetLeft = `${t.left - s.left}px`;
+    const moving = el.style.left !== targetLeft && !first;
+    el.style.left = targetLeft;
     el.style.top = `${t.top - s.top}px`;
     el.style.width = `${t.width}px`;
     // +1: the chrome dips one row into the card, swallowing its top border
     // (the overlap the active button itself used to provide).
     el.style.height = `${t.height + 1}px`;
-    if (strip.querySelector(".chat-tab") === tab) el.setAttribute("data-flush", "");
-    else el.removeAttribute("data-flush");
+    wantFlush = strip.querySelector(".chat-tab") === tab;
+    // Un-flush immediately; flush only once the slide arrives (or when the
+    // placement doesn't animate at all).
+    if (!wantFlush || !moving) setFlush(wantFlush);
     if (first) {
       void el.offsetWidth; // flush styles before re-enabling the transition
       el.style.transition = "";
       first = false;
     }
   };
+  const onArrive = (e: TransitionEvent) => {
+    if (e.target === el && e.propertyName === "left" && wantFlush) setFlush(true);
+  };
+  el.addEventListener("transitionend", onArrive);
   const schedule = () => {
     if (!raf) raf = requestAnimationFrame(update);
   };
@@ -294,6 +319,7 @@ export function slidingTabChrome(el: HTMLElement) {
   schedule();
   return {
     destroy() {
+      el.removeEventListener("transitionend", onArrive);
       mo.disconnect();
       ro.disconnect();
       if (raf) cancelAnimationFrame(raf);

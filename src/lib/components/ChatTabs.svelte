@@ -80,12 +80,10 @@
        styles can't be overridden into. Styled in app.css › .chat-tab. -->
   <!-- data-first-active drives the flush-left merge (app.css): the card and
        its glow ring square their top-left corner under the first tab. -->
-  <div
-    class="chat-tabs"
-    role="tablist"
-    aria-label="Chat sessions"
-    data-first-active={chats[0]?.id === focusedId ? "" : undefined}
-  >
+  <!-- data-first-active is OWNED by slidingTabChrome (flush choreography):
+       it lands when the chrome's slide arrives at the first tab, not when
+       the click happens — the card corner stays rounded during flight. -->
+  <div class="chat-tabs" role="tablist" aria-label="Chat sessions">
     <!-- ONE sliding chrome overlay for the active tab (frame stroke, flares,
          glow layers — SIBLING spans: a mask clips its own pseudos):
          slidingTabChrome glides it between tabs; the silhouette bump + ring
