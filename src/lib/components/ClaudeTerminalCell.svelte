@@ -6,7 +6,6 @@
   // cell is just rendering another instance. Feature component (stores +
   // session orchestration).
   import { chatStatusByKey, ensureClaudeOpen } from "../stores";
-  import { cursorTrail } from "../cursorTrail";
   import { attachTerminal, claudeTermKey } from "../terminal";
   import { Button } from "$lib/components/ui/button";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
@@ -51,10 +50,9 @@
       </Button>
     </div>
   {/if}
-  <!-- Backdrop: carries the bg color + the trailing cursor glow; xterm above
-       is transparent (allowTransparency), so the glow shows through between
-       the glyphs. -->
-  <div class="term-bg" aria-hidden="true" use:cursorTrail={{ reach: true }}></div>
+  <!-- No backdrop of its own: the CELL is transparent (xterm included), so
+       the shared chat-trail surface behind it (App.svelte) shows through
+       between the glyphs. Grid cells get their fill from .chat-grid-cell. -->
   <div class="term-host" bind:this={container}></div>
 </div>
 

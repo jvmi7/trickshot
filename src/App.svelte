@@ -3,6 +3,8 @@
   import { get } from "svelte/store";
   import { onScriptEvent, onTermEvent, listWorktrees, worktreeStatus, homeDir } from "./lib/api";
   import { borderGlow } from "./lib/borderGlow";
+  import { chatSilhouette } from "./lib/chatSilhouette";
+  import { cursorTrail } from "./lib/cursorTrail";
   import { handleTermEvent } from "./lib/terminal";
   import {
     repos,
@@ -351,6 +353,13 @@
       <ChatTabs />
     {/if}
     <div class="content" use:borderGlow>
+      {#if $centerView !== "settings" && $repos.length > 0 && $mainView !== "run" && $selectedWorktree}
+        <!-- ONE shared background for the whole chat surface: a single trail
+             canvas clipped to the card∪tab silhouette (chatSilhouette). The
+             tab and the terminal panes above are transparent — the chrome is
+             a mask over this surface, so the pixel wake is seamless. -->
+        <div class="chat-trail" aria-hidden="true" use:cursorTrail use:chatSilhouette></div>
+      {/if}
       <div class="content-clip">
       {#if $centerView === "settings"}
         <Settings />

@@ -565,10 +565,8 @@
      (the .content::after glow) — outer radius minus the 1px border. */
   --app-pane-radius-inner: calc(var(--app-pane-radius) - 1px);
   /* Chat-tab top corners (the connected Chrome-style tabs) — rounder than the
-     control ladder, shy of the pane. Inner = minus the 1px tab border (the
-     trail-canvas clip). */
+     control ladder, shy of the pane. */
   --app-tab-radius: 10px;
-  --app-tab-radius-inner: calc(var(--app-tab-radius) - 1px);
   --app-panel: var(--base-surface);
   --app-panel-2: var(--base-surface-raised);
   --app-border: var(--base-border);
@@ -775,10 +773,10 @@ html, body {
      inset — the header band above already provides some separation). */
   margin: 6px var(--app-pane-gap) var(--app-pane-gap);
   background: var(--app-bg);
-  /* A real border (outline corners render unevenly at radius) + a 1px inner
-     padding so flush terminal rows can't smear onto the frame's pixel row at
-     fractional device scaling — the padding is the operative guard. */
-  padding: 1px;
+  /* A real border (outline corners render unevenly at radius). The old 1px
+     smear-guard padding moved INTO .content-clip (below) so the trail canvas
+     can reach the border's inner edge — no unpaintable dark ring. */
+  padding: 0;
   border: 1px solid var(--app-border);
   border-radius: var(--app-pane-radius);
   /* NO overflow:hidden here — clipping lives on .content-clip below, so the
@@ -802,8 +800,18 @@ html, body {
   outline-color: color-mix(in oklch, var(--app-text) 14%, var(--app-border));
 }
 /* The card's clipping box: children clip to the rounded PADDING box here
-   (not on .content itself) so the glow ring above can overlay the border. */
-.content-clip { flex: 1; display: flex; min-width: 0; min-height: 0; overflow: hidden; border-radius: var(--app-pane-radius-inner); }
+   (not on .content itself) so the glow ring above can overlay the border.
+   The 1px padding is the smear guard (panes' own painting starts 1px inside
+   the frame at fractional device scaling). */
+.content-clip { flex: 1; display: flex; min-width: 0; min-height: 0; overflow: hidden; padding: 1px; border-radius: var(--app-pane-radius-inner); }
+/* THE shared chat background: one trail canvas behind the whole surface,
+   clipped to card∪tab by chatSilhouette (a live-measured path). Extends up
+   over the strip band (28px tab + 2px strip margin + 1px border row) so the
+   active tab's bump is part of the same sheet; its own bg fills the bump
+   (the tab button is transparent). Everything above — panes, tab label,
+   borders — is the mask's chrome. */
+.chat-trail { position: absolute; left: 0; right: 0; bottom: 0; top: -31px; background: var(--app-bg); pointer-events: none; }
+.chat-trail canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 /* Cursor-proximity border highlight (borderGlow.ts writes --glow-x/y/o): a
    radial light centered on the pointer, masked to ONLY a 1px ring sitting at
    -1px — EXACTLY over the real border, so proximity is a pure RECOLOR of the
@@ -920,28 +928,6 @@ html, body {
 .term-host.term-resize-rtl.term-resizing .xterm {
   mask-position: 0% 0%;
 }
-/* Terminal backdrop (ClaudeTerminalPane): the bg layer under the transparent
-   xterm. cursorTrail.ts appends a canvas here and paints the trailing cursor
-   effect on it — a grid of squares lighting up in the theme's neutral
-   foreground gray as the trail passes (--base-text, resolved in the action).
-   Decorative: pointer-events none. */
-.term-bg {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: var(--base-bg);
-  overflow: hidden;
-  pointer-events: none;
-}
-.term-bg canvas {
-  position: absolute;
-  inset: 0;
-  /* Pin the CSS size to the pane: the bitmap is DEVICE pixels (node × dpr),
-     and a replaced element ignores inset for sizing — without this the canvas
-     renders at intrinsic (dpr×) size and the grid lands off-cursor. */
-  width: 100%;
-  height: 100%;
-}
 /* Per-theme glyph glow (--base-term-glow, a full text-shadow; a theme sets `none`
    to disable). Works because xterm runs its DOM renderer (real text in spans) —
    currentColor resolves PER SPAN, so each ANSI color glows in its own hue. If a
@@ -1028,12 +1014,10 @@ html, body {
 /* z-index 0 makes the tab its own stacking context, so the trail canvas's
    z:-1 slots between the tab's background and its label instead of escaping
    behind the button entirely. */
-.chat-tab[data-active] { color: var(--app-text); background: var(--app-bg); border-color: var(--chat-frame); border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0; margin-bottom: -1px; z-index: 0; }
+.chat-tab[data-active] { color: var(--app-text); background: transparent; border-color: var(--chat-frame); border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0; margin-bottom: -1px; z-index: 0; }
 /* The active tab's slice of the trailing-cursor surface (see ChatTabs +
    cursorTrail's viewport-aligned grid): a clipped canvas host painted between
    the tab's fill and its label. */
-.chat-tab-bg { position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: var(--app-tab-radius-inner) var(--app-tab-radius-inner) 0 0; pointer-events: none; }
-.chat-tab-bg canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 /* The concave flares: squares beside the tab's foot. The radial gradient is
    shell-transparent inside the quarter-circle, a 1px FRAME-colored arc on it
    (tangent to the card border below and the tab's side border above — the
@@ -1151,6 +1135,10 @@ html, body {
    as hairline dividers (each cell paints its own bg). */
 .chat-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(var(--chat-cols, 2), minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 1px; background: var(--app-border); }
 .chat-grid-cell { display: flex; min-width: 0; min-height: 0; background: var(--app-bg); }
+/* The chat cell paints NO background of its own: in tabs layout the shared
+   chat-trail surface shows through; in grid the .chat-grid-cell wrapper
+   fills. (The shell popover's pane keeps the base .term-pane bg.) */
+.term-pane.chat-cell { background: transparent; }
 /* The keyboard-owning cell gets a quiet inner ring (grid only — in tabs the
    frame-level focus ring on .content already tells the story). */
 .chat-grid-cell:has(.xterm.focus) { outline: 1px solid color-mix(in oklch, var(--app-text) 14%, var(--app-border)); outline-offset: -1px; }
