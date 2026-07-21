@@ -239,3 +239,64 @@ export function slidingToggle(wrap: HTMLElement) {
     },
   };
 }
+
+// The chat-tab chrome slider: ONE overlay carrying the active tab's frame /
+// flares / glow layers (ChatTabs › .chat-tab-chrome), positioned over
+// `[data-active]` and CSS-transitioned so switching tabs GLIDES the chrome
+// left/right instead of teleporting it. The silhouette bump and the glow-ring
+// notch animate in step via their own clip-path transitions (app.css).
+// data-flush mirrors the first-tab merge state for the flush-specific rules.
+export function slidingTabChrome(el: HTMLElement) {
+  const strip = el.parentElement;
+  if (!strip) return { destroy() {} };
+  let raf = 0;
+  let first = true;
+  const update = () => {
+    raf = 0;
+    const tab = strip.querySelector<HTMLElement>(".chat-tab[data-active]");
+    if (!tab) {
+      el.style.opacity = "0";
+      return;
+    }
+    const s = strip.getBoundingClientRect();
+    const t = tab.getBoundingClientRect();
+    // First placement lands without animating (no slide-in from nowhere).
+    if (first) el.style.transition = "none";
+    el.style.opacity = "1";
+    el.style.left = `${t.left - s.left}px`;
+    el.style.top = `${t.top - s.top}px`;
+    el.style.width = `${t.width}px`;
+    // +1: the chrome dips one row into the card, swallowing its top border
+    // (the overlap the active button itself used to provide).
+    el.style.height = `${t.height + 1}px`;
+    if (strip.querySelector(".chat-tab") === tab) el.setAttribute("data-flush", "");
+    else el.removeAttribute("data-flush");
+    if (first) {
+      void el.offsetWidth; // flush styles before re-enabling the transition
+      el.style.transition = "";
+      first = false;
+    }
+  };
+  const schedule = () => {
+    if (!raf) raf = requestAnimationFrame(update);
+  };
+  // data-active moves on switch; style catches snapWidth's width pinning;
+  // childList catches tabs being added/closed.
+  const mo = new MutationObserver(schedule);
+  mo.observe(strip, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["data-active", "style"],
+  });
+  const ro = new ResizeObserver(schedule);
+  ro.observe(strip);
+  schedule();
+  return {
+    destroy() {
+      mo.disconnect();
+      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    },
+  };
+}

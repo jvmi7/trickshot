@@ -567,6 +567,9 @@
   /* Chat-tab top corners (the connected Chrome-style tabs) — rounder than the
      control ladder, shy of the pane. */
   --app-tab-radius: 10px;
+  /* The tab-chrome slide (also the silhouette/ring clip-path morphs) — the
+     sliding-highlight family's tempo, tokenized for CSS use. */
+  --app-duration-slide: 170ms;
   --app-panel: var(--base-surface);
   --app-panel-2: var(--base-surface-raised);
   --app-border: var(--base-border);
@@ -810,7 +813,7 @@ html, body {
    active tab's bump is part of the same sheet; its own bg fills the bump
    (the tab button is transparent). Everything above — panes, tab label,
    borders — is the mask's chrome. */
-.chat-trail { position: absolute; left: 0; right: 0; bottom: 0; top: -31px; background: var(--app-bg); pointer-events: none; }
+.chat-trail { position: absolute; left: 0; right: 0; bottom: 0; top: -31px; background: var(--app-bg); pointer-events: none; transition: clip-path var(--app-duration-slide) var(--ease-slide); }
 .chat-trail canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 /* Cursor-proximity border highlight (borderGlow.ts writes --glow-x/y/o): a
    radial light centered on the pointer, masked to ONLY a 1px ring sitting at
@@ -842,11 +845,14 @@ html, body {
     linear-gradient(var(--base-text) 0 0) border-box;
   mask-composite: exclude;
   opacity: var(--glow-o, 0);
-  transition: opacity var(--app-duration-slow) var(--ease-out-soft);
   pointer-events: none;
   /* chatSilhouette notches the ring out across the active tab's opening —
-     the ring paints above the (transparent) tab and would underline it. */
+     the ring paints above the (transparent) tab and would underline it. The
+     clip morphs with the chrome slide (same tempo). */
   clip-path: var(--frame-clip, none);
+  transition:
+    opacity var(--app-duration-slow) var(--ease-out-soft),
+    clip-path var(--app-duration-slide) var(--ease-slide);
 }
 
 /* ---- settings page (swaps in for the chat in the center pane) ---- */
@@ -1017,11 +1023,27 @@ html, body {
 /* z-index 0 makes the tab its own stacking context, so the trail canvas's
    z:-1 slots between the tab's background and its label instead of escaping
    behind the button entirely. */
-/* The button's own border stays TRANSPARENT (layout only): a real border is
-   rectangular and its side segments would descend through the concave feet.
-   The visible stroke is .chat-tab-frame — a masked ring that ends at the
-   flare junction, where the flare arcs take over. */
-.chat-tab[data-active] { color: var(--app-text); background: transparent; border-color: transparent; border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0; margin-bottom: -1px; z-index: 0; }
+/* The active BUTTON is a pure label now — the visible chrome (frame stroke,
+   flares, glow) lives on ONE .chat-tab-chrome overlay that slidingTabChrome
+   glides between tabs. The button's transparent border stays (layout). */
+.chat-tab[data-active] { color: var(--app-text); background: transparent; border-color: transparent; }
+/* The sliding chrome: sized/positioned over the active tab by the action
+   (left/width/top/height inline), with the same border scheme as a button so
+   every child layer's padding-box anchoring carries over verbatim. The slide
+   rides the tokenized tempo; the silhouette bump + ring notch morph in step
+   (their clip-path transitions below share it). */
+.chat-tab-chrome {
+  position: absolute;
+  pointer-events: none;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0;
+  opacity: 0;
+  transition:
+    left var(--app-duration-slide) var(--ease-slide),
+    width var(--app-duration-slide) var(--ease-slide),
+    opacity var(--app-duration-fast) ease;
+}
 .chat-tab-frame {
   position: absolute;
   inset: -1px;
@@ -1051,12 +1073,12 @@ html, body {
 /* STROKE-ONLY arcs (the outer stop is transparent): the shared chat-trail
    surface fills the feet — its silhouette includes the concave arcs — so the
    flares just draw the frame line turning the corner. */
-.chat-tab[data-active]::before,
-.chat-tab[data-active]::after { content: ""; position: absolute; bottom: 0; width: calc(var(--radius-xl) + 1px); height: var(--radius-xl); }
+.chat-tab-chrome::before,
+.chat-tab-chrome::after { content: ""; position: absolute; bottom: 0; width: calc(var(--radius-xl) + 1px); height: var(--radius-xl); }
 /* The two 1px patch layers pin the arc's tangent ENDS to the strokes it
    meets (tab side above, card border below) — at grazing angles the arc's
    own AA is too faint to close the joint. */
-.chat-tab[data-active]::before { left: calc(-1 * var(--radius-xl)); background:
+.chat-tab-chrome::before { left: calc(-1 * var(--radius-xl)); background:
   linear-gradient(var(--chat-frame), var(--chat-frame)) right 1px top 0 / 1px 2px no-repeat,
   linear-gradient(var(--chat-frame), var(--chat-frame)) left 0 bottom 0 / 2px 1px no-repeat,
   radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.25px), var(--chat-frame) calc(var(--radius-xl) - 0.75px), var(--chat-frame) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px)); }
@@ -1149,17 +1171,17 @@ html, body {
    already starts at the card's left edge, so drop the left flare and square
    the card's top-left corner — its left border runs straight up into the
    tab's left border, one continuous line. */
-.chat-tab[data-active]:first-child { border-bottom-left-radius: 0; }
+.chat-tab-chrome[data-flush] { border-bottom-left-radius: 0; }
 /* No left flare — its slot becomes the straight 1px border continuation from
-   the frame's end down to the card (a pseudo of the UNMASKED button; the
+   the frame's end down to the card (a pseudo of the UNMASKED chrome; the
    masked frame span would clip its own pseudos). */
-.chat-tab[data-active]:first-child::before { left: -1px; width: 1px; background: var(--chat-frame); }
+.chat-tab-chrome[data-flush]::before { left: -1px; width: 1px; background: var(--chat-frame); }
 /* …and its glow's left share is a straight 1px column (the border's
    continuation into the card), not an arc. */
 /* Band [1px, 2px] from the right edge — the box overhangs the border column
    by 1px on the inside (it starts at the button's PADDING box), so the
    rightmost pixel is interior, and the border column is the one beside it. */
-.chat-tab[data-active]:first-child .chat-tab-glow-arc[data-side="left"] {
+.chat-tab-chrome[data-flush] .chat-tab-glow-arc[data-side="left"] {
   -webkit-mask: linear-gradient(to left, transparent 1px, var(--base-text) 1px, var(--base-text) 2px, transparent 2px);
   mask: linear-gradient(to left, transparent 1px, var(--base-text) 1px, var(--base-text) 2px, transparent 2px);
 }
@@ -1167,7 +1189,7 @@ html, body {
 /* The cursor-glow ring hugs the frame — it must square the SAME corner, or
    its own rounded arc peeks out under the flush tab on hover. */
 .chat-tabs[data-first-active] + .content::after { border-top-left-radius: 0; }
-.chat-tab[data-active]::after { right: calc(-1 * var(--radius-xl)); background:
+.chat-tab-chrome::after { right: calc(-1 * var(--radius-xl)); background:
   linear-gradient(var(--chat-frame), var(--chat-frame)) left 1px top 0 / 1px 2px no-repeat,
   linear-gradient(var(--chat-frame), var(--chat-frame)) right 0 bottom 0 / 2px 1px no-repeat,
   radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.25px), var(--chat-frame) calc(var(--radius-xl) - 0.75px), var(--chat-frame) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px)); }

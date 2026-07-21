@@ -18,6 +18,7 @@
     setChatLayout,
   } from "../stores";
   import { borderGlow } from "../borderGlow";
+  import { slidingTabChrome } from "../slidingHighlight";
   import { claudeTermKey, disposeChatTerminal } from "../terminal";
   import IconButton from "./IconButton.svelte";
   import * as Tooltip from "$lib/components/ui/tooltip";
@@ -85,10 +86,18 @@
     aria-label="Chat sessions"
     data-first-active={chats[0]?.id === focusedId ? "" : undefined}
   >
+    <!-- ONE sliding chrome overlay for the active tab (frame stroke, flares,
+         glow layers — SIBLING spans: a mask clips its own pseudos):
+         slidingTabChrome glides it between tabs; the silhouette bump + ring
+         notch animate alongside via clip-path transitions. First in DOM so
+         the tab labels paint above it. -->
+    <div class="chat-tab-chrome" aria-hidden="true" use:slidingTabChrome use:borderGlow>
+      <span class="chat-tab-frame"></span>
+      <span class="chat-tab-glow"></span>
+      <span class="chat-tab-glow-arc" data-side="left"></span>
+      <span class="chat-tab-glow-arc" data-side="right"></span>
+    </div>
     {#each chats as c, i (c.id)}
-      <!-- use:borderGlow per tab: the action writes ITS node-relative glow
-           vars, so the tab's ring overlay (below) lights in the same sweep as
-           the card frame — one continuous cursor effect across both. -->
       <button
         type="button"
         role="tab"
@@ -96,7 +105,6 @@
         aria-selected={c.id === focusedId}
         data-active={c.id === focusedId ? "" : undefined}
         onclick={() => focusChat(wt, c.id)}
-        use:borderGlow
         use:snapWidth
       >
         <span
@@ -124,15 +132,6 @@
           >
             <X class="size-3" />
           </span>
-        {/if}
-        {#if c.id === focusedId}
-          <!-- Three SIBLING layers, not pseudos of one: a mask clips the
-               element AND its pseudos, so arcs hanging off the masked ring
-               span would be cropped to slivers. Siblings mask independently. -->
-          <span class="chat-tab-frame" aria-hidden="true"></span>
-          <span class="chat-tab-glow" aria-hidden="true"></span>
-          <span class="chat-tab-glow-arc" data-side="left" aria-hidden="true"></span>
-          <span class="chat-tab-glow-arc" data-side="right" aria-hidden="true"></span>
         {/if}
       </button>
     {/each}
