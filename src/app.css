@@ -938,6 +938,11 @@ html, body {
    scrolling is unaffected — only the indicators go. */
 .term-pane ::-webkit-scrollbar { display: none; }
 .term-pane * { scrollbar-width: none; }
+/* xterm ≥5.6 draws its own DOM scrollbar (a VS Code-style .scrollbar element,
+   thumb tinted from the terminal theme) — the native-scrollbar rules above
+   can't touch it, so it painted a colored bar on the right of every pane.
+   xterm.css never sets `display` on it, so this layered rule wins. */
+.term-pane .xterm-scrollable-element > .scrollbar { display: none; }
 /* Top fade: terminal content slides under a bg-colored gradient instead of
    clipping hard at the card edge (the reading-edge treatment; follows
    --base-bg so every theme fades into its own canvas). pointer-events: none —
@@ -967,32 +972,73 @@ html, body {
 
 /* ---- sidebar v2: repos + worktrees (Conductor-style) ---- */
 .wt { display: flex; flex-direction: column; }
-/* Section header above the project list: "Projects" label + inline add button.
+/* Section header above the repo list: "Repositories" label + inline add button.
    Typography comes from the composed .section-label (see Worktrees markup). */
 .wt-section { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 2px; margin: 2px 0 6px; }
 .wt-empty { font-size: var(--text-sm); color: var(--app-dim); padding: 4px 2px; }
+/* The Home row block sits above the Repositories section header. */
+.home-rows { margin-bottom: 10px; }
 .repo-group { margin-bottom: 12px; }
 .repo-head { display: flex; align-items: center; gap: 6px; padding: 2px; }
 /* Accordion toggle: chevron + repo name, clickable to fold/unfold the worktrees. */
 .repo-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: 0; cursor: pointer; text-align: left; }
 .repo-chevron { display: inline-flex; flex-shrink: 0; color: var(--app-dim); transition: transform var(--app-duration-fast) ease; }
 .repo-chevron.collapsed { transform: rotate(-90deg); }
+/* Repo favicon (repo_icon data: URI) or its Lucide placeholder — `color` only
+   tints the fallback glyph; a real favicon paints itself. */
+.repo-favicon { width: 14px; height: 14px; flex-shrink: 0; border-radius: var(--radius-2xs); color: var(--app-dim); }
 /* Typography comes from the composed .section-label (see Worktrees markup). */
 .repo-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wt-rows { list-style: none; margin: 2px 0 0; padding: 0; }
+/* Hovering a group reveals a faint card behind its rows (radius matches the
+   first/last-of-type row corners below, so the block and its highlight layers
+   share one silhouette). Half-mixed to transparent: --app-panel full-strength
+   is the row hover fill, so the card must sit below it. At rest it's invisible
+   — the reveal rides the feedback clock. */
+.wt-rows { list-style: none; margin: 2px 0 0; padding: 0; border-radius: var(--radius-xl); transition: background var(--app-duration-fast) ease; }
+.wt-rows:hover { background: color-mix(in oklch, var(--app-panel) 50%, transparent); }
 /* Focus ring comes from the global @layer base :focus-visible rule — the row's
-   old bespoke inset ring + outline:none were dropped when that rule landed. */
-.wt-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: calc(var(--radius) - 4px); cursor: pointer; font-size: var(--text-md); }
-.wt-row:hover { background: var(--app-panel); }
-.wt-row.active { background: var(--app-panel-2); }
+   old bespoke inset ring + outline:none were dropped when that rule landed.
+   position:relative lifts row content above the slidingRowHighlight layers
+   (slidingHighlight.ts), which now own the hover/active fill — no per-row
+   :hover/.active background here. The row's own background is only the :active
+   press tint (a bg TINT, never a translate nudge — see DESIGN_SYSTEM.md). */
+.wt-row { position: relative; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 0; cursor: pointer; font-size: var(--text-md); transition: background var(--app-duration-fast) ease; }
+/* Group-aware corners matching the slidingRowHighlight layers: only a group's
+   outer edges round (first row = top, last = bottom, lone row = both). Shapes
+   the :active press tint + the focus ring. of-type (not child): the sliding
+   layers are prepended SPANS, so divs keep their first/last positions. */
+.wt-row:first-of-type { border-top-left-radius: var(--radius-xl); border-top-right-radius: var(--radius-xl); }
+.wt-row:last-of-type { border-bottom-left-radius: var(--radius-xl); border-bottom-right-radius: var(--radius-xl); }
+/* Press tint: one subtle step past the hover fill (6% text into --app-panel-2),
+   not the .workspace-label's stronger 15% — sidebar rows press quietly. */
+.wt-row:active { background: color-mix(in oklch, var(--app-panel-2) 94%, var(--app-text)); }
 .wt-row .wt-home { color: var(--app-dim); flex-shrink: 0; width: 16px; height: 16px; }
+/* Identity glyphs rest greyed-out; the row's hover / active / busy states
+   color them back in on the feedback clock (busy: a background worktree's
+   loading morph must play in color, not grey). */
+/* will-change pins the glyph on a persistent compositing layer: without it,
+   WebKit drops the layer whenever the filter lands on identity (saturate(1))
+   and re-promotes on the next hover — each flip re-rasterizes + pixel-snaps
+   the svg, which reads as a shake. Tiny fixed-size icons, so the cost is nil. */
+.wt-row .ident-glyph { filter: saturate(0); opacity: 0.55; transition: filter var(--app-duration-fast) ease, opacity var(--app-duration-fast) ease; will-change: filter; }
+/* saturate(1), not `none` — `none` isn't interpolable, so the color-in wouldn't animate. */
+.wt-row:hover .ident-glyph,
+.wt-row.active .ident-glyph,
+.wt-row.busy .ident-glyph { filter: saturate(1); opacity: 1; }
 .wt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Per-row diffstat glance (colors: the shared .diff-add/.diff-del). */
 .wt-stat { flex-shrink: 0; display: inline-flex; gap: 3px; font-size: var(--text-2xs); }
+/* Archived footer: pinned BETWEEN .sidebar-list and .sidebar-foot (App.svelte)
+   so a long repo list can't push it off screen; collapsed by default. */
+.archived-section { flex-shrink: 0; padding: 4px 4px 4px 16px; border-top: 1px solid var(--app-border); }
+/* Expanded list caps at 4 rows and scrolls internally. --arch-row-h mirrors
+   .wt-row's box (16px content + 2*5px padding); re-measure if the row changes. */
+.archived-list { --arch-row-h: 26px; max-height: calc(4 * var(--arch-row-h)); overflow-y: auto; }
+/* Archived count beside the disclosure label. */
+.arch-count { flex-shrink: 0; font-size: var(--text-2xs); color: var(--app-dim); }
 /* Archived-row age ("2d ago"); exact date in the title. */
 .arch-time { flex-shrink: 0; font-size: var(--text-2xs); color: var(--app-dim); }
-/* Sidebar activity badges: pending-permission flag + background unread count. */
-.wt-pending { flex-shrink: 0; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: 700; color: var(--base-warning); }
+/* Sidebar activity badge: background unread count. */
 /* Text on the accent fill is --base-on-accent, NOT --app-bg: they coincide in the
    current dark themes but diverge on a light-valued palette (dark accent text over
    a light canvas). Crisp chip corners (terminal aesthetic), not a pill. */

@@ -152,8 +152,10 @@ files there. Established adoptions to reuse, not re-invent:
   focus ring.** shadcn `ui/*` keep their own ring utilities (utilities layer beats
   base) — that's expected and consistent.
 - **Hover:** recolor/reveal at `var(--app-duration-fast)`. There is deliberately no
-  press-down (`:active`) feedback app-wide (the shadcn nudge is globally cancelled;
-  see app.css's unlayered foot).
+  press-down *translate* (`:active`) nudge app-wide (the shadcn nudge is globally
+  cancelled; see app.css's unlayered foot). Press feedback, where present, is a
+  **background tint** on the feedback clock — the `.workspace-label:active` /
+  `.wt-row:active` `color-mix` precedent.
 - **Disabled:** shadcn primitives own it via `disabled:*` utilities; hand-styled
   controls are never rendered disabled — if one must be, use the same utilities.
 

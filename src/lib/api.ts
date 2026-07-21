@@ -20,8 +20,15 @@ import type {
 /** Native folder picker. Returns the chosen absolute path, or null if cancelled. */
 export const pickDirectory = () => invoke<string | null>("pick_directory");
 
-/** Show a desktop (OS) notification. */
-export const notify = (title: string, body: string) => invoke<void>("notify", { title, body });
+/** A repo's favicon as a `data:` URI, or null when the repo has none. A
+ *  bounded repo walk: an icon DECLARED by an `index.html`/`app.html`
+ *  `<link rel="icon">` wins (the site's actual icon); otherwise it ranks
+ *  `favicon.*` / `apple-touch-icon.png` anywhere and `icon.png`/`icon.svg`
+ *  inside icon-ish dirs (icons/public/static/assets/app). ≤256KB files only. */
+export const repoIcon = (repoPath: string) => invoke<string | null>("repo_icon", { repoPath });
+
+/** The user's home directory — the sidebar Home workspace root (~). */
+export const homeDir = () => invoke<string>("home_dir");
 
 /** The subscription usage windows for a provider's account (for Claude: rolling
  *  5-hour + weekly). Rejects when unavailable (not logged in, token expired,

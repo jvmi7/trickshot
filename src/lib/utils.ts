@@ -8,7 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 
 /** Last path segment of a filesystem path — handles both `/` and `\` separators
  *  and trailing separators. The ONE basename helper (sidebar repo labels,
- *  notification names, tool-call file labels all route through here). */
+ *  tool-call file labels all route through here). */
 export function basename(path: string): string {
   return (
     path
