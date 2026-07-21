@@ -995,25 +995,41 @@ html, body {
 
 /* ---- multi-chat: Chrome-style tab strip CONNECTED to the card ---- */
 /* The strip lives OUTSIDE the content card, on the shell band (App.svelte).
-   The ACTIVE tab merges with the card below: card-bg fill, top-rounded, a 1px
-   overlap that swallows the card's top border along its width, and concave
-   flares (the Chrome curve) where it meets the frame. Tabs start past the
-   card's rounded top-left corner so the merge lands on a straight edge. */
-.chat-tabs { position: relative; z-index: 1; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; margin-top: 2px; padding: 0 var(--app-pane-gap) 0 calc(var(--app-pane-gap) + var(--app-pane-radius)); }
+   The ACTIVE tab merges with the card below: card-bg fill, top-rounded, its
+   own 1px border CONTINUING the card's (the frame), a 1px overlap that
+   swallows the card's top border along its interior width, and concave
+   flares whose gradient carries the border STROKE around the curve — the
+   card border flows into the tab's sides without a break. Tabs start past
+   the card's rounded top-left corner so the merge lands on a straight edge. */
+.chat-tabs { position: relative; z-index: 1; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; margin-top: 2px; padding: 0 var(--app-pane-gap) 0 calc(var(--app-pane-gap) + var(--app-pane-radius) + var(--radius-xl)); }
+/* ONE frame color feeds the card border, the active tab's border, and the
+   flare strokes — and carries the terminal-focus tint: the detached focus
+   ring would cross the connected tabs, so WITH tabs the frame tint IS the
+   focus signal (the ring stays for tab-less views). */
+.main { --chat-frame: var(--app-border); }
+.main:has(.chat-tabs + .content .xterm.focus) { --chat-frame: color-mix(in oklch, var(--app-text) 14%, var(--app-border)); }
 /* The card follows flush — the strip owns the vertical gap, and the active
-   tab's 1px overlap must land exactly ON the card's top border. */
-.chat-tabs + .content { margin-top: 0; }
-.chat-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 6px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 0; border-radius: var(--radius-lg); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
+   tab's 1px overlap lands exactly ON the card's top border row. */
+.chat-tabs + .content { margin-top: 0; outline: none; border-color: var(--chat-frame); transition: border-color var(--app-duration-slow) var(--ease-out-soft); }
+/* Fixed height (not text-metric padding): the -1px overlap below must land on
+   an integer row or the card border ghosts through at fractional layouts. */
+.chat-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius-lg); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
 /* Inactive hover: a rounded chip (Chrome's hover treatment). */
 .chat-tab:not([data-active]):hover { color: var(--app-text); background: var(--app-panel); }
-.chat-tab[data-active] { color: var(--app-text); background: var(--app-bg); border-radius: var(--radius-lg) var(--radius-lg) 0 0; margin-bottom: -1px; padding-bottom: 7px; }
-/* The concave flares: squares beside the tab's foot whose fill is the card
-   bg carved by a transparent quarter-circle — the tab appears to flow into
-   the frame. They also sit over the card border, widening the "opening". */
+/* -2px overlap: row 1 swallows the card's top border, row 2 swallows the
+   cursor-glow ring (borderGlow's ::after paints 1px INSIDE the border — with
+   a 1px overlap it peeks out under the tab whenever the pointer nears the
+   top). The flare gradients' bottom rows cover the same two rows, and their
+   stroke arc still lands tangent on the border row. */
+.chat-tab[data-active] { color: var(--app-text); background: var(--app-bg); border-color: var(--chat-frame); border-radius: var(--radius-lg) var(--radius-lg) 0 0; margin-bottom: -2px; }
+/* The concave flares: squares beside the tab's foot. The radial gradient is
+   shell-transparent inside the quarter-circle, a 1px FRAME-colored arc on it
+   (tangent to the card border below and the tab's side border above — the
+   stroke turns the corner), then card-bg out to the tab. */
 .chat-tab[data-active]::before,
 .chat-tab[data-active]::after { content: ""; position: absolute; bottom: 0; width: var(--radius-xl); height: var(--radius-xl); }
-.chat-tab[data-active]::before { left: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1px), var(--app-bg) var(--radius-xl)); }
-.chat-tab[data-active]::after { right: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1px), var(--app-bg) var(--radius-xl)); }
+.chat-tab[data-active]::before { left: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.5px), var(--chat-frame) calc(var(--radius-xl) - 0.5px), var(--app-bg) calc(var(--radius-xl) + 0.5px)); }
+.chat-tab[data-active]::after { right: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.5px), var(--chat-frame) calc(var(--radius-xl) - 0.5px), var(--app-bg) calc(var(--radius-xl) + 0.5px)); }
 /* Per-chat status dot in the tab label (mirrors the sidebar's busy signal). */
 .chat-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 999px; background: var(--app-dim); }
 .chat-dot[data-status="busy"] { background: var(--app-accent); }
