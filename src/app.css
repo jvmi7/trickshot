@@ -1088,24 +1088,26 @@ html, body {
   pointer-events: none;
 }
 .chat-tab-glow::before {
-  left: calc(1px - var(--radius-xl));
+  /* Offsets resolve against the span's PADDING box (its 1px side borders
+     shift it inward) — -R here lands the box exactly on the flare's. */
+  left: calc(-1 * var(--radius-xl));
   background: radial-gradient(
-      260px circle at calc(var(--glow-x, 0px) + var(--radius-xl)) calc(var(--glow-y, 0px) - 28px + var(--radius-xl)),
+      260px circle at calc(var(--glow-x, 0px) + var(--radius-xl) - 1px) calc(var(--glow-y, 0px) - 28px + var(--radius-xl)),
       color-mix(in oklch, var(--base-text) 45%, transparent),
       transparent 70%
     );
-  -webkit-mask: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), var(--base-text) calc(var(--radius-xl) + 0.25px), transparent calc(var(--radius-xl) + 0.75px));
-  mask: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), var(--base-text) calc(var(--radius-xl) + 0.25px), transparent calc(var(--radius-xl) + 0.75px));
+  -webkit-mask: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px));
+  mask: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px));
 }
 .chat-tab-glow::after {
-  right: calc(1px - var(--radius-xl));
+  right: calc(-1 * var(--radius-xl));
   background: radial-gradient(
-      260px circle at calc(var(--glow-xr, 0px) + 1px) calc(var(--glow-y, 0px) - 28px + var(--radius-xl)),
+      260px circle at calc(var(--glow-xr, 0px) + 2px) calc(var(--glow-y, 0px) - 28px + var(--radius-xl)),
       color-mix(in oklch, var(--base-text) 45%, transparent),
       transparent 70%
     );
-  -webkit-mask: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), var(--base-text) calc(var(--radius-xl) + 0.25px), transparent calc(var(--radius-xl) + 0.75px));
-  mask: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), var(--base-text) calc(var(--radius-xl) + 0.25px), transparent calc(var(--radius-xl) + 0.75px));
+  -webkit-mask: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px));
+  mask: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px));
 }
 /* FIRST tab active: flush-left merge (the Safari/Chrome first-tab). The strip
    already starts at the card's left edge, so drop the left flare and square
