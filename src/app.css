@@ -1085,7 +1085,6 @@ html, body {
   top: 100%;
   width: calc(var(--radius-xl) + 1px);
   height: var(--radius-xl);
-  opacity: inherit;
   pointer-events: none;
 }
 .chat-tab-glow::before {
@@ -1095,8 +1094,8 @@ html, body {
       color-mix(in oklch, var(--base-text) 45%, transparent),
       transparent 70%
     );
-  -webkit-mask: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px));
-  mask: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px));
+  -webkit-mask: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), var(--base-text) calc(var(--radius-xl) + 0.25px), transparent calc(var(--radius-xl) + 0.75px));
+  mask: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), var(--base-text) calc(var(--radius-xl) + 0.25px), transparent calc(var(--radius-xl) + 0.75px));
 }
 .chat-tab-glow::after {
   right: calc(1px - var(--radius-xl));
@@ -1105,8 +1104,8 @@ html, body {
       color-mix(in oklch, var(--base-text) 45%, transparent),
       transparent 70%
     );
-  -webkit-mask: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px));
-  mask: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px));
+  -webkit-mask: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), var(--base-text) calc(var(--radius-xl) + 0.25px), transparent calc(var(--radius-xl) + 0.75px));
+  mask: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), var(--base-text) calc(var(--radius-xl) + 0.25px), transparent calc(var(--radius-xl) + 0.75px));
 }
 /* FIRST tab active: flush-left merge (the Safari/Chrome first-tab). The strip
    already starts at the card's left edge, so drop the left flare and square
