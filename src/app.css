@@ -567,9 +567,9 @@
   /* Chat-tab top corners (the connected Chrome-style tabs) — rounder than the
      control ladder, shy of the pane. */
   --app-tab-radius: 10px;
-  /* The tab-chrome slide (also the silhouette/ring clip-path morphs) — the
-     sliding-highlight family's tempo, tokenized for CSS use. */
-  --app-duration-slide: 170ms;
+  /* The tab-chrome slide (also the silhouette/ring clip-path morphs) —
+     snappier than the sliding-highlight family's 170ms by request. */
+  --app-duration-slide: 110ms;
   --app-panel: var(--base-surface);
   --app-panel-2: var(--base-surface-raised);
   --app-border: var(--base-border);
