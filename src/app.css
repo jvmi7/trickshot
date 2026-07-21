@@ -1019,12 +1019,11 @@ html, body {
 .chat-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: var(--app-tab-radius); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
 /* Inactive hover: a rounded chip (Chrome's hover treatment). */
 .chat-tab:not([data-active]):hover { color: var(--app-text); background: var(--app-panel); }
-/* -2px overlap: row 1 swallows the card's top border, row 2 swallows the
-   cursor-glow ring (borderGlow's ::after paints 1px INSIDE the border — with
-   a 1px overlap it peeks out under the tab whenever the pointer nears the
-   top). The flare gradients' bottom rows cover the same two rows, and their
-   stroke arc still lands tangent on the border row. */
-.chat-tab[data-active] { color: var(--app-text); background: var(--app-bg); border-color: var(--chat-frame); border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0; margin-bottom: -2px; }
+/* -1px overlap: the tab's bottom row lands exactly ON the card's top border
+   row, swallowing it for the tab's width — no deeper, or the side borders
+   overshoot visibly below the frame line. (The cursor-glow ring sits ON the
+   border row too — .content::after at -1px — so one row covers both.) */
+.chat-tab[data-active] { color: var(--app-text); background: var(--app-bg); border-color: var(--chat-frame); border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0; margin-bottom: -1px; }
 /* The concave flares: squares beside the tab's foot. The radial gradient is
    shell-transparent inside the quarter-circle, a 1px FRAME-colored arc on it
    (tangent to the card border below and the tab's side border above — the
