@@ -1,95 +1,48 @@
 # Architecture
 
-End-to-end map of the MVP. Three processes, one event stream.
+End-to-end map. Two processes; the chat is the real Claude Code CLI on a PTY.
 
 ```
 ┌─ Webview (Svelte) ───────────────────────────────────────────────┐
 │  components/  ──uses──>  lib/api.ts  ──>  invoke()      listen()   │
-│       │                       (commands)        ▲ (agent-event)    │
+│       │                       (commands)        ▲ (script-event /  │
+│       │                                        │  term-event)     │
 └───────┼───────────────────────────────────────┼──────────────────┘
         │ Tauri IPC                              │ Tauri events
 ┌───────▼───────────────────────────────────────┴──────────────────┐
 │  Rust core (src-tauri/src)                                        │
-│   agent.rs    start_session / send_to_session / stop_session      │
-│               (Sessions: WorktreeMap of worktree -> sidecar)      │
-│   worktree.rs pick_directory / list / create / remove + git review │
-│   scripts.rs / terminal.rs / github.rs / usage.rs  (see tables)   │
+│   terminal.rs  PTYs per worktree: login shell + the claude slot   │
+│                (Terminals: WorktreeMap of pty-key -> PTY)         │
+│   agent.rs     latest_session_id (~/.claude scan) / notify        │
+│   worktree.rs  pick_directory / list / create / remove + git      │
+│   scripts.rs / github.rs / generate.rs / usage.rs  (see tables)   │
 │   worktree_map.rs  shared WorktreeMap<T> + WorktreeEvent envelope │
-│   lib.rs      registers plugins (shell, dialog, notification)+cmds │
-└───────┬──────────────────────────────▲───────────────────────────┘
- stdin  │ (JSON lines)         stdout   │ (JSON lines, line-buffered)
-┌───────▼──────────────────────────────┴───────────────────────────┐
-│  One Bun sidecar PER WORKTREE                                     │
-│   core.ts (neutral transport)  ──>  providers/<id>.ts (adapter)   │
-│   providers/claude.ts: query({ prompt:<stream>, canUseTool, mode })│
-│   embeds + extracts the native Claude Code CLI (extractFromBunfs) │
+│   lib.rs       registers plugins (dialog, notification) + cmds    │
 └───────┬───────────────────────────────────────────────────────────┘
-        │ spawns
-   native `claude` binary  ──>  Anthropic API
+        │ spawns on a PTY
+   the user's PATH `claude` CLI (TUI)  ──>  Anthropic API
 ```
 
-The sidecar is split: **`core.ts` is a provider-neutral transport** (frames JSON, dispatches `Inbound` to the selected provider) and **`providers/<id>.ts` is the adapter** that runs the actual agent loop and maps its native events into the neutral `AgentMessage` schema. Selected via `config.provider` from the `SESSION_CONFIG` blob (default `claude`). See *Providers* below.
+There is **no app-managed agent process**: the chat pane renders the user's own
+`claude` binary running interactively on a dedicated PTY, and one-shot AI text
+generation (`generate.rs`) runs the same binary in print mode. Auth, model
+choice, permissions, MCP connectors, and slash commands are all Claude Code's
+own — the app adds no layer on top.
 
 ## The conversation flow
 
 1. **Add a repo** → `pick_directory` (native dialog) adds it to the persisted `repos` list; `list_worktrees` populates its worktrees (git is the source of truth).
 2. **Spin up a worktree** → `create_worktree(repo, branch)` runs `git worktree add` under `../.<repo>-worktrees/<branch>`; the UI selects the new worktree.
-3. **Selecting a worktree = activating its session** (no manual start/stop). **CLI-first (`CHAT_SURFACE = "cli"`, the current default):** activation opens the worktree's claude-slot PTY (`term_open(…, launch: "claude", resumeSessionId)`) — the real Claude Code TUI IS the chat, and no sidecar spawns. **Legacy GUI surface:** `start_session(worktree)` spawns a sidecar with `PROJECT_DIR=<worktree>` if one isn't already running (idempotent). Worktrees run **concurrently** either way — each keeps its own process; switching only changes the view.
-4. **Events** → each sidecar's stdout line is emitted as one `agent-event` tagged `{ worktree, kind, data }`. `api.onAgentEvent` parses it and routes to that worktree's transcript → the selected transcript re-renders.
-5. **User turn** → `sendUserTurn(worktree, text)` → `send_to_session` writes a `{kind:"user_turn"}` JSON line to that worktree's sidecar stdin → `core.ts` dispatches it to the provider's `pushTurn`, which (for Claude) pushes it into the SDK's streaming `prompt` iterable.
-6. **Tool use** → the permission mode is **per-worktree**, defaulting to `bypassPermissions` (silent tool use, the historical default; the provider sets the SDK-required `allowDangerouslySkipPermissions: true` when starting in bypass). The provider ALWAYS wires `canUseTool`, so when the mode is `default`/`acceptEdits`/`plan` (chosen at start or switched live) the SDK calls it, emitting a `permission_request`; `PermissionModal.svelte` shows Allow/Deny and `replyPermission` resolves it via the `pendingPermissions` map in `providers/claude.ts`. The mode is chosen in the composer (`PermissionModeSelector.svelte`), applied at session start via the `SESSION_CONFIG` blob (`config.permissionMode`), and switched live via `set_permission_mode` (`q.setPermissionMode`).
+3. **Selecting a worktree = activating its chat** (no manual start/stop). Activation opens the worktree's claude-slot PTY — `term_open(…, launch: "claude", resumeSessionId)` — resuming the newest session id from Claude Code's own session store (`latest_session_id`). Worktrees run **concurrently** — each keeps its own PTY; switching only changes which one is attached to the pane.
+4. **User turns** are typed straight into the TUI. Features that hand text to the agent from **outside** the pane (git-panel review comments, "fix failing checks") go through `session.ts › submitTurnToChat` → bracketed-paste keystroke injection (`sendToCli`), then focus the terminal and raise a toast receipt.
+5. **Busy/idle detection** comes from the PTY's output flow (`src/lib/cliActivity.ts`, wired in `terminal.ts › noteCliActivity`): data flowing = busy; a real burst ending fires the turn-end side-effects (sidebar dot, unread badge, OS notification, git/usage refresh). The CLI exiting (`/exit`, crash) marks the session `stopped`; typing into the pane or re-activating the worktree revives it (no auto-respawn — a crash-looping CLI must not fork-bomb).
 
-## The sidecar protocol (`shared/protocol.ts`, imported by `src/lib/types.ts` + `sidecar/core.ts`)
+## The CLI chat surface (details)
 
-Newline-delimited JSON, both directions, and **provider-neutral** (nothing here is Claude-specific). The wire unions (`Inbound`/`Outbound`/`AgentMessage`/`ModelInfo`) live in one shared module so the webview and sidecar can't drift; only the Rust `WorktreeEvent` envelope (`worktree_map.rs`, shared by the agent/script/term channels) and this table are mirrored by hand. See CLAUDE.md → SYNC RULE.
-
-| Direction | `kind` | Payload |
-|---|---|---|
-| app → sidecar | `user_turn` | `{ text }` |
-| app → sidecar | `permission_reply` | `{ id, behavior, message? }` — answers a `permission_request` (active when the mode isn't `bypassPermissions`) |
-| app → sidecar | `question_reply` | `{ id, answers }` — answers a `question_request`; `answers[i]` is the chosen option labels for question `i` |
-| app → sidecar | `set_model` | `{ model }` — switch the chat's model; sidecar confirms by re-emitting `models` |
-| app → sidecar | `set_permission_mode` | `{ mode }` — switch tool-permission mode live (`default`/`acceptEdits`/`plan`/`bypassPermissions`) |
-| app → sidecar | `get_models` | — request a (re-)emit of `models`; the UI's resilient path since the ready-time broadcast can race the listener |
-| app → sidecar | `get_connectors` | — request a (re-)emit of `connectors` (resilient, mirrors `get_models`) |
-| app → sidecar | `toggle_connector` | `{ name, enabled }` — enable/disable an MCP connector live; sidecar confirms by re-emitting `connectors` |
-| app → sidecar | `reconnect_connector` | `{ name }` — reconnect an MCP connector (e.g. after a failure / needs-auth) |
-| app → sidecar | `get_commands` | — request a (re-)emit of `commands` (available slash commands) |
-| app → sidecar | `interrupt` | — |
-| app → sidecar | `set_mcp_servers` | `{ servers }` — replace live MCP servers (opaque config blob); sidecar re-emits `mcp_status` after |
-| app → sidecar | `suggest` | `{ conversation }` — ask the provider to generate suggested next user replies for the recent-conversation text; answered async by `suggestions`. A separate cheap one-shot call (Claude: Haiku, no tools), NOT the main agent loop |
-| app → sidecar | `comment_turn` | `{ id, prompt }` — run an OUT-OF-BAND agent turn for an inline comment thread (`id`); `prompt` is the app-assembled thread context (surrounding chat + selected text + prior thread Q&A + new question). Answer streams back via `comment_reply`. A separate isolated query (no `resume`, no tools), NOT the main agent loop — never touches the main session/transcript |
-| app → sidecar | `comment_cancel` | `{ id }` — abort an in-flight `comment_turn` for `id` (on popup close / supersede); no-op if nothing is running |
-| sidecar → app | `ready` | — |
-| sidecar → app | `suggestions` | `{ suggestions: string[] }` — suggested next user replies (answer to `suggest`); empty = none. Shown as pick-to-send chips above the composer (`Suggestions.svelte`) with a "type your own" option |
-| sidecar → app | `comment_reply` | `{ id, delta?, done?, error? }` — streamed answer to a `comment_turn` (thread `id`): `delta` is incremental assistant text, `done` marks completion, `error` a failure. Routed to the comment thread's store (`ThreadPanel.svelte` renders it), NEVER the main transcript |
-| sidecar → app | `commands` | `{ commands: {name,description}[] }` — available slash commands (on ready and after `get_commands`) |
-| sidecar → app | `mcp_status` | `{ servers: {name,status}[] }` — MCP server connection statuses (on ready and after `set_mcp_servers`) |
-| sidecar → app | `notification` | `{ message, notificationType? }` — agent wants attention (from the Notification hook); the app raises an OS notification for a backgrounded worktree |
-| sidecar → app | `session` | `{ id }` — the resumable session id, emitted once the provider knows it |
-| sidecar → app | `message` | `{ message: AgentMessage }` — one neutral transcript event |
-| sidecar → app | `permission_request` | `{ id, tool, input }` — emitted by `canUseTool` when the mode isn't `bypassPermissions`; answered by `permission_reply` |
-| sidecar → app | `question_request` | `{ id, questions }` — the agent asks structured multiple-choice questions (Claude: via the `ask_user` tool); `QuestionModal.svelte` answers with `question_reply` |
-| sidecar → app | `models` | `{ models: {value,displayName,description?,meta?}[], current }` — catalog + current (on ready and after `set_model`); `meta` is provider-supplied comparison pips |
-| sidecar → app | `connectors` | `{ servers: {name,status,scope?,error?,tools:{name,description?,readOnly?,destructive?}[]}[] }` — MCP connectors + their tools/status (on ready and after a toggle/reconnect) |
-| sidecar → app | `error` | `{ error }` |
-
-**`AgentMessage`** (the neutral transcript schema) `.type` is `system` | `assistant` (a prose chunk) | `tool_call` `{id,name,input}` | `tool_result` `{id,content,isError?}` | `turn_end` `{usage?}` (the turn's token/cost figures — `TurnUsage`, all fields optional; `costUsd` is a client-side estimate). `assistant`/`tool_call`/`tool_result` also carry an optional `parentId` — set when the message came from a subagent (the spawning `Agent` tool-call id, forwarded via `forwardSubagentText`), so `Message.svelte` nests/indents it. Each provider adapter maps its native output into these; `Message.svelte` renders only these (plus the UI-only `user_local`/`error` bubbles). The UI is never exposed to a provider's raw message shape. `turn_end` isn't rendered as a bubble — the event router (`src/lib/agentEvents.ts`) consumes it to flip status to ready, refresh the subscription-usage windows, and (for the on-screen chat) request suggested next replies.
-
-**Model switching:** each session starts on the provider's default model and emits `models` on ready. `ModelSelector.svelte` offers the catalog and renders each model's provider-supplied `meta` pips; picking one sends `set_model`. The current model is **per-worktree**, persisted to `localStorage` (`trickshot.modelByWorktree`) and re-applied on a session's `models` event when it differs from the default.
-
-**Connectors (MCP servers):** each session emits `connectors` on ready (and after a toggle/reconnect). The **Settings page** (`Settings.svelte`, opened from the button at the foot of the sidebar) shows every connector's status + tools and lets you enable/disable/reconnect them live (`toggle_connector`/`reconnect_connector` → the SDK's `toggleMcpServer`/`reconnectMcpServer`). Control is **global** (one set of preferences for every repo/session), persisted to `localStorage` (`trickshot.connectorPrefs.global`). The SDK's toggle is a live control it does not remember across sessions, so the preference is **re-applied on each session's `connectors` event** (App.svelte) and a UI toggle applies live to every currently-running session. Per-tool muting of built-in tools (Bash/WebFetch) is out of scope — it needs the construction-time `disallowedTools` option + a session restart.
-
-## Providers (model-provider adapters)
-
-The sidecar is **provider-pluggable** so the app isn't baked into Claude:
-
-- **`sidecar/providers/types.ts`** — the `AgentProvider` interface (turn/model/permission/connector/command/question/suggest/comment methods — see the file) + `ProviderContext` (`cliPath`, `projectDir`, `resumeSessionId`, `permissionMode`, `systemPromptAppend`, `mcpServers`, `agents`, `emit`).
-- **`src/lib/providers.ts`** — the webview's provider DISPLAY registry (per-provider copy: auth-failure matcher + sign-in banner text + usage footnote), keyed by the worktree's provider id (`providerByWorktree`, default `claude`). Behavior lives in the sidecar registry; presentation lives here — the only webview module allowed to know a provider by name.
-- **`sidecar/providers/claude.ts`** — the only Claude-aware module: wraps the Claude Agent SDK and maps `SDKMessage` → `AgentMessage`. The Claude tier→pips heuristic lives here (not the UI).
-- **`sidecar/providers/registry.ts`** — id → factory; `core.ts` selects via `config.provider` parsed from the `SESSION_CONFIG` blob (default `claude`).
-
-**Add a provider:** implement `AgentProvider` in `providers/<id>.ts`, map its native events to `AgentMessage`, register it. No protocol or UI change. (A runtime needing a different native binary also needs its own `agent.<platform>.ts` embed — the binary is provider-specific; the rest is not.)
+- **One PTY per worktree per slot.** The shell terminal (header popover) and the claude chat are separate PTYs. The claude slot's key is `worktree + "\u0000claude"` — NUL can't occur in a filesystem path, so the composite key can't collide with a real worktree. The Rust `CLAUDE_SLOT` const (terminal.rs) and the TS `claudeTermKey()` (lib/terminal.ts) are a hand-mirrored pair — keep them in sync.
+- **Resume forks.** Claude Code's `--resume` forks a NEW session id, so any remembered id goes stale the moment the CLI runs. Every open therefore adopts the newest `.jsonl` in `~/.claude/projects/<encoded cwd>/` via `latest_session_id` — the app persists no session id of its own.
+- **Archive/restore rides on the path.** Claude Code's session store is keyed by the worktree path, and the worktree path scheme is deterministic, so archiving a workspace (removing the dir, keeping the branch) and later restoring it recreates the same path — the conversation resumes without the app storing any chat state.
+- **The binary is the user's own.** Rust resolves `claude` via the login shell (`command -v claude`, cached per app run) and exports the login PATH into the PTY; the webview only ever passes the whitelist name `"claude"`, never a command string (the run_script posture).
 
 ## Rust command reference (the UI hook points)
 
@@ -107,9 +60,6 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 | `worktree_merge` | `repoPath, branch` | `string` | Merges `branch` into the branch checked out at `repoPath` |
 | `worktree_pull` | `worktreePath` | `string` | `git pull --rebase --autostash`; a conflict auto-aborts back to the pre-pull state and rejects |
 | `worktree_move_to_branch` | `worktreePath, branch` | `string` | Recovery for commits stuck on a protected branch: creates `branch` at HEAD, switches to it, and rewinds the former branch to its upstream (`origin/<default>` fallback). Returns the new branch name |
-| `start_session` | `worktree, config?` (JSON string) | `void` | Spawns a sidecar (cwd = worktree); idempotent. `config` is the app's `SessionConfig` blob (`provider`/`resumeSessionId`/`permissionMode`/`systemPromptAppend`/`mcpServers`/`agents`), forwarded verbatim as the `SESSION_CONFIG` env var; the sidecar parses it once in `core.ts`. Rust never enumerates the fields, so a new session knob doesn't touch this command. `PROJECT_DIR` (= worktree) is set separately |
-| `send_to_session` | `worktree, payload` (JSON string) | `void` | Writes a line to that worktree's sidecar stdin |
-| `stop_session` | `worktree` | `void` | Kills that worktree's sidecar |
 | `notify` | `title, body` | `void` | Shows a desktop notification (tauri-plugin-notification) |
 | `get_usage` | `provider?` | `UsageInfo` | Subscription usage as provider-neutral labeled windows `{ windows: [{ label, utilization, resets_at }] }` (Claude maps its 5-hour + weekly windows). `provider` (default `"claude"`) is the dispatch point for future providers — unknown ids reject. See *Subscription usage* below |
 | `check_auth` | `provider?` | `boolean` | Whether a login exists for the provider's account (local credential read only, no network; same keychain/file source as `get_usage`, same `provider` gate). `false` = definitively no credentials; ambiguous environment failures reject so the UI never false-alarms. Drives the first-run "sign in" notice |
@@ -120,18 +70,18 @@ The sidecar is **provider-pluggable** so the app isn't baked into Claude:
 | `pr_status` | `worktreePath` | `PrInfo \| null` | The current branch's PR + CI check rollup via `gh pr view` (null = no PR yet). Uses the user's existing `gh auth login` — no token plumbing (`src-tauri/src/github.rs`) |
 | `pr_create` | `worktreePath, title, body, base?, draft` | `string` | `gh pr create` for the current (pushed) branch; returns the PR URL |
 | `pr_merge` | `worktreePath` | `string` | `gh pr merge --squash` for the current branch's open PR (UI gates on green checks; gh enforces protections) |
-| `generate_commit_message` | `worktreePath` | `string` | One-shot `claude -p` over the working diff (staged if any, else vs HEAD) → a conventional-commit message. Reuses the CLI-first `claude` binary (`terminal::claude_cli`), no sidecar/API key (`src-tauri/src/generate.rs`) |
+| `generate_commit_message` | `worktreePath` | `string` | One-shot `claude -p` over the working diff (staged if any, else vs HEAD) → a conventional-commit message. Resolves the same PATH `claude` binary as the chat (`terminal::claude_cli`) — no API key (`src-tauri/src/generate.rs`) |
 | `generate_pr_text` | `worktreePath, base?` | `PrText` | One-shot `claude -p` over the commits on HEAD beyond `base` (default: repo default branch) → `{ title, body }` for the Create-PR dialog |
 | `generate_branch_name` | `worktreePath` | `string` | One-shot `claude -p` over the working diff → a slugged, `validate_branch`-safe branch name for the move-to-branch flow |
 | `check_cli` | — | `boolean` | Whether the `claude` CLI resolves on the login shell's PATH (onboarding preflight; the binary sibling of `check_auth`'s credential probe) |
-| `term_open` | `worktree, rows, cols, launch?, resumeSessionId?` | `boolean` (spawned; false = already alive, the webview forces a repaint) | Opens (idempotent) a PTY, cwd = the worktree (`src-tauri/src/terminal.rs`). Default: the user's login shell. `launch: "claude"` runs the Claude Code CLI instead (optionally `--resume <resumeSessionId>`, validated UUID-shaped, argv-only) on a SECOND PTY keyed `worktree + "\u0000claude" (a NUL-prefixed suffix)` — the CLI chat mode (see *CLI chat mode* below). `launch` is a fixed whitelist name; Rust resolves the binary via the login shell (`command -v claude`), never a command string from the webview (the run_script posture). Output streams as `term-event`s (`{ worktree: <pty key>, kind: "data" \| "exit", data }`, mirrored by the TS `TermEnvelope`); the webview side is xterm.js (`lib/terminal.ts` keeps one instance per key so scrollback survives tab switches) |
+| `term_open` | `worktree, rows, cols, launch?, resumeSessionId?` | `boolean` (spawned; false = already alive, the webview forces a repaint) | Opens (idempotent) a PTY, cwd = the worktree (`src-tauri/src/terminal.rs`). Default: the user's login shell. `launch: "claude"` runs the Claude Code CLI instead (optionally `--resume <resumeSessionId>`, validated UUID-shaped, argv-only) on a SECOND PTY keyed `worktree + "\u0000claude"` — the chat surface (see *The CLI chat surface* above). `launch` is a fixed whitelist name; Rust resolves the binary via the login shell (`command -v claude`), never a command string from the webview (the run_script posture). Output streams as `term-event`s (`{ worktree: <pty key>, kind: "data" \| "exit", data }`, mirrored by the TS `TermEnvelope`); the webview side is xterm.js (`lib/terminal.ts` keeps one instance per key so scrollback survives tab switches) |
 | `term_write` / `term_resize` | `worktree, data` / `worktree, rows, cols` | `void` | Keystrokes → PTY / fit-addon size → PTY |
 | `term_close` | `worktree` | `void` | Kills that worktree's PTY (all PTYs are killed on app quit) |
-| `latest_session_id` | `worktree, provider?` | `string \| null` | The newest Claude Code session id for the worktree (newest `.jsonl` by mtime in `~/.claude/projects/<encoded cwd>/`; encoding = every non-alphanumeric byte → `-`). Resume FORKS a new session id, so after a CLI chat-mode stint the app adopts this as the live thread. Provider-gated like `get_usage` (the session-store layout is Claude-specific) |
+| `latest_session_id` | `worktree, provider?` | `string \| null` | The newest Claude Code session id for the worktree (newest `.jsonl` by mtime in `~/.claude/projects/<encoded cwd>/`; encoding = every non-alphanumeric byte → `-`). Resume FORKS a new session id, so every CLI open adopts this as the live thread. Provider-gated like `get_usage` (the session-store layout is Claude-specific) |
 
-**Subscription usage (`get_usage`, `src-tauri/src/usage.rs`).** A best-effort read of the account's usage windows for the header chip (`UsageIndicator.svelte`). The wire shape is provider-neutral (`UsageInfo { windows: [{ label, utilization, resets_at }] }`, `src/lib/types.ts`); the Claude probe (the only one today, gated by the commands' `provider` arg) reuses the **existing Claude Code login** — NO API key: it reads the OAuth access token from the macOS keychain (`security find-generic-password -s "Claude Code-credentials"`) or `~/.claude/.credentials.json`, then GETs the undocumented `api.anthropic.com/api/oauth/usage` endpoint with that bearer token and maps the response into "5-hour window" + "Weekly" windows. The reqwest client and `claude-code/<version>` UA are cached in `OnceLock` statics; the blocking credential read runs on `spawn_blocking`. The endpoint is aggressively rate-limited, so the webview throttles `refreshUsage()` (event-driven on session start / turn end, ≤ once per 90s) and the last value is persisted (`trickshot.usageLimits`) so the chip shows immediately on launch. Every failure path maps to `Err(String)`; a transient 401/429 leaves the last good value in place.
+**Subscription usage (`get_usage`, `src-tauri/src/usage.rs`).** A best-effort read of the account's usage windows for the header chip (`UsageIndicator.svelte`). The wire shape is provider-neutral (`UsageInfo { windows: [{ label, utilization, resets_at }] }`, `src/lib/types.ts`); the Claude probe (the only one today, gated by the commands' `provider` arg) reuses the **existing Claude Code login** — NO API key: it reads the OAuth access token from the macOS keychain (`security find-generic-password -s "Claude Code-credentials"`) or `~/.claude/.credentials.json`, then GETs the undocumented `api.anthropic.com/api/oauth/usage` endpoint with that bearer token and maps the response into "5-hour window" + "Weekly" windows. The reqwest client and `claude-code/<version>` UA are cached in `OnceLock` statics; the blocking credential read runs on `spawn_blocking`. The endpoint is aggressively rate-limited, so the webview throttles `refreshUsage()` (event-driven on launch / turn end, ≤ once per 90s) and the last value is persisted (`trickshot.usageLimits`) so the chip shows immediately on launch. Every failure path maps to `Err(String)`; a transient 401/429 leaves the last good value in place.
 
-Events: a single `agent-event` carrying `{ worktree, kind, data }` (the shared `WorktreeEvent` struct in `worktree_map.rs`, also serialized on `script-event`/`term-event`), where `kind` is `stdout` (a protocol line) | `stderr` | `error` | `terminated`. The frontend routes by `worktree`.
+**Events.** Two worktree-tagged channels, both carrying the shared `WorktreeEvent { worktree, kind, data }` struct (`worktree_map.rs`): `script-event` (`started` | `stdout` | `stderr` | `exit`) and `term-event` (`data` | `exit`, where `worktree` is the PTY key — a worktree path or its claude-slot composite). Mirrored by the TS `ScriptEnvelope`/`TermEnvelope` (types.ts); the conformance test pins the seam. The frontend routes by `worktree`.
 
 **Command threading.** Network- or subprocess-bound commands are `async fn` + `tauri::async_runtime::spawn_blocking` (every git command in `worktree.rs`, the `gh` calls in `github.rs`, the usage/auth probes, `run_script`/`stop_script`, `term_open`) so a slow remote can never freeze the main thread. Fast writes (`term_write`/`term_resize`) stay sync on purpose — a runtime hop per keystroke adds latency.
 
@@ -150,37 +100,22 @@ Events: a single `agent-event` carrying `{ worktree, kind, data }` (the shared `
 
 - **setup** runs when a worktree is created (a fresh worktree only has git-tracked files — install deps, copy `.env`). **run** scripts (one string, or an object of named scripts) launch from the header Run button. **archive** runs before a workspace is archived (clean up resources living outside the worktree dir). `run_mode: "nonconcurrent"` makes starting a run script stop every other running script first (default `"concurrent"`).
 - Scripts execute as `sh -lc <command>` with cwd = the worktree, in their **own process group** (stopping kills the whole tree, e.g. a dev server), with env: `TRICKSHOT_PORT` (the base of a per-worktree block of 10 ports, deterministically derived from the worktree path — use `$TRICKSHOT_PORT`…`+9` so parallel worktrees never collide), `TRICKSHOT_WORKSPACE_PATH`, `TRICKSHOT_ROOT_PATH` (the main repo), `TRICKSHOT_WORKSPACE_NAME`.
-- One script per worktree: launching a new one replaces the old. All script processes are killed on app quit (the lib.rs exit handler, same as sidecars).
-- Output events: a single `script-event` carrying `{ worktree, kind, data }` — the scripts sibling of `agent-event` — where `kind` is `started` (data = script name) | `stdout` | `stderr` (one output line) | `exit` (data = status code, or null when killed). Mirrored by the TS `ScriptEnvelope` (types.ts); routed by `lib/scriptEvents.ts` into the per-worktree `scriptRunByWorktree` store (16ms-batched output tail) and rendered by the ViewToggle "run" tab (`RunOutput.svelte`).
+- One script per worktree: launching a new one replaces the old. All script processes (and PTYs) are killed on app quit by the lib.rs exit handler.
+- Output events: a single `script-event` carrying `{ worktree, kind, data }`, where `kind` is `started` (data = script name) | `stdout` | `stderr` (one output line) | `exit` (data = status code, or null when killed). Routed by `lib/scriptEvents.ts` into the per-worktree `scriptRunByWorktree` store (16ms-batched output tail) and rendered by the ViewToggle "run" tab (`RunOutput.svelte`).
 
-## CLI chat mode (the PRIMARY chat surface)
+## Providers
 
-**The chat pane IS the real Claude Code CLI TUI** (`CHAT_SURFACE === "cli"` in stores.ts — the one-line deprecation switch). Selecting a worktree opens its dedicated claude-slot PTY resuming the newest session id (`session.ts › activateWorktree → ensureClaudeOpen`); NO sidecar spawns for chat. The GUI chat (Chat/Composer + suggestions/queue/threads/minimal skin) is deprecated-but-preserved: flip `CHAT_SURFACE` to `"gui"` to get it back, along with the header toggle handoff below. Features that hand text to the agent from outside the pane (git-panel review comments, batched reviews, "fix failing checks") route through `submitTurnToChat` → bracketed-paste keystroke injection into the CLI (which then focuses the terminal and raises a toast receipt). **Busy/idle + turn-end detection comes from the PTY's OUTPUT FLOW** (`src/lib/cliActivity.ts`, wired in `terminal.ts › noteCliActivity`): data flowing = busy; a real burst ending fires the turn-end side-effects (sidebar dot, unread badge, OS + in-app notification, git/usage refresh) that the sidecar's `turn_end` would have. Still inert by design under CLI-first: suggestions, the message queue, threads, and the live connector catalog (all sidecar-event-driven). The CLI exiting marks the session `stopped`; the pane shows a persistent "Session ended — Restart" bar, and typing into the pane or re-activating the worktree also revives it (no auto-respawn — a crash-looping CLI must not fork-bomb).
-
-### The legacy GUI⇄terminal handoff (preserved for `CHAT_SURFACE === "gui"`)
-
-A worktree's chat pane can swap to the CLI TUI (per-worktree `chatModeByWorktree`, toggled in the chat header; orchestrated by `session.ts › enterCliMode/exitCliMode`). Both surfaces are the same engine sharing one session store, so context survives the switch — but a session must have exactly ONE owner at a time, and resume forks a new id. The choreography:
-
-1. **GUI → CLI:** append a transcript marker → `stop_session` (clean-quiet kill) → `term_open(worktree, …, launch: "claude", resumeSessionId)` on the dedicated claude-slot PTY (`worktree + "\u0000claude" (a NUL-prefixed suffix)` — NUL can't occur in a path; the Rust `CLAUDE_SLOT` const and TS `claudeTermKey()` are a hand-mirrored pair). The TUI renders the full prior conversation.
-2. **CLI → GUI:** `term_close(claude key)` → adopt `latest_session_id(worktree)` into the persisted session id (the CLI's resume forked a new one; `null` → keep the old id) → marker → `start_session` resuming the adopted id. The agent's context includes the CLI turns; the GUI transcript does NOT (the SDK doesn't replay messages) — the markers bracket that gap deliberately.
-3. The CLI exiting on its own (`/exit`) triggers the same return path via the PTY's `exit` event (`handleCliExit`).
-
-While in CLI mode the sidecar is dead by design: suggestions/queue/threads/unread/usage-refresh are inert, and the composer is unmounted. The shell Terminal tab is a separate PTY and coexists.
-
-## Why a Bun sidecar (and the one real gotcha)
-
-The Agent SDK doesn't run in-process — it spawns a native Claude Code binary (shipped as per-platform optional npm deps). `bun build --compile` bundles your JS but **not** that child binary; at runtime `require.resolve` fails inside Bun's `$bunfs` virtual filesystem. The fix (SDK ≥ 0.3.144), in each `sidecar/agent.<platform>.ts`: `import binPath … with { type: "file" }` to embed it, `extractFromBunfs(binPath)` to self-extract at startup, and pass the result to `options.pathToClaudeCodeExecutable`. So the `claude` binary rides *inside* the sidecar — no second Tauri sidecar needed. There is one such sidecar **per active worktree**, running concurrently (each ~279MB resident).
+The app is Claude-only today but keeps ONE deliberate dispatch seam: `src/lib/providers.ts` is the webview's provider DISPLAY registry (per-provider copy: sign-in banner text + usage footnote + auth-error matching), keyed by the worktree's provider id (`providerByWorktree`, default `claude`), and the account probes (`get_usage`/`check_auth`/`latest_session_id`) take a `provider` arg that rejects unknown ids instead of silently reporting Claude's numbers. A second provider means: its own CLI in the `term_open` launch whitelist, its own probe arms in `usage.rs`/`agent.rs`, and a registry entry — the UI stays provider-neutral.
 
 ## Packaging notes
 
-- **Tauri sidecar naming:** the binary on disk must be suffixed with the **Rust target triple** (`agent-aarch64-apple-darwin`); `externalBin` lists the base name `binaries/agent`. You produce the suffixed files (the build script does this for the host).
-- **macOS:** the Bun binary JIT-compiles → codesign with JIT entitlements (`allow-jit`, `allow-unsigned-executable-memory`, `disable-executable-page-protection`, `allow-dyld-environment-variables`, `disable-library-validation`) before Tauri signs/notarizes the `.app`.
-- **Capabilities:** spawning is gated by `shell:allow-spawn` (we call `.spawn()`, not `.execute()`). Pure-Rust spawns are largely ungated, but the capability is kept for correctness.
+- No external binaries ship with the app — the CLI is the user's own install, resolved from their login shell's PATH at runtime (`check_cli` is the onboarding preflight).
+- Spawning happens in plain Rust (portable-pty + `std::process::Command`), so no Tauri shell capability is needed; the capability file only grants dialog + notification.
 
-## MVP boundaries (what's intentionally not here)
+## Boundaries (what's intentionally not here)
 
-- Repos, selected worktree, per-worktree **model**, **theme**, **transcript**, and **agent session id** all persist (localStorage). On launch the selected worktree's session is resumed by id (restores agent *context*) and its transcript is rehydrated (restores the *rendered* history) — resume does NOT replay messages, so these are two separate mechanisms. Worktree lists are still repopulated from git on launch.
-- No streaming token-by-token rendering (messages arrive per neutral `AgentMessage`; a provider could emit finer-grained `assistant` chunks for that).
-- No cap on concurrent sessions — each open worktree is its own ~279MB sidecar; add an LRU if that's too heavy.
-- No `git` branch deletion on worktree removal, no dirty-state guards.
+- Repos, the selected worktree, theme/font settings, the review queue, and archived-workspace history persist to `localStorage`. Chat history does NOT live in the app — it's Claude Code's own session store (`~/.claude/projects/…`), which also gives resume-on-reopen for free.
+- The agent's configuration surface (model, permission mode, MCP connectors, slash commands, system prompt) is Claude Code's own — configure it with `claude config` / `claude mcp` / `~/.claude` / repo `CLAUDE.md`, not in the app.
+- No cap on concurrent worktrees — each open worktree holds a PTY (cheap) and whatever the CLI itself uses.
+- No `git` branch deletion on worktree removal, no dirty-state guards beyond the confirm dialogs.
 - Worktree dir layout is fixed (`../.<repo>-worktrees/<branch>`); make it configurable as needed.

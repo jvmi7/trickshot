@@ -1,8 +1,8 @@
 <script lang="ts">
-  // Ambient "sign in" notice — the ONE home for the auth banner (Chat's composer
-  // banner and Welcome's first-run notice both render this). Feature component:
-  // reads `authState` + the active provider's copy (providers.ts) and retries via
-  // refreshAuth. Renders nothing unless the login is definitively missing.
+  // Ambient "sign in" notice — the ONE home for the auth banner (Welcome's
+  // first-run notice renders this). Feature component: reads `authState` + the
+  // active provider's copy (providers.ts) and retries via refreshAuth. Renders
+  // nothing unless the login is definitively missing.
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import { Button } from "$lib/components/ui/button";

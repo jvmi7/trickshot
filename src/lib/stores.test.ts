@@ -13,21 +13,14 @@
 import { describe, expect, test } from "bun:test";
 import { get } from "svelte/store";
 import {
-  activeActivity,
+  activeGitStat,
   bumpUnread,
   clearStatus,
-  clearSuggestions,
   clearUnread,
-  sessionByWorktree,
   sessionStatus,
-  setActivity,
+  setGitStat,
   setStatus,
-  setSuggestions,
-  setWorktreeSession,
-  startActivity,
-  suggestionsByWorktree,
   unreadByWorktree,
-  worktreeActivity,
 } from "./stores";
 
 describe("no-op mutators preserve map identity", () => {
@@ -57,36 +50,6 @@ describe("no-op mutators preserve map identity", () => {
     expect(get(unreadByWorktree)).not.toBe(seeded);
     expect(get(unreadByWorktree)["conformance-u1"]).toBe(0);
   });
-
-  test("setActivity preserves identity on an unchanged label/detail (no step bump)", () => {
-    startActivity("conformance-a1"); // { label: "Thinking", detail: "" }
-    const before = get(worktreeActivity);
-    setActivity("conformance-a1", "Thinking", ""); // same → no-op
-    expect(get(worktreeActivity)).toBe(before);
-    setActivity("conformance-a1", "Writing response", ""); // changed → fresh
-    expect(get(worktreeActivity)).not.toBe(before);
-  });
-
-  test("clearSuggestions preserves identity when empty; a real clear does not", () => {
-    const before = get(suggestionsByWorktree);
-    clearSuggestions("conformance-absent"); // empty → no-op
-    expect(get(suggestionsByWorktree)).toBe(before);
-
-    setSuggestions("conformance-s1", ["pick a"]);
-    const seeded = get(suggestionsByWorktree);
-    clearSuggestions("conformance-s1"); // non-empty → real change
-    expect(get(suggestionsByWorktree)).not.toBe(seeded);
-    expect(get(suggestionsByWorktree)["conformance-s1"]).toEqual([]);
-  });
-
-  test("setWorktreeSession preserves identity on an unchanged id", () => {
-    setWorktreeSession("conformance-k1", "sid-1");
-    const before = get(sessionByWorktree);
-    setWorktreeSession("conformance-k1", "sid-1"); // same id → no-op
-    expect(get(sessionByWorktree)).toBe(before);
-    setWorktreeSession("conformance-k1", "sid-2"); // changed → fresh
-    expect(get(sessionByWorktree)).not.toBe(before);
-  });
 });
 
 describe("svelte store semantics the guard does NOT change (the limitation)", () => {
@@ -103,13 +66,18 @@ describe("svelte store semantics the guard does NOT change (the limitation)", ()
   });
 
   test("a primitive/null-returning derived does NOT re-fire on an unrelated change", () => {
-    // With no worktree selected, activeActivity resolves to `null`; mutating some
-    // OTHER worktree's activity recomputes the derived to `null` again, so it
-    // does not propagate (this IS the benefit identity preservation extends).
+    // With no worktree selected, activeGitStat resolves to `null`; mutating some
+    // OTHER worktree's stat recomputes the derived to `null` again, so it does
+    // not propagate (this IS the benefit identity preservation extends).
     let calls = 0;
-    const unsub = activeActivity.subscribe(() => calls++);
+    const unsub = activeGitStat.subscribe(() => calls++);
     const afterInit = calls;
-    setActivity("conformance-unrelated", "Thinking", "");
+    setGitStat("conformance-unrelated", {
+      changed: 1,
+      insertions: 1,
+      deletions: 0,
+      aheadOfDefault: 0,
+    });
     expect(calls).toBe(afterInit);
     unsub();
   });
@@ -151,71 +119,6 @@ describe("archivedWorkspaces mutators", () => {
     const list = get(archivedWorkspaces).filter((a) => a.repoPath === "/tmp/repo-arch");
     expect(list.map((a) => a.branch)).toEqual(["feat-b"]);
     removeArchived("/tmp/repo-arch", "feat-b");
-  });
-});
-
-// ---- Moved subsystems, still imported from "./stores" ----
-// session.ts (queued follow-ups) and threads.ts are split out of stores.ts but
-// re-exported from it — these tests import through "./stores" ON PURPOSE, pinning
-// both the re-export compatibility and the circular-import wiring (a TDZ in the
-// stores ↔ session/threads cycle would fail right here at import time).
-import {
-  addComment,
-  appendCommentDelta,
-  clearQueued,
-  commentsByWorktree,
-  enqueueMessage,
-  openThreadFor,
-  queuedByWorktree,
-  removeQueued,
-} from "./stores";
-
-describe("queued follow-ups (session.ts via the stores re-export)", () => {
-  test("enqueueMessage trims, assigns stable ids; blank text is a no-op", () => {
-    const w = "stores-test-queue";
-    enqueueMessage(w, "  first  ");
-    enqueueMessage(w, "   "); // blank → no-op
-    enqueueMessage(w, "second");
-    const q = get(queuedByWorktree)[w] ?? [];
-    expect(q.map((m) => m.text)).toEqual(["first", "second"]);
-    expect(new Set(q.map((m) => m.id)).size).toBe(2); // ids are unique
-  });
-
-  test("removeQueued drops exactly the matching id", () => {
-    const w = "stores-test-queue";
-    const first = (get(queuedByWorktree)[w] ?? [])[0];
-    if (!first) throw new Error("seed missing");
-    removeQueued(w, first.id);
-    expect((get(queuedByWorktree)[w] ?? []).map((m) => m.text)).toEqual(["second"]);
-  });
-
-  test("clearQueued empties the queue; a no-op clear preserves map identity", () => {
-    const w = "stores-test-queue";
-    clearQueued(w);
-    expect(get(queuedByWorktree)[w]).toEqual([]);
-    const before = get(queuedByWorktree);
-    clearQueued(w); // already empty → same identity (the no-op guard)
-    expect(get(queuedByWorktree)).toBe(before);
-  });
-});
-
-describe("threads (threads.ts via the stores re-export)", () => {
-  test("openThreadFor creates one thread per message key and reuses it", () => {
-    const w = "stores-test-threads";
-    openThreadFor(w, 42);
-    openThreadFor(w, 42); // same anchor → reuse, no duplicate
-    const list = get(commentsByWorktree)[w] ?? [];
-    expect(list).toHaveLength(1);
-    expect(list[0]?.messageKey).toBe(42);
-  });
-
-  test("appendCommentDelta extends a streaming answer or starts one", () => {
-    const w = "stores-test-threads-delta";
-    addComment(w, { id: "t1", messageKey: 1, messages: [], pending: false, createdAt: 0 });
-    appendCommentDelta(w, "t1", "Hel");
-    appendCommentDelta(w, "t1", "lo"); // same turn → merged into one message
-    const t = (get(commentsByWorktree)[w] ?? [])[0];
-    expect(t?.messages).toEqual([{ role: "assistant", text: "Hello" }]);
   });
 });
 

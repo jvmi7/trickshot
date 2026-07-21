@@ -43,7 +43,7 @@ entire UI follows.
 | `success` | `--base-success` | online / running dot, diff additions | `--chart-2`† | — (`.dot.on`, `.diff-add`, diffstat, `.hljs-string`) |
 | `info` / `warning` / `special` | `--base-info` / `-warning` / `-special` | chart accents + syntax/state hues | `--chart-3/4/5`† | — (`warning`→`.wt-pending`/`.hljs-number`; `special`→`.hljs-keyword`) |
 | `overlay` | `--base-overlay` | modal scrim | — (`[data-slot=dialog-overlay]`) | — |
-| `selection` | `--base-selection` | text-selection highlight *fill* (rendered at 20%); selected text recolors to `--base-accent` (`::selection`, `.ph-sel`) | — | `--app-selection-bg` |
+| `selection` | `--base-selection` | text-selection highlight *fill* (rendered at 20%); selected text recolors to `--base-accent` (`::selection`) | — | `--app-selection-bg` |
 | `termGlow` | `--base-term-glow` | terminal glyph glow — a full `text-shadow` value (`none` disables); `currentColor` layers glow each glyph in its own ANSI color | — | — (`.term-host .xterm-rows`) |
 
 \* In a dark theme `onAccent` and `bg` often share a value; they're separate keys so a

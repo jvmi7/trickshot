@@ -1,5 +1,5 @@
 // Review-queue plumbing: the comment shape and the ONE place the batched
-// review prompt is assembled (minimal.ts precedent — a marker/format gets one
+// review prompt is assembled (a marker/format gets one
 // home). Pure, so the prompt shape is unit-testable; state lives in
 // stores.ts › reviewQueueByWorktree and the UI in GitPanel.
 

@@ -185,8 +185,7 @@
     const failing = pr.checks.filter((c) => c.status === "fail");
     if (!failing.length) return;
     const lines = failing.map((c) => `- ${c.name}${c.link ? ` (${c.link})` : ""}`).join("\n");
-    // Routes to the ACTIVE chat surface (CLI keystroke injection under
-    // CLI-first, the GUI transcript otherwise); fire-and-forget like the send.
+    // Keystroke-injected into the CLI chat; fire-and-forget like the send.
     void submitTurnToChat(
       worktree,
       `Our PR "${pr.title}" (#${pr.number}) has failing CI checks:\n${lines}\n\nInvestigate why they fail and fix them.`,
