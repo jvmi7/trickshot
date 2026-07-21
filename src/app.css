@@ -1136,16 +1136,16 @@ html, body {
   left: calc(-1 * var(--flare-l, var(--radius-xl)));
   width: calc(var(--flare-l, var(--radius-xl)) + 1px);
   background: radial-gradient(
-      260px circle at calc(var(--glow-x, 0px) + var(--radius-xl) - 1px) calc(var(--glow-y, 0px) - 28px + var(--radius-xl)),
+      260px circle at calc(var(--glow-x, 0px) + var(--flare-l, var(--radius-xl)) - 1px) calc(var(--glow-y, 0px) - 28px + var(--radius-xl)),
       color-mix(in oklch, var(--base-text) 45%, transparent),
       transparent 70%
     );
   -webkit-mask:
-    radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px)),
+    radial-gradient(circle at 0 0, transparent calc(var(--flare-l, var(--radius-xl)) - 1.25px), var(--base-text) calc(var(--flare-l, var(--radius-xl)) - 0.75px), var(--base-text) calc(var(--flare-l, var(--radius-xl)) - 0.25px), transparent calc(var(--flare-l, var(--radius-xl)) + 0.25px)),
     linear-gradient(var(--base-text), var(--base-text)) right 1px top 0 / 1px 2px no-repeat,
     linear-gradient(var(--base-text), var(--base-text)) left 0 bottom 0 / 2px 1px no-repeat;
   mask:
-    radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px)),
+    radial-gradient(circle at 0 0, transparent calc(var(--flare-l, var(--radius-xl)) - 1.25px), var(--base-text) calc(var(--flare-l, var(--radius-xl)) - 0.75px), var(--base-text) calc(var(--flare-l, var(--radius-xl)) - 0.25px), transparent calc(var(--flare-l, var(--radius-xl)) + 0.25px)),
     linear-gradient(var(--base-text), var(--base-text)) right 1px top 0 / 1px 2px no-repeat,
     linear-gradient(var(--base-text), var(--base-text)) left 0 bottom 0 / 2px 1px no-repeat;
 }
@@ -1185,9 +1185,13 @@ html, body {
 /* Band [1px, 2px] from the right edge — the box overhangs the border column
    by 1px on the inside (it starts at the button's PADDING box), so the
    rightmost pixel is interior, and the border column is the one beside it. */
+/* Flush end state: with --flare-l at 0 the box has collapsed — pin the glow
+   to a bare 1px column exactly ON the border (padding-box left -1), unmasked. */
 .chat-tab-chrome[data-flush] .chat-tab-glow-arc[data-side="left"] {
-  -webkit-mask: linear-gradient(to left, transparent 1px, var(--base-text) 1px, var(--base-text) 2px, transparent 2px);
-  mask: linear-gradient(to left, transparent 1px, var(--base-text) 1px, var(--base-text) 2px, transparent 2px);
+  left: -1px;
+  width: 1px;
+  -webkit-mask: none;
+  mask: none;
 }
 .chat-tab-chrome::after { right: calc(-1 * var(--radius-xl)); background:
   linear-gradient(var(--chat-frame), var(--chat-frame)) left 1px top 0 / 1px 2px no-repeat,

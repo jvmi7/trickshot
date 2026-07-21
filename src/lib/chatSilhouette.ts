@@ -97,7 +97,7 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       // at fractional x, and two shapes meeting at a fractional boundary
       // each contribute partial coverage — a darker seam pixel. A doubled
       // pixel reads as connected; a partial one reads as a gap.
-      const fl2 = Math.max(0, Math.min(f, tr.left + 2 - (parentR.left + 1)));
+      const fl2 = Math.max(0, Math.min(f, tr.left - parentR.left));
       const nL = tr.left - fl2 + 2 - parentR.left;
       const nR = tr.right + f - 2 - parentR.left;
       const cW = parentR.width + 2;
