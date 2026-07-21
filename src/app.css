@@ -1040,17 +1040,7 @@ html, body {
   mask-composite: exclude;
   pointer-events: none;
 }
-/* Flush first tab: its LEFT stroke continues straight down to the card (no
-   flare on that side) — the frame span's pseudo paints the remaining column. */
-.chat-tab[data-active]:first-child .chat-tab-frame::before {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: -1px;
-  width: 1px;
-  height: var(--radius-xl);
-  background: var(--chat-frame);
-}
+
 /* The active tab's slice of the trailing-cursor surface (see ChatTabs +
    cursorTrail's viewport-aligned grid): a clipped canvas host painted between
    the tab's fill and its label. */
@@ -1063,7 +1053,13 @@ html, body {
    flares just draw the frame line turning the corner. */
 .chat-tab[data-active]::before,
 .chat-tab[data-active]::after { content: ""; position: absolute; bottom: 0; width: calc(var(--radius-xl) + 1px); height: var(--radius-xl); }
-.chat-tab[data-active]::before { left: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.25px), var(--chat-frame) calc(var(--radius-xl) - 0.75px), var(--chat-frame) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px)); }
+/* The two 1px patch layers pin the arc's tangent ENDS to the strokes it
+   meets (tab side above, card border below) — at grazing angles the arc's
+   own AA is too faint to close the joint. */
+.chat-tab[data-active]::before { left: calc(-1 * var(--radius-xl)); background:
+  linear-gradient(var(--chat-frame), var(--chat-frame)) right 1px top 0 / 1px 2px no-repeat,
+  linear-gradient(var(--chat-frame), var(--chat-frame)) left 0 bottom 0 / 2px 1px no-repeat,
+  radial-gradient(circle at 0 0, transparent calc(var(--radius-xl) - 1.25px), var(--chat-frame) calc(var(--radius-xl) - 0.75px), var(--chat-frame) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px)); }
 /* The tab's share of the cursor glow: a ring overlay at -1px over its OWN
    border (top + sides only — a zero bottom border keeps the ring out of the
    tab's opening), same radial recipe as .content::after, driven by the tab's
@@ -1142,7 +1138,10 @@ html, body {
    the card's top-left corner — its left border runs straight up into the
    tab's left border, one continuous line. */
 .chat-tab[data-active]:first-child { border-bottom-left-radius: 0; }
-.chat-tab[data-active]:first-child::before { content: none; }
+/* No left flare — its slot becomes the straight 1px border continuation from
+   the frame's end down to the card (a pseudo of the UNMASKED button; the
+   masked frame span would clip its own pseudos). */
+.chat-tab[data-active]:first-child::before { left: -1px; width: 1px; background: var(--chat-frame); }
 /* …and its glow's left share is a straight 1px column (the border's
    continuation into the card), not an arc. */
 /* Band [1px, 2px] from the right edge — the box overhangs the border column
@@ -1156,7 +1155,10 @@ html, body {
 /* The cursor-glow ring hugs the frame — it must square the SAME corner, or
    its own rounded arc peeks out under the flush tab on hover. */
 .chat-tabs[data-first-active] + .content::after { border-top-left-radius: 0; }
-.chat-tab[data-active]::after { right: calc(-1 * var(--radius-xl)); background: radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.25px), var(--chat-frame) calc(var(--radius-xl) - 0.75px), var(--chat-frame) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px)); }
+.chat-tab[data-active]::after { right: calc(-1 * var(--radius-xl)); background:
+  linear-gradient(var(--chat-frame), var(--chat-frame)) left 1px top 0 / 1px 2px no-repeat,
+  linear-gradient(var(--chat-frame), var(--chat-frame)) right 0 bottom 0 / 2px 1px no-repeat,
+  radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.25px), var(--chat-frame) calc(var(--radius-xl) - 0.75px), var(--chat-frame) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px)); }
 /* Per-chat status dot in the tab label (mirrors the sidebar's busy signal). */
 .chat-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 999px; background: var(--app-dim); }
 .chat-dot[data-status="busy"] { background: var(--app-accent); }
