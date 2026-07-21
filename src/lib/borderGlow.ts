@@ -12,9 +12,16 @@ export function borderGlow(node: HTMLElement): { destroy(): void } {
   let y = 0;
   let visible = false;
 
+  let last = "";
   const paint = () => {
     raf = 0;
     const r = node.getBoundingClientRect();
+    // Skip identical writes: paint is ALSO triggered by the node's own style
+    // mutations (see the observer below), and unguarded setProperty calls
+    // would re-fire it forever.
+    const next = `${(x - r.left).toFixed(1)},${(y - r.top).toFixed(1)},${visible ? 1 : 0}`;
+    if (next === last) return;
+    last = next;
     node.style.setProperty("--glow-x", `${x - r.left}px`);
     // Right-anchored twin (negative left of the right edge): consumers whose
     // boxes hang off the node's RIGHT side (the chat tab's right flare glow)
@@ -26,6 +33,11 @@ export function borderGlow(node: HTMLElement): { destroy(): void } {
   const schedule = () => {
     if (!raf) raf = requestAnimationFrame(paint);
   };
+  // Repaint when the NODE moves under a stationary cursor (the sliding tab
+  // chrome springs its position every frame): its style mutations re-derive
+  // the vars from the fresh rect — no pointer movement required.
+  const mo = new MutationObserver(schedule);
+  mo.observe(node, { attributes: true, attributeFilter: ["style"] });
   const onMove = (e: PointerEvent) => {
     x = e.clientX;
     y = e.clientY;
@@ -44,6 +56,7 @@ export function borderGlow(node: HTMLElement): { destroy(): void } {
   window.addEventListener("pointerout", onOut);
   return {
     destroy() {
+      mo.disconnect();
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerout", onOut);
       if (raf) cancelAnimationFrame(raf);
