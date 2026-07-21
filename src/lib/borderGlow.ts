@@ -16,6 +16,10 @@ export function borderGlow(node: HTMLElement): { destroy(): void } {
     raf = 0;
     const r = node.getBoundingClientRect();
     node.style.setProperty("--glow-x", `${x - r.left}px`);
+    // Right-anchored twin (negative left of the right edge): consumers whose
+    // boxes hang off the node's RIGHT side (the chat tab's right flare glow)
+    // can center the light without knowing the node's width.
+    node.style.setProperty("--glow-xr", `${x - r.right}px`);
     node.style.setProperty("--glow-y", `${y - r.top}px`);
     node.style.setProperty("--glow-o", visible ? "1" : "0");
   };
