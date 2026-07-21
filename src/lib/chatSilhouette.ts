@@ -53,10 +53,16 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       const flush = xL < 2;
       // The concave FEET are part of the silhouette (sweep 0 = the arc hugs
       // the corner): the one surface fills them, the flares paint stroke only.
+      // The bump's sides sit at the tab's border INNER edges (±1) and the feet
+      // use the flares' exact circles (they anchor to the button's PADDING
+      // box) — a border-box silhouette swallows the card border 1px wider
+      // than the stroke covers, leaving a gap in the frame line at each foot.
+      const xl = xL + 1;
+      const xr = xR - 1;
       const rise = flush
         ? `M 0 ${yT + t} A ${t} ${t} 0 0 1 ${t} ${yT}`
-        : `M 0 ${y0 + r} A ${r} ${r} 0 0 1 ${r} ${y0} L ${xL - f} ${y0} A ${f} ${f} 0 0 0 ${xL} ${y0 - f} L ${xL} ${yT + t} A ${t} ${t} 0 0 1 ${xL + t} ${yT}`;
-      d = `${rise} L ${xR - t} ${yT} A ${t} ${t} 0 0 1 ${xR} ${yT + t} L ${xR} ${y0 - f} A ${f} ${f} 0 0 0 ${xR + f} ${y0} L ${W - r} ${y0} A ${r} ${r} 0 0 1 ${W} ${y0 + r} L ${W} ${b} A ${r} ${r} 0 0 1 ${W - r} ${H} L ${r} ${H} A ${r} ${r} 0 0 1 0 ${b} Z`;
+        : `M 0 ${y0 + r} A ${r} ${r} 0 0 1 ${r} ${y0} L ${xl - f} ${y0} A ${f} ${f} 0 0 0 ${xl} ${y0 - f} L ${xl} ${yT + t} A ${t} ${t} 0 0 1 ${xl + t} ${yT}`;
+      d = `${rise} L ${xr - t} ${yT} A ${t} ${t} 0 0 1 ${xr} ${yT + t} L ${xr} ${y0 - f} A ${f} ${f} 0 0 0 ${xr + f} ${y0} L ${W - r} ${y0} A ${r} ${r} 0 0 1 ${W} ${y0 + r} L ${W} ${b} A ${r} ${r} 0 0 1 ${W - r} ${H} L ${r} ${H} A ${r} ${r} 0 0 1 0 ${b} Z`;
     }
     host.style.clipPath = `path("${d}")`;
     if (tab) {
@@ -67,9 +73,10 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       // the feet). Coordinates are in the ::after's box (inset -1px of the
       // card, so shifted +1 from border-box).
       const tr = tab.getBoundingClientRect();
-      // The opening now spans the feet too (silhouette includes them).
-      const nL = tr.left - f + 1 - parentR.left;
-      const nR = tr.right + f + 1 - parentR.left;
+      // The opening now spans the feet too (silhouette includes them; same
+      // padding-box anchoring as the flares — see the path above).
+      const nL = tr.left - f + 2 - parentR.left;
+      const nR = tr.right + f - parentR.left;
       const cW = parentR.width + 2;
       const cH = parentR.height + 2;
       parent.style.setProperty(
