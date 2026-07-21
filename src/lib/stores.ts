@@ -353,7 +353,9 @@ export function removeRepo(repoPath: string) {
   const wts = get(worktreesByRepo)[repoPath] ?? [];
   const sel = get(selectedWorktree);
   for (const wt of wts) {
-    api.stopScript(wt.path);
+    // Fire-and-forget teardown — swallow rejection like every sibling IPC
+    // (CommandPalette's stop-run, disposeTerminal's termClose).
+    api.stopScript(wt.path).catch(() => {});
     clearStatus(wt.path);
     removeScriptRun(wt.path);
   }
