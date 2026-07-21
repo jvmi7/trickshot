@@ -41,6 +41,7 @@
   } from "./lib/stores";
   import { handleScriptEvent } from "./lib/scriptEvents";
   import ClaudeTerminalPane from "./lib/components/ClaudeTerminalPane.svelte";
+  import ChatTabs from "./lib/components/ChatTabs.svelte";
   import CommandPalette from "./lib/components/CommandPalette.svelte";
   import Header from "./lib/components/Header.svelte";
   import ViewToggle from "./lib/components/ViewToggle.svelte";
@@ -343,6 +344,12 @@
         {/if}
       {/snippet}
     </Header>
+    <!-- The chat-session strip sits on the SHELL band, outside the terminal
+         card — shown exactly when the card below renders the chat surface
+         (the same cascade conditions as the {:else} branch inside). -->
+    {#if $centerView !== "settings" && $repos.length > 0 && $mainView !== "run" && $selectedWorktree}
+      <ChatTabs />
+    {/if}
     <div class="content" use:borderGlow>
       {#if $centerView === "settings"}
         <Settings />

@@ -993,10 +993,11 @@ html, body {
 /* Text styling is the shared .error-text; this just pads it off the pane edges. */
 .term-error { padding: 6px 12px; }
 
-/* ---- multi-chat surface: tab strip + one cell, or an n-up grid ---- */
-.chat-surface { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-/* The strip: chat tabs + new-chat + layout toggle. Slim, terminal-adjacent. */
-.chat-tabs { flex-shrink: 0; display: flex; align-items: center; gap: 4px; padding: 6px 10px 2px 14px; }
+/* ---- multi-chat surface: shell-band tab strip + cells in the card ---- */
+/* The strip: chat tabs + new-chat + layout toggle. Lives OUTSIDE the content
+   card, on the shell band between the header and the frame (App.svelte) —
+   side padding lines it up with the card's margins. */
+.chat-tabs { flex-shrink: 0; display: flex; align-items: center; gap: 4px; padding: 2px var(--app-pane-gap) 0; }
 /* Per-chat status dot in the tab label (mirrors the sidebar's busy signal). */
 .chat-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 999px; background: var(--app-dim); }
 .chat-dot[data-status="busy"] { background: var(--app-accent); }
