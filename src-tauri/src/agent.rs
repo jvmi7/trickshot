@@ -1,22 +1,6 @@
 //! Agent-adjacent commands: the Claude Code session-store scan that powers
-//! resume (`latest_session_id`) and the OS-notification bridge (`notify`).
-//! The chat itself runs in the CLI on a PTY (see `terminal.rs`) — there is no
-//! app-managed agent process.
-
-use tauri::AppHandle;
-
-/// Show a desktop notification (used to surface backgrounded-worktree activity
-/// while the user is focused elsewhere).
-#[tauri::command]
-pub fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
-    use tauri_plugin_notification::NotificationExt;
-    app.notification()
-        .builder()
-        .title(title)
-        .body(body)
-        .show()
-        .map_err(|e| e.to_string())
-}
+//! resume (`latest_session_id`). The chat itself runs in the CLI on a PTY
+//! (see `terminal.rs`) — there is no app-managed agent process.
 
 /// Encode a worktree path the way Claude Code names its per-project session
 /// dir under `~/.claude/projects/`: every non-alphanumeric byte becomes `-`

@@ -13,11 +13,11 @@ End-to-end map. Two processes; the chat is the real Claude Code CLI on a PTY.
 │  Rust core (src-tauri/src)                                        │
 │   terminal.rs  PTYs per worktree: login shell + the claude slot   │
 │                (Terminals: WorktreeMap of pty-key -> PTY)         │
-│   agent.rs     latest_session_id (~/.claude scan) / notify        │
+│   agent.rs     latest_session_id (~/.claude scan)                 │
 │   worktree.rs  pick_directory / list / create / remove + git      │
 │   scripts.rs / github.rs / generate.rs / usage.rs  (see tables)   │
 │   worktree_map.rs  shared WorktreeMap<T> + WorktreeEvent envelope │
-│   lib.rs       registers plugins (dialog, notification) + cmds    │
+│   lib.rs       registers plugins (dialog) + cmds                  │
 └───────┬───────────────────────────────────────────────────────────┘
         │ spawns on a PTY
    the user's PATH `claude` CLI (TUI)  ──>  Anthropic API
@@ -35,7 +35,7 @@ own — the app adds no layer on top.
 2. **Spin up a worktree** → `create_worktree(repo, branch)` runs `git worktree add` under `../.<repo>-worktrees/<branch>`; the UI selects the new worktree.
 3. **Selecting a worktree = activating its chat** (no manual start/stop). Activation opens the worktree's claude-slot PTY — `term_open(…, launch: "claude", resumeSessionId)` — resuming the newest session id from Claude Code's own session store (`latest_session_id`). Worktrees run **concurrently** — each keeps its own PTY; switching only changes which one is attached to the pane.
 4. **User turns** are typed straight into the TUI. Features that hand text to the agent from **outside** the pane (git-panel review comments, "fix failing checks") go through `session.ts › submitTurnToChat` → bracketed-paste keystroke injection (`sendToCli`), then focus the terminal and raise a toast receipt.
-5. **Busy/idle detection** comes from the PTY's output flow (`src/lib/cliActivity.ts`, wired in `terminal.ts › noteCliActivity`): data flowing = busy; a real burst ending fires the turn-end side-effects (sidebar dot, unread badge, OS notification, git/usage refresh). The CLI exiting (`/exit`, crash) marks the session `stopped`; typing into the pane or re-activating the worktree revives it (no auto-respawn — a crash-looping CLI must not fork-bomb).
+5. **Busy/idle detection** comes from the PTY's output flow (`src/lib/cliActivity.ts`, wired in `terminal.ts › noteCliActivity`): data flowing = busy; a real burst ending fires the turn-end side-effects (sidebar dot, unread badge, git/usage refresh). The CLI exiting (`/exit`, crash) marks the session `stopped`; typing into the pane or re-activating the worktree revives it (no auto-respawn — a crash-looping CLI must not fork-bomb).
 
 ## The CLI chat surface (details)
 
@@ -49,6 +49,8 @@ own — the app adds no layer on top.
 | Command | Args (camelCase from JS) | Returns | Notes |
 |---|---|---|---|
 | `pick_directory` | — | `string \| null` | Native folder picker |
+| `repo_icon` | `repoPath` | `string \| null` | Repo favicon as a `data:` URI (bounded walk; an icon DECLARED by an `index.html`/`app.html` `<link rel="icon">` wins, else rank `favicon.*` anywhere + `icon.png/svg` in icon-ish dirs; ≤256KB); null when absent. Sidebar repo headers only |
+| `home_dir` | — | `string` | The user's home directory (`$HOME`) — the sidebar Home workspace root |
 | `list_worktrees` | `repoPath` | `Worktree[]` | First entry is main |
 | `create_worktree` | `repoPath, branch, baseRef?` | `Worktree` | Creates branch if new; one-click primitive |
 | `remove_worktree` | `repoPath, worktreePath, force` | `void` | Branch left intact |
@@ -60,7 +62,6 @@ own — the app adds no layer on top.
 | `worktree_merge` | `repoPath, branch` | `string` | Merges `branch` into the branch checked out at `repoPath` |
 | `worktree_pull` | `worktreePath` | `string` | `git pull --rebase --autostash`; a conflict auto-aborts back to the pre-pull state and rejects |
 | `worktree_move_to_branch` | `worktreePath, branch` | `string` | Recovery for commits stuck on a protected branch: creates `branch` at HEAD, switches to it, and rewinds the former branch to its upstream (`origin/<default>` fallback). Returns the new branch name |
-| `notify` | `title, body` | `void` | Shows a desktop notification (tauri-plugin-notification) |
 | `get_usage` | `provider?` | `UsageInfo` | Subscription usage as provider-neutral labeled windows `{ windows: [{ label, utilization, resets_at }] }` (Claude maps its 5-hour + weekly windows). `provider` (default `"claude"`) is the dispatch point for future providers — unknown ids reject. See *Subscription usage* below |
 | `check_auth` | `provider?` | `boolean` | Whether a login exists for the provider's account (local credential read only, no network; same keychain/file source as `get_usage`, same `provider` gate). `false` = definitively no credentials; ambiguous environment failures reject so the UI never false-alarms. Drives the first-run "sign in" notice |
 | `get_scripts` | `repoPath` | `ScriptsConfig` | Parsed `scripts` section of the repo's `.trickshot/settings.json` (missing file → empty config). See *Project scripts* below |
@@ -110,7 +111,7 @@ The app is Claude-only today but keeps ONE deliberate dispatch seam: `src/lib/pr
 ## Packaging notes
 
 - No external binaries ship with the app — the CLI is the user's own install, resolved from their login shell's PATH at runtime (`check_cli` is the onboarding preflight).
-- Spawning happens in plain Rust (portable-pty + `std::process::Command`), so no Tauri shell capability is needed; the capability file only grants dialog + notification.
+- Spawning happens in plain Rust (portable-pty + `std::process::Command`), so no Tauri shell capability is needed; the capability file only grants dialog.
 
 ## Boundaries (what's intentionally not here)
 

@@ -265,6 +265,30 @@ export function addRepo(repo: Repo) {
   repos.update((rs) => (rs.some((r) => r.path === repo.path) ? rs : [...rs, repo]));
 }
 
+// ---- Repo icons (sidebar favicons) ----
+/** `data:` URI per repo path; null = probed, none found (the sidebar renders
+ *  its placeholder icon). Keyed by REPO path (not worktree), so a plain map —
+ *  and NOT persisted: icons change on disk, and a base64 blob per repo would
+ *  bloat localStorage for a purely cosmetic cache. */
+export const repoIconByRepo = writable<Record<string, string | null>>({});
+const iconRequested = new Set<string>();
+/** Fetch a repo's favicon once per app run (idempotent; failure = null). */
+export function loadRepoIcon(repoPath: string) {
+  if (iconRequested.has(repoPath)) return;
+  iconRequested.add(repoPath);
+  api
+    .repoIcon(repoPath)
+    .then((uri) => repoIconByRepo.update((m) => ({ ...m, [repoPath]: uri })))
+    .catch(() => repoIconByRepo.update((m) => ({ ...m, [repoPath]: null })));
+}
+
+// ---- Home workspace (~) ----
+/** The Home workspace root — the user's home directory, a workspace OUTSIDE
+ *  any repo/worktree. Resolved once at launch (App.svelte's rehydrate flow);
+ *  the sidebar's Home row renders only once this is known. Not persisted —
+ *  it's an OS fact, refetched each run. */
+export const homePath = writable<string | null>(null);
+
 /** Worktrees per repo path. Git is the source of truth — repopulated from
  *  `list_worktrees` on launch and after create/remove. */
 export const worktreesByRepo = writable<Record<string, Worktree[]>>({});

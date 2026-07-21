@@ -56,6 +56,133 @@ export function slidingHighlight(wrap: HTMLElement) {
   };
 }
 
+// Vertical variant for the sidebar's worktree rows: TWO pooled layers under
+// the rows — a persistent one following the `.active` row and a transient one
+// following the pointer-hovered row (two, because the active row must stay
+// filled while another row is hovered). Rows must be position:relative so
+// their content paints above the layers (see .wt-row in app.css). Unlike the
+// siblings this watches childList too: rows mount/unmount (collapsing a repo
+// group, create/archive), which shifts every row below and can remove the
+// tracked node. Positioning uses rect deltas + scrollTop so it's correct both
+// when the wrap scrolls itself (the archived list) and when an ancestor
+// scrolls wrap + rows together (.sidebar-list).
+export function slidingRowHighlight(wrap: HTMLElement, opts: { rowSelector?: string } = {}) {
+  const rowSelector = opts.rowSelector ?? ".wt-row";
+  wrap.style.position = "relative";
+
+  // Opacity fades ride the app feedback clock; the slide keeps the siblings' feel.
+  const fade =
+    getComputedStyle(document.documentElement).getPropertyValue("--app-duration-fast").trim() ||
+    "120ms";
+  // Group-aware corner radius: the layer reads as one segmented block, so only
+  // the group's outer edges are rounded (first row = top corners, last = bottom,
+  // middle = none, a lone row = all four). Animated with the slide. The rows'
+  // own radius (their :active press tint) mirrors this via first/last-of-type
+  // rules in app.css — which is why the layers are SPANS: a div layer would
+  // steal the rows' :first-of-type.
+  const RADIUS = "var(--radius-xl)";
+  const SLIDE = "170ms cubic-bezier(.22,.7,.25,1)";
+  const makeLayer = (background: string) => {
+    const el = document.createElement("span");
+    Object.assign(el.style, {
+      position: "absolute",
+      left: "0",
+      right: "0",
+      top: "0px",
+      height: "0px",
+      borderRadius: RADIUS,
+      background,
+      opacity: "0",
+      pointerEvents: "none",
+      zIndex: "0",
+      transform: "translateY(0px)",
+      transition: `transform ${SLIDE}, height ${SLIDE}, border-radius ${SLIDE}, opacity ${fade} ease`,
+    });
+    wrap.prepend(el);
+    return el;
+  };
+  const activeLayer = makeLayer("var(--app-panel-2)");
+  const hoverLayer = makeLayer("var(--app-panel)");
+
+  let hovered: HTMLElement | null = null;
+  // Whether the pointer is anywhere over the wrap: while it is, the rows read
+  // as one segmented block (group-aware corners); once it leaves, the active
+  // layer stands alone and rounds evenly on all four corners.
+  let wrapHovered = false;
+
+  const place = (layer: HTMLElement, row: HTMLElement | null, evenCorners: boolean) => {
+    if (!row?.isConnected) {
+      layer.style.opacity = "0";
+      return;
+    }
+    const wrapRect = wrap.getBoundingClientRect();
+    const rect = row.getBoundingClientRect();
+    if (evenCorners) {
+      layer.style.borderRadius = RADIUS;
+    } else {
+      const rows = wrap.querySelectorAll<HTMLElement>(rowSelector);
+      const top = rows[0] === row ? RADIUS : "0px";
+      const bottom = rows[rows.length - 1] === row ? RADIUS : "0px";
+      layer.style.borderRadius = `${top} ${top} ${bottom} ${bottom}`;
+    }
+    layer.style.transform = `translateY(${rect.top - wrapRect.top + wrap.scrollTop}px)`;
+    layer.style.height = `${rect.height}px`;
+    layer.style.opacity = "1";
+  };
+
+  let raf = 0;
+  const update = () => {
+    raf = 0;
+    if (hovered && !hovered.isConnected) hovered = null;
+    place(activeLayer, wrap.querySelector<HTMLElement>(`${rowSelector}.active`), !wrapHovered);
+    place(hoverLayer, hovered, false);
+  };
+  const schedule = () => {
+    if (!raf) raf = requestAnimationFrame(update);
+  };
+
+  // :hover isn't attribute-observable, so hover is tracked by delegation;
+  // `closest` keeps the highlight on the row while hovering its nested buttons.
+  const onPointerOver = (e: PointerEvent) => {
+    const row = (e.target as Element | null)?.closest<HTMLElement>(rowSelector);
+    hovered = row && wrap.contains(row) ? row : null;
+    wrapHovered = true;
+    schedule();
+  };
+  const onPointerLeave = () => {
+    hovered = null;
+    wrapHovered = false;
+    schedule();
+  };
+  wrap.addEventListener("pointerover", onPointerOver);
+  wrap.addEventListener("pointerleave", onPointerLeave);
+
+  // `.active` moves between rows (class) and rows mount/unmount (childList) —
+  // both shift the geometry the layers track.
+  const mo = new MutationObserver(schedule);
+  mo.observe(wrap, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["class"],
+  });
+  const ro = new ResizeObserver(schedule);
+  ro.observe(wrap);
+  schedule();
+
+  return {
+    destroy() {
+      mo.disconnect();
+      ro.disconnect();
+      wrap.removeEventListener("pointerover", onPointerOver);
+      wrap.removeEventListener("pointerleave", onPointerLeave);
+      if (raf) cancelAnimationFrame(raf);
+      activeLayer.remove();
+      hoverLayer.remove();
+    },
+  };
+}
+
 // Horizontal variant for a segmented toggle group: a single background that
 // slides to the SELECTED item (the one carrying `data-active`), animating its
 // x-position + width. Apply to the element wrapping the items; the items should

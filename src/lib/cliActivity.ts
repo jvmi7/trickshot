@@ -68,7 +68,7 @@ export class CliActivityTracker {
   }
 
   /** The caller's idle timer fired at `now`: the burst is over. Returns
-   *  whether it was a real "turn" (worth unread/notify side-effects) or a
+   *  whether it was a real "turn" (worth unread side-effects) or a
    *  trivial "blip" (echo, repaint, replay). A burst that never announced
    *  busy is always a blip — muted/reactive output can't fire side-effects.
    *  Resets for the next burst either way. */

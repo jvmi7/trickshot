@@ -21,17 +21,20 @@
     clearUnread,
     archivedWorkspaces,
     addArchived,
-    removeArchived,
     restoreWorkspace,
     gitStatByWorktree,
+    homePath,
+    repoIconByRepo,
+    loadRepoIcon,
     type ArchivedWorkspace,
   } from "../stores";
   import * as api from "../api";
   import { generateWorktreeName } from "../branchNames";
+  import { slidingRowHighlight } from "../slidingHighlight";
   import { toastMessage } from "../toast";
   import { disposeTerminal } from "../terminal";
   import { profileAccent } from "../termProfiles";
-  import { basename, relativeTime } from "../utils";
+  import { basename } from "../utils";
   import type { Worktree } from "../types";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -41,11 +44,12 @@
   import IconButton from "./IconButton.svelte";
   import IdentityGlyph from "./IdentityGlyph.svelte";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
+  import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
+  import House from "@lucide/svelte/icons/house";
   import Plus from "@lucide/svelte/icons/plus";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Archive from "@lucide/svelte/icons/archive";
-  import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
 
   let creatingFor = $state<string | null>(null); // repo path the inline create field is open for
   let collapsed = $state<Record<string, boolean>>({}); // repo paths whose worktree list is folded
@@ -55,12 +59,14 @@
   let newBranch = $state("");
   let creating = $state(false);
   let error = $state("");
-  // The ONE confirm Dialog's pending action: removing/archiving a dirty worktree
-  // (both force-remove the dir, discarding uncommitted work) or permanently
-  // deleting an archived workspace (drops its chat history).
+  // The ONE confirm Dialog's pending action: archiving a dirty worktree (the
+  // force-remove discards uncommitted work), removing a BRANCHLESS worktree
+  // (detached HEAD can't archive — remove is its only exit), or retrying an
+  // archive whose cleanup script failed. (Deleting an ARCHIVED workspace
+  // confirms in ArchivedSection — archived flows live there.)
   type ConfirmAction =
     | { kind: "remove" | "archive"; repoPath: string; wt: Worktree; fileCount: number }
-    | { kind: "purge"; entry: ArchivedWorkspace };
+    | { kind: "archive-skip-hook"; repoPath: string; wt: Worktree; scriptError: string };
   let confirmAction = $state<ConfirmAction | null>(null);
   // null (not undefined): Input's `ref` is $bindable(null); Svelte throws on
   // bind:ref={undefined} when the bindable has a fallback value.
@@ -89,6 +95,23 @@
       error = String(e);
     }
   }
+
+  // The Home row: a workspace rooted at ~ (outside any repo/worktree). The
+  // shared activateWorktree path works on any directory under CLI-first chat.
+  async function selectHome() {
+    const home = $homePath;
+    if (!home) return;
+    try {
+      await activateWorktree(home);
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  // Repo favicons: probe each repo once per app run (idempotent in the store).
+  $effect(() => {
+    for (const r of $repos) loadRepoIcon(r.path);
+  });
 
   // ⌘⇧N / the palette / the fleet ask for a new worktree via this nonce:
   // instantly create one (auto-named) for the selected worktree's repo (or the
@@ -157,13 +180,16 @@
     return createWith(repoPath, generateWorktreeName(taken));
   }
 
-  // Begin removal/archival. Remove ALWAYS confirms — it permanently drops the
-  // worktree AND its chat history, clean tree or not (an accidental click must
-  // not be destructive). Archive of a CLEAN tree proceeds immediately but gets
-  // an Undo toast (restore is lossless); a dirty tree confirms first (the
-  // force-remove discards uncommitted work). NOTE: `e` takes an explicit
-  // default, not a `?:` optional — Svelte's TS stripper leaves the bare `e?`
-  // in the output, which JavaScriptCore rejects as a syntax error.
+  // Begin archival — the ONE verb on a live workspace; permanent deletion
+  // exists only on the Archived list (archive → purge). Archive of a CLEAN
+  // tree proceeds immediately but gets an Undo toast (restore is lossless); a
+  // dirty tree confirms first (the force-remove discards uncommitted work).
+  // "remove" survives ONLY as the branchless fallback: a detached-HEAD
+  // worktree can't archive (restore needs a branch), so its row keeps a
+  // direct remove — which ALWAYS confirms (it drops the chat for good).
+  // NOTE: `e` takes an explicit default, not a `?:` optional — Svelte's TS
+  // stripper leaves the bare `e?` in the output, which JavaScriptCore rejects
+  // as a syntax error.
   async function requestAction(
     kind: "remove" | "archive",
     repoPath: string,
@@ -206,19 +232,30 @@
   // same path and the conversation resumes on restore (see stores.ts ›
   // archivedWorkspaces). The repo's archive script (if any) runs to completion
   // FIRST, while the worktree still exists.
-  async function doArchive(repoPath: string, wt: Worktree) {
+  async function doArchive(repoPath: string, wt: Worktree, skipHook = false) {
     error = "";
     if (!wt.branch) return; // restore needs a branch; detached HEAD can't archive
     try {
       let archiveCmd: string | null = null;
-      try {
-        archiveCmd = (await api.getScripts(repoPath)).archive;
-      } catch {
-        // unreadable settings file — archive proceeds without a hook
+      if (!skipHook) {
+        try {
+          archiveCmd = (await api.getScripts(repoPath)).archive;
+        } catch {
+          // unreadable settings file — archive proceeds without a hook
+        }
       }
-      // A failing archive script ABORTS the archive (it exists to clean up
-      // resources; deleting the dir anyway would leak them).
-      if (archiveCmd) await api.runScriptBlocking(repoPath, wt.path, "archive");
+      // A failing archive script must not dead-end the flow: archive is the
+      // only exit for a branched workspace, so offer "archive anyway" (the
+      // hook exists to clean up resources — the user decides whether leaking
+      // them beats being stuck with an unarchivable workspace).
+      if (archiveCmd) {
+        try {
+          await api.runScriptBlocking(repoPath, wt.path, "archive");
+        } catch (err) {
+          confirmAction = { kind: "archive-skip-hook", repoPath, wt, scriptError: String(err) };
+          return;
+        }
+      }
       await api.stopScript(wt.path);
       disposeTerminal(wt.path);
       await api.removeWorktree(repoPath, wt.path, true);
@@ -244,25 +281,6 @@
     }
   }
 
-  // Restore an archived workspace — the shared flow lives in session.ts
-  // (`restoreWorkspace`, also the palette's path); this just owns the
-  // sidebar's local error surface.
-  async function restoreArchived(entry: ArchivedWorkspace) {
-    error = "";
-    try {
-      await restoreWorkspace(entry);
-    } catch (e) {
-      error = String(e);
-    }
-  }
-
-  // Permanently delete an archived workspace: drop the History entry. (The
-  // conversation itself lives in Claude Code's own session store on disk —
-  // the app never deletes that.)
-  function purgeArchived(entry: ArchivedWorkspace) {
-    removeArchived(entry.repoPath, entry.branch);
-  }
-
   // Remove a repo from the sidebar: dispose its worktrees' terminals here
   // (stores.ts must stay free of the xterm module — see lib/terminal.ts), then
   // hand off to the store's removeRepo for the session/state teardown.
@@ -276,15 +294,43 @@
     const c = confirmAction;
     confirmAction = null;
     if (!c) return;
-    if (c.kind === "purge") purgeArchived(c.entry);
+    if (c.kind === "archive-skip-hook") doArchive(c.repoPath, c.wt, true);
     else if (c.kind === "archive") doArchive(c.repoPath, c.wt);
     else doRemove(c.repoPath, c.wt);
   }
 </script>
 
+<!-- slidingRowHighlight is applied PER .wt-rows block (not once on the root)
+     so the hover/active fill only slides between rows of the SAME repository —
+     crossing into another group fades out/in instead of gliding over headers. -->
 <div class="wt">
+  <!-- Home: a workspace rooted at ~ — outside any repo/worktree, so no glyph,
+       no ± stat, no archive/remove, no context menu. Renders once the home
+       path resolves (App.svelte's launch flow). -->
+  {#if $homePath}
+    <div class="wt-rows home-rows" use:slidingRowHighlight>
+      <div
+        class="wt-row"
+        class:active={$selectedWorktree === $homePath}
+        role="button"
+        tabindex="0"
+        onclick={selectHome}
+        onkeydown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            selectHome();
+          }
+        }}
+      >
+        <House class="wt-home" />
+        <span class="wt-name">Home</span>
+      </div>
+    </div>
+  {/if}
+
   <div class="wt-section section-label">
-    <span>Projects</span>
+    <span>Repositories</span>
     <Tooltip.Root>
       <Tooltip.Trigger>
         {#snippet child({ props })}
@@ -310,6 +356,11 @@
                 onclick={() => toggleRepo(repo.path)}
               >
                 <span class="repo-chevron" class:collapsed={collapsed[repo.path]}><ChevronDown class="size-3.5" /></span>
+                {#if $repoIconByRepo[repo.path]}
+                  <img class="repo-favicon" src={$repoIconByRepo[repo.path]} alt="" />
+                {:else}
+                  <FolderGit2 class="repo-favicon" />
+                {/if}
                 <span class="repo-name section-label">{repo.name}</span>
               </button>
               <Tooltip.Root>
@@ -355,8 +406,11 @@
           />
         {/if}
 
-        <div class="wt-rows">
+        <div class="wt-rows" use:slidingRowHighlight>
           {#each $worktreesByRepo[repo.path] ?? [] as wt (wt.path)}
+          <!-- busy also drives the row class: a greyed glyph must color back in
+               while its session's loading morph plays (see app.css). -->
+          {@const busy = $sessionStatus[wt.path] === "busy"}
           <ContextMenu.Root>
             <ContextMenu.Trigger>
               {#snippet child({ props })}
@@ -364,6 +418,7 @@
                   {...props}
                   class="wt-row group/row"
                   class:active={$selectedWorktree === wt.path}
+                  class:busy
                   role="button"
                   tabindex="0"
                   onclick={() => select(wt)}
@@ -377,11 +432,7 @@
                     }
                   }}
                 >
-                  <IdentityGlyph
-                    seed={wt.path}
-                    color={profileAccent(wt.path)}
-                    loading={$sessionStatus[wt.path] === "busy"}
-                  />
+                  <IdentityGlyph seed={wt.path} color={profileAccent(wt.path)} loading={busy} />
                   <span class="wt-name">{wt.branch ?? "(detached)"}</span>
                   {#if ($gitStatByWorktree[wt.path]?.changed ?? 0) > 0}
                     {@const gs = $gitStatByWorktree[wt.path]}
@@ -394,6 +445,9 @@
                   {#if ($unreadByWorktree[wt.path] ?? 0) > 0 && $selectedWorktree !== wt.path}
                     <span class="wt-unread" title="Finished while in background">{$unreadByWorktree[wt.path]}</span>
                   {/if}
+                  <!-- Archive is the ONE verb on a live workspace (delete lives on
+                       the Archived list). The trash fallback exists only for a
+                       BRANCHLESS (detached HEAD) worktree, which can't archive. -->
                   {#if !wt.is_main}
                     {#if wt.branch}
                       <Button
@@ -405,17 +459,18 @@
                       >
                         <Archive class="size-3" />
                       </Button>
+                    {:else}
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        class="opacity-0 transition-opacity group-hover/row:opacity-100"
+                        title="Remove worktree (detached — can't archive; discards its working files)"
+                        aria-label="Remove worktree"
+                        onclick={(e: Event) => requestAction("remove", repo.path, wt, e)}
+                      >
+                        <Trash2 class="size-3" />
+                      </Button>
                     {/if}
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      class="opacity-0 transition-opacity group-hover/row:opacity-100"
-                      title="Remove worktree (discards its working files)"
-                      aria-label="Remove worktree"
-                      onclick={(e: Event) => requestAction("remove", repo.path, wt, e)}
-                    >
-                      <Trash2 class="size-3" />
-                    </Button>
                   {/if}
                 </div>
               {/snippet}
@@ -427,14 +482,15 @@
                     <Archive class="size-3.5" />
                     Archive workspace
                   </ContextMenu.Item>
+                {:else}
+                  <ContextMenu.Item
+                    variant="destructive"
+                    onclick={() => requestAction("remove", repo.path, wt)}
+                  >
+                    <Trash2 class="size-3.5" />
+                    Remove worktree
+                  </ContextMenu.Item>
                 {/if}
-                <ContextMenu.Item
-                  variant="destructive"
-                  onclick={() => requestAction("remove", repo.path, wt)}
-                >
-                  <Trash2 class="size-3.5" />
-                  Remove worktree
-                </ContextMenu.Item>
               </ContextMenu.Content>
             {/if}
           </ContextMenu.Root>
@@ -445,59 +501,7 @@
   {/each}
 
   {#if $repos.length === 0}
-    <div class="wt-empty">No projects yet — add a repository above.</div>
-  {/if}
-
-  {#if $archivedWorkspaces.length > 0}
-    <div class="wt-section section-label archived-head">
-      <span>Archived</span>
-    </div>
-    <div class="wt-rows">
-      {#each $archivedWorkspaces as a (a.repoPath + " " + a.branch)}
-        <div class="wt-row group/row archived-row">
-          <Archive class="wt-home" />
-          <span class="wt-name" title="{a.repoName} · {a.branch}">{a.repoName} / {a.branch}</span>
-          <span
-            class="arch-time"
-            title={new Date(a.archivedAt).toLocaleString()}
-          >{relativeTime(a.archivedAt)}</span>
-          <Tooltip.Root>
-            <Tooltip.Trigger>
-              {#snippet child({ props })}
-                <Button
-                  {...props}
-                  variant="ghost"
-                  size="icon-xs"
-                  class="opacity-0 transition-opacity group-hover/row:opacity-100"
-                  aria-label="Restore workspace"
-                  onclick={() => restoreArchived(a)}
-                >
-                  <ArchiveRestore class="size-3" />
-                </Button>
-              {/snippet}
-            </Tooltip.Trigger>
-            <Tooltip.Content>Restore (recreates the worktree, chat resumes)</Tooltip.Content>
-          </Tooltip.Root>
-          <Tooltip.Root>
-            <Tooltip.Trigger>
-              {#snippet child({ props })}
-                <Button
-                  {...props}
-                  variant="ghost"
-                  size="icon-xs"
-                  class="opacity-0 transition-opacity group-hover/row:opacity-100"
-                  aria-label="Delete permanently"
-                  onclick={() => (confirmAction = { kind: "purge", entry: a })}
-                >
-                  <Trash2 class="size-3" />
-                </Button>
-              {/snippet}
-            </Tooltip.Trigger>
-            <Tooltip.Content>Remove from History</Tooltip.Content>
-          </Tooltip.Root>
-        </div>
-      {/each}
-    </div>
+    <div class="wt-empty">No repositories yet — add one above.</div>
   {/if}
 
   <!-- mt-[16px]: the old .error-box margin, kept at its one call site (spacing is per-site). -->
@@ -507,11 +511,12 @@
 <Dialog.Root open={!!confirmAction} onOpenChange={(open) => !open && (confirmAction = null)}>
   <Dialog.Content>
     <Dialog.Header>
-      {#if confirmAction?.kind === "purge"}
-        <Dialog.Title>Delete archived workspace?</Dialog.Title>
+      {#if confirmAction?.kind === "archive-skip-hook"}
+        <Dialog.Title>Archive script failed</Dialog.Title>
         <Dialog.Description>
-          "{confirmAction.entry.repoName} / {confirmAction.entry.branch}" is removed from History
-          (the git branch is kept).
+          The repo's archive cleanup script failed on "{confirmAction.wt.branch ??
+            confirmAction.wt.path}": {confirmAction.scriptError} — archive anyway? Resources the
+          script would have cleaned up may be left behind.
         </Dialog.Description>
       {:else if confirmAction && confirmAction.fileCount > 0}
         <Dialog.Title>{confirmAction.kind === "archive" ? "Archive" : "Remove"} worktree?</Dialog.Title>
@@ -522,19 +527,24 @@
             : "Removing discards them."}
         </Dialog.Description>
       {:else if confirmAction}
-        <!-- Clean-tree remove: nothing uncommitted, but the worktree still
-             disappears — that deserves a stop. -->
+        <!-- Clean-tree remove — only reachable for a BRANCHLESS (detached HEAD)
+             worktree, the one kind that can't archive. Still deserves a stop:
+             the worktree disappears for good. -->
         <Dialog.Title>Remove worktree?</Dialog.Title>
         <Dialog.Description>
-          "{confirmAction.wt.branch ?? confirmAction.wt.path}" will be removed (the git branch is
-          kept). Archive instead to keep it restorable from History.
+          "{confirmAction.wt.branch ?? confirmAction.wt.path}" has no branch (detached HEAD), so it
+          can't be archived — removing drops the worktree for good.
         </Dialog.Description>
       {/if}
     </Dialog.Header>
     <Dialog.Footer>
       <Button variant="secondary" onclick={() => (confirmAction = null)}>Cancel</Button>
       <Button variant="destructive" onclick={confirmProceed}>
-        {confirmAction?.kind === "archive" ? "Archive" : confirmAction?.kind === "purge" ? "Delete" : "Remove"}
+        {confirmAction?.kind === "archive"
+          ? "Archive"
+          : confirmAction?.kind === "archive-skip-hook"
+            ? "Archive anyway"
+            : "Remove"}
       </Button>
     </Dialog.Footer>
   </Dialog.Content>

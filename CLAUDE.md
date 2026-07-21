@@ -54,7 +54,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Persisted-store template (`createPersisted`/`createPersistedString` + shape guards + `purgeRetiredKeys`) | `src/lib/persist.ts` |
 | Session/worktree orchestration: `activateWorktree`, `openRepository`, `restoreWorkspace`, `ensureClaudeOpen`, `sendToCli`, `submitTurnToChat`, `handleCliExit` | `src/lib/session.ts` (re-exported via `stores.ts`) |
 | Provider DISPLAY registry (per-provider copy: sign-in banner, usage footnote, auth-error matcher) — the only webview module that may name a provider | `src/lib/providers.ts` |
-| CLI busy/idle detection (PTY output flow → busy dot / unread / notifications) | `src/lib/cliActivity.ts` (pure tracker + tests) wired in `terminal.ts › noteCliActivity` |
+| CLI busy/idle detection (PTY output flow → busy dot / unread) | `src/lib/cliActivity.ts` (pure tracker + tests) wired in `terminal.ts › noteCliActivity` |
 | Integrated terminal (PTYs per worktree: shell + claude slots) | `src-tauri/src/terminal.rs` (portable-pty commands, `launch` whitelist) + `src/lib/terminal.ts` (xterm cache + `term-event` router + `attachTerminal` + `claudeTermKey`) + `TerminalPane.svelte`/`ClaudeTerminalPane.svelte` |
 | The chat pane (the real Claude Code TUI) | `ClaudeTerminalPane.svelte` + `session.ts › ensureClaudeOpen/sendToCli/submitTurnToChat/handleCliExit` + `agent.rs › latest_session_id` |
 | Compose popup (⌘E long-prompt editor → bracketed-paste into the CLI) | `ComposeDialog.svelte` + `stores.ts › composeOpen/composeDraft` |
@@ -80,10 +80,10 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Per-workspace terminal profiles (path-hash → full ANSI palette/accent; identity chips + header ❯) | `src/lib/termProfiles.ts` (data + `profileFor/Accent`, tested) + `terminal.ts › themeColors(key)` + `stores.ts` `--ws-*` reflect |
 | ANSI (SGR) rendering for script output — the ONE home | `src/lib/ansi.ts` (+ tests) + `AnsiText.svelte`; `--app-ansi-*` tokens in app.css (conformance §8) |
 | Command palette (⌘K) + shortcuts (⌘⇧N/⌘⇧D/⌘⇧P in `App.svelte`) | `CommandPalette.svelte` + `stores.ts › commandPaletteOpen`/`newWorktreeRequest`/`activateWorktree` |
-| Notifications & background fleet (unread badges) | `notify` command (`agent.rs`) + `api.notify` + `unreadByWorktree` store + `Worktrees.svelte`/`Fleet.svelte` badges; the busy/turn-end signal is derived from PTY output flow (`cliActivity.ts`) |
-| Rust commands: session-store scan + notify / git worktrees | `src-tauri/src/agent.rs`, `worktree.rs` |
+| Background fleet (unread badges) | `unreadByWorktree` store + `Worktrees.svelte`/`Fleet.svelte` badges; the busy/turn-end signal is derived from PTY output flow (`cliActivity.ts`). (The notification system — OS `notify` command + in-app bell — was DELETED by user request; don’t reintroduce it.) |
+| Rust commands: session-store scan / git worktrees + repo icons | `src-tauri/src/agent.rs`, `worktree.rs` |
 | Rust command registry (`generate_handler!`) | `src-tauri/src/lib.rs` |
-| Permission scope (dialog, notification) | `src-tauri/capabilities/default.json` |
+| Permission scope (dialog) | `src-tauri/capabilities/default.json` |
 
 `src/lib/api.ts` is the **sole hook layer.** Components import `* as api` and call `pickDirectory` / `termOpen` / `onTermEvent` etc. **Never** import or call `invoke()` (`@tauri-apps/api/core`) or `listen()` (`@tauri-apps/api/event`) directly in a `.svelte` file — add a new typed wrapper to `api.ts` first. Its header says `THIS IS THE PRIMARY HOOK POINT`.
 

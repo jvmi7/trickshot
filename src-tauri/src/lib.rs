@@ -15,13 +15,13 @@ use terminal::Terminals;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
         .manage(ScriptProcs::default())
         .manage(Terminals::default())
         .invoke_handler(tauri::generate_handler![
             agent::latest_session_id,
-            agent::notify,
             worktree::pick_directory,
+            worktree::repo_icon,
+            worktree::home_dir,
             worktree::list_worktrees,
             worktree::create_worktree,
             worktree::remove_worktree,

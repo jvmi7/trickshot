@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import { onScriptEvent, onTermEvent, listWorktrees, worktreeStatus } from "./lib/api";
+  import { onScriptEvent, onTermEvent, listWorktrees, worktreeStatus, homeDir } from "./lib/api";
   import { borderGlow } from "./lib/borderGlow";
   import { handleTermEvent } from "./lib/terminal";
   import {
@@ -33,6 +33,7 @@
     shellOpen,
     setShellOpen,
     activateWorktree,
+    homePath,
     toggleCommandPalette,
     toggleCompose,
     toggleShortcutsHelp,
@@ -46,6 +47,7 @@
   import RunScripts from "./lib/components/RunScripts.svelte";
   import RunOutput from "./lib/components/RunOutput.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
+  import ArchivedSection from "./lib/components/ArchivedSection.svelte";
   import Fleet from "./lib/components/Fleet.svelte";
   import Settings from "./lib/components/Settings.svelte";
   import Welcome from "./lib/components/Welcome.svelte";
@@ -218,6 +220,9 @@
     // Rehydrate worktrees for persisted repos (git is the source of truth),
     // then drop a stale persisted selection that no longer exists on disk.
     (async () => {
+      // Resolve the Home workspace root FIRST (serialized, not raced) — the
+      // stale-selection guard below must recognize a persisted Home selection.
+      homePath.set(await homeDir().catch(() => null));
       for (const repo of get(repos)) {
         try {
           const wts = await listWorktrees(repo.path);
@@ -230,9 +235,10 @@
       // mount reopens the claude PTY (resuming the newest session id).
       const sel = get(selectedWorktree);
       if (sel) {
-        const exists = Object.values(get(worktreesByRepo)).some((list) =>
-          list.some((w) => w.path === sel),
-        );
+        // Home always "exists" — it's the OS home dir, not a git worktree.
+        const exists =
+          sel === get(homePath) ||
+          Object.values(get(worktreesByRepo)).some((list) => list.some((w) => w.path === sel));
         if (!exists) selectWorktree(null);
       }
     })();
@@ -259,6 +265,9 @@
          border runs full-height as the only column divider. -->
     <div class="sidebar-head" data-tauri-drag-region></div>
     <div class="sidebar-list"><Worktrees /></div>
+    <!-- Archived workspaces: pinned BELOW the scrolling list (its own footer
+         band) so a long repo list can't push it off screen. -->
+    <ArchivedSection />
     <!-- Opens the full Settings page (appearance + global connectors) in the
          center pane, in place of the chat. -->
     <div class="sidebar-foot">
@@ -306,6 +315,9 @@
           {/if}
           {#if $centerView === "settings"}
             <span class="path">Settings</span>
+          {:else if $selectedWorktree && $selectedWorktree === $homePath}
+            <!-- The Home workspace (~) is repo-less — "Home" beats a bare "~". -->
+            <span class="path" title={$selectedWorktree}>Home</span>
           {:else if $selectedWorktree}
             <!-- The separator lives inside ONE expression — text at element
                  boundaries gets whitespace-collapsed ("kosha/ main"). -->

@@ -28,7 +28,6 @@ import {
 } from "./stores";
 import { profileAccent, profileFor } from "./termProfiles";
 import type { TermEnvelope } from "./types";
-import { basename } from "./utils";
 
 /** PTY slot suffix for the dedicated Claude CLI terminal (the chat pane's CLI
  *  mode). NUL can't occur in a filesystem path, so the composite key can't
@@ -202,9 +201,9 @@ export async function ensureOpen(worktree: string) {
 }
 
 // ---- CLI busy/idle detection (the multi-worktree awareness layer) ----------
-// The CLI emits no structured turn events, so the sidebar dot / unread badges /
-// OS notifications key off the claude PTY's OUTPUT FLOW instead (see
-// cliActivity.ts): data flowing = busy; a real burst ending = a turn finished.
+// The CLI emits no structured turn events, so the sidebar dot / unread badges
+// key off the claude PTY's OUTPUT FLOW instead (see cliActivity.ts): data
+// flowing = busy; a real burst ending = a turn finished.
 const cliActivity = new Map<
   string,
   { tracker: CliActivityTracker; timer: ReturnType<typeof setTimeout> | null }
@@ -248,7 +247,6 @@ function noteCliActivity(key: string) {
       bumpGitRefresh();
       if (wt !== get(selectedWorktree)) {
         bumpUnread(wt);
-        void api.notify("Agent finished", basename(wt));
       }
     }
   }, CLI_IDLE_MS);
