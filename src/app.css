@@ -561,6 +561,9 @@
   --app-window-radius: 10px;
   --app-pane-gap: 12px;
   --app-pane-radius: 14px;
+  /* The concentric inner radius for rings drawn 1px inside the pane frame
+     (the .content::after glow) — outer radius minus the 1px border. */
+  --app-pane-radius-inner: calc(var(--app-pane-radius) - 1px);
   --app-panel: var(--base-surface);
   --app-panel-2: var(--base-surface-raised);
   --app-border: var(--base-border);
@@ -774,6 +777,22 @@ html, body {
   border: 1px solid var(--app-border);
   border-radius: var(--app-pane-radius);
   overflow: hidden;
+  /* The terminal-focus ring (below): an OUTLINE, not a pseudo — overflow:hidden
+     would clip a child ring, and outline both escapes the clip and follows the
+     corner radius. Always present (transparent at rest) so only the color
+     animates; it fades on the SLOW clock + soft ease, the same curve as the
+     glow ring's fade below, so the frame effects breathe as one family. */
+  outline: 1px solid transparent;
+  outline-offset: 4px;
+  transition: outline-color var(--app-duration-slow) var(--ease-out-soft);
+}
+/* Terminal-focused frame: while the chat terminal owns the keyboard (xterm
+   stamps `.focus` on its root), a neutral ring floats 4px OUTSIDE the card's
+   border — a quiet "keystrokes go here" signal that leaves the border itself
+   untouched. Scoped to the xterm focus class (NOT :focus-within) so
+   Settings/Fleet focus doesn't light it. */
+.content:has(.xterm.focus) {
+  outline-color: color-mix(in oklch, var(--app-text) 14%, var(--app-border));
 }
 /* Cursor-proximity border highlight (borderGlow.ts writes --glow-x/y/o): a
    radial light centered on the pointer, masked to ONLY a 1px ring — the border
@@ -788,7 +807,11 @@ html, body {
   position: absolute;
   inset: 0;
   border: 1px solid transparent;
-  border-radius: var(--app-pane-radius);
+  /* CONCENTRIC radius: this ring sits 1px inside the frame's border, so its
+     radius must shrink by that 1px — reusing the outer radius verbatim makes
+     the ring drift off the real border exactly at the curves, which reads as
+     the border thinning at the corners once either ring lights up. */
+  border-radius: var(--app-pane-radius-inner);
   background: radial-gradient(
       260px circle at var(--glow-x, 50%) var(--glow-y, 50%),
       color-mix(in oklch, var(--base-text) 45%, transparent),
