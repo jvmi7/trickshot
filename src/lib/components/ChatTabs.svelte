@@ -45,6 +45,31 @@
     disposeChatTerminal(wt, id); // PTY + xterm; the transcript on disk stays
     removeChat(wt, id);
   }
+
+  /** Pin each tab to a WHOLE-pixel width. Text-driven widths are fractional
+   *  (e.g. 181.95px), which puts every frame joint — arcs, ring notch, side
+   *  strokes — on a partial pixel: engines composite the boundary with
+   *  partial coverage and the seams read as 1px gaps, differently per
+   *  DPI/engine. Integer widths make every abutment exact. (Labels are
+   *  static "Chat N", so the pinned width never goes stale.) */
+  function snapWidth(el: HTMLElement) {
+    const snap = () => {
+      const w = el.getBoundingClientRect().width;
+      const target = Math.ceil(w);
+      if (target - w > 0.01) el.style.width = `${target}px`;
+    };
+    // Re-measure once fonts settle: a width pinned against fallback metrics
+    // would clip the label (the pin also mutes the ResizeObserver).
+    const resnap = () => {
+      el.style.width = "";
+      snap();
+    };
+    const ro = new ResizeObserver(snap);
+    ro.observe(el);
+    snap();
+    document.fonts?.ready.then(resnap).catch(() => {});
+    return { destroy: () => ro.disconnect() };
+  }
 </script>
 
 {#if wt}
@@ -72,6 +97,7 @@
         data-active={c.id === focusedId ? "" : undefined}
         onclick={() => focusChat(wt, c.id)}
         use:borderGlow
+        use:snapWidth
       >
         <span
           class="chat-dot"
