@@ -73,12 +73,15 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       // the feet). Coordinates are in the ::after's box (inset -1px of the
       // card, so shifted +1 from border-box).
       const tr = tab.getBoundingClientRect();
-      // The opening now spans the feet too (silhouette includes them; same
-      // padding-box anchoring as the flares — see the path above).
-      const nL = tr.left - f + 2 - parentR.left;
-      const nR = tr.right + f - parentR.left;
+      // The opening spans the feet (same padding-box anchoring as the
+      // flares). The ::after box aligns EXACTLY with the card's border box
+      // (inset -1px against a padding box that hugs the border) — no +1
+      // shift, or the ring resumes 1px past the arc landing: a lit-only gap.
+      const nL = tr.left - f + 1 - parentR.left;
+      const nR = tr.right + f - 1 - parentR.left;
       const cW = parentR.width + 2;
       const cH = parentR.height + 2;
+      // (box is border-box-sized +2 for the -1px inset on both axes)
       parent.style.setProperty(
         "--frame-clip",
         `path("M 0 0 L ${nL} 0 L ${nL} 3 L ${nR} 3 L ${nR} 0 L ${cW} 0 L ${cW} ${cH} L 0 ${cH} Z")`,
