@@ -75,10 +75,13 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       const tr = tab.getBoundingClientRect();
       // The opening spans the feet (same padding-box anchoring as the
       // flares). The ::after box aligns EXACTLY with the card's border box
-      // (inset -1px against a padding box that hugs the border) — no +1
-      // shift, or the ring resumes 1px past the arc landing: a lit-only gap.
-      const nL = tr.left - f + 1 - parentR.left;
-      const nR = tr.right + f - 1 - parentR.left;
+      // (inset -1px against a padding box that hugs the border). The ring
+      // OVERLAPS the arc landings by 1px rather than abutting: the tab sits
+      // at fractional x, and two shapes meeting at a fractional boundary
+      // each contribute partial coverage — a darker seam pixel. A doubled
+      // pixel reads as connected; a partial one reads as a gap.
+      const nL = tr.left - f + 2 - parentR.left;
+      const nR = tr.right + f - 2 - parentR.left;
       const cW = parentR.width + 2;
       const cH = parentR.height + 2;
       // (box is border-box-sized +2 for the -1px inset on both axes)
