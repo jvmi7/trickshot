@@ -1117,9 +1117,12 @@ html, body {
 .chat-tab[data-active]:first-child::before { content: none; }
 /* …and its glow's left share is a straight 1px column (the border's
    continuation into the card), not an arc. */
+/* Band [1px, 2px] from the right edge — the box overhangs the border column
+   by 1px on the inside (it starts at the button's PADDING box), so the
+   rightmost pixel is interior, and the border column is the one beside it. */
 .chat-tab[data-active]:first-child .chat-tab-glow-arc[data-side="left"] {
-  -webkit-mask: linear-gradient(to left, var(--base-text) 1px, transparent 1px);
-  mask: linear-gradient(to left, var(--base-text) 1px, transparent 1px);
+  -webkit-mask: linear-gradient(to left, transparent 1px, var(--base-text) 1px, var(--base-text) 2px, transparent 2px);
+  mask: linear-gradient(to left, transparent 1px, var(--base-text) 1px, var(--base-text) 2px, transparent 2px);
 }
 .chat-tabs[data-first-active] + .content { border-top-left-radius: 0; }
 /* The cursor-glow ring hugs the frame — it must square the SAME corner, or
