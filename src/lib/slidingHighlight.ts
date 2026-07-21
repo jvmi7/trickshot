@@ -258,14 +258,19 @@ export function slidingTabChrome(el: HTMLElement) {
   // Fluid with a whisper of spring: strongly damped, one soft overshoot.
   const pos = spring({ left: 0, top: 0, width: 0, height: 0 }, { stiffness: 0.18, damping: 0.62 });
   const unsub = pos.subscribe((v) => {
-    // ROUND every frame: the spring's continuous values put the chrome's 1px
-    // strokes on partial pixels — rendered at partial alpha, they ghost out
-    // mid-flight (worst on the left edge) and pop back at settle. Whole-pixel
-    // steps are invisible at this tempo, and every downstream geometry (the
-    // silhouette, notch, glow) re-derives from this rect, staying integer.
-    el.style.left = `${Math.round(v.left)}px`;
-    el.style.top = `${Math.round(v.top)}px`;
-    el.style.width = `${Math.round(v.width)}px`;
+    // ROUND every frame — in PAGE space: the spring's continuous values put
+    // the chrome's 1px strokes on partial pixels (partial alpha — they ghost
+    // out mid-flight and pop back at settle), and the strip itself may sit at
+    // a fractional x in the app layout, so strip-relative integers aren't
+    // enough. Whole-pixel steps are invisible at this tempo, and every
+    // downstream geometry (silhouette, notch, glow) re-derives from this
+    // rect, staying integer.
+    const sr = strip.getBoundingClientRect();
+    const left = Math.round(sr.left + v.left) - sr.left;
+    const top = Math.round(sr.top + v.top) - sr.top;
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+    el.style.width = `${Math.round(sr.left + v.left + v.width) - Math.round(sr.left + v.left)}px`;
     el.style.height = `${Math.round(v.height)}px`;
   });
   let lastKey = "";
