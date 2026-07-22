@@ -198,6 +198,7 @@
         {#snippet child({ props })}
           <IconButton
             {...props}
+            class="chat-add-btn"
             style="margin-left: {PLUS_GAP}px"
             aria-label="New chat"
             onclick={() => wt && addChat(wt)}

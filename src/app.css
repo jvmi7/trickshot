@@ -1008,6 +1008,9 @@ html, body {
    +'s extra berth off the last tab is INLINE (ChatTabs › PLUS_GAP) so the
    tab-width math shares the constant. */
 .chat-tabs > .icon-chrome-btn { align-self: flex-start; border-radius: var(--app-tab-radius); }
+/* GRID mode hides the + (splits are the add path there); opacity, not
+   unmount, so it keeps its slot and fades with the tabs. */
+.chat-tabs[data-collapsed] .chat-add-btn { opacity: 0; pointer-events: none; }
 /* The sink clip is its OWN attribute (not part of data-collapsed): the
    sliding chrome deliberately dips 1px below the strip into the card's border
    row, so clipping can't be unconditional. ChatTabs sets data-clip with the
