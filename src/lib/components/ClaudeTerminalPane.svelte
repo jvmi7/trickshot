@@ -71,6 +71,11 @@
   let dropTarget = $state<{ chat: string; zone: SplitWhere } | null>(null);
   let dragLive = $state(false); // past the click slop — feedback engages
   let pressAt: { x: number; y: number } | null = null;
+  // The drag GHOST: a miniature pane card riding the cursor (the visual "I'm
+  // carrying this window"). Sized from the source cell at grab time — a live
+  // xterm clone would be absurdly heavy for a cursor affordance.
+  let ghost = $state<{ x: number; y: number; w: number; h: number } | null>(null);
+  let grabbedSize: { w: number; h: number } = { w: 120, h: 80 };
 
   function hitTest(e: PointerEvent): { chat: string; zone: SplitWhere } | null {
     const el = document.elementFromPoint(e.clientX, e.clientY);
@@ -94,15 +99,23 @@
   function gripDown(e: PointerEvent, chatId: string) {
     if (e.button !== 0) return;
     e.preventDefault(); // no text-selection drag from the grip
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    const grip = e.currentTarget as HTMLElement;
+    grip.setPointerCapture(e.pointerId);
     pressAt = { x: e.clientX, y: e.clientY };
     dragging = chatId; // armed; the dim + previews engage on first real move
+    // Ghost dimensions: the grabbed cell at ~1/4 scale, clamped sane.
+    const r = grip.closest(".chat-grid-cell")?.getBoundingClientRect();
+    if (r) {
+      const w = Math.min(200, Math.max(90, r.width * 0.25));
+      grabbedSize = { w, h: Math.min(140, Math.max(60, (w * r.height) / r.width)) };
+    }
   }
   function gripMove(e: PointerEvent) {
     if (!dragging || !pressAt) return;
     // 3px slop so a plain click on the grip never flickers previews.
     if (!dragLive && Math.abs(e.clientX - pressAt.x) + Math.abs(e.clientY - pressAt.y) < 3) return;
     dragLive = true;
+    ghost = { x: e.clientX, y: e.clientY, ...grabbedSize };
     dropTarget = hitTest(e);
   }
   function gripUp(e: PointerEvent) {
@@ -114,6 +127,7 @@
     dropTarget = null;
     dragLive = false;
     pressAt = null;
+    ghost = null;
   }
 </script>
 
@@ -204,6 +218,16 @@
         </ContextMenu.Root>
       {/each}
     </div>
+    {#if ghost && dragLive}
+      <!-- The miniature pane riding the cursor while rearranging. pointer-
+           events: none, so elementFromPoint hit-testing sees through it. -->
+      <div
+        class="chat-drag-ghost"
+        style="left: {ghost.x}px; top: {ghost.y}px; width: {ghost.w}px; height: {ghost.h}px"
+      >
+        <GripVertical class="size-3.5" />
+      </div>
+    {/if}
   {:else}
     <!-- The same split menu works from tabs layout: splitting jumps to grid
          with both halves showing. -->

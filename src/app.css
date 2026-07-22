@@ -1333,6 +1333,28 @@ html, body {
 .chat-grid-cell[data-drop="down"]::before { inset: 50% 4px 4px 4px; }
 .chat-grid-cell[data-drop="left"]::before { inset: 4px 50% 4px 4px; }
 .chat-grid-cell[data-drop="right"]::before { inset: 4px 4px 4px 50%; }
+/* The drag ghost: a miniature floating pane riding the cursor while a cell
+   is being carried (positioned per pointermove from ClaudeTerminalPane).
+   pointer-events: none keeps elementFromPoint hit-testing seeing through it. */
+.chat-drag-ghost {
+  position: fixed;
+  z-index: var(--app-z-chrome);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -60%);
+  pointer-events: none;
+  color: var(--app-dim);
+  background: color-mix(in oklch, var(--app-bg) 92%, var(--app-text));
+  border: 1px solid color-mix(in oklch, var(--app-text) 22%, var(--app-border));
+  border-radius: var(--radius-xl);
+  box-shadow: var(--app-shadow-float);
+  opacity: 0.92;
+  transition: opacity var(--app-duration-fast) ease;
+}
+@starting-style {
+  .chat-drag-ghost { opacity: 0; }
+}
 
 /* ---- sidebar v2: repos + worktrees (Conductor-style) ---- */
 .wt { display: flex; flex-direction: column; }
