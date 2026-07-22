@@ -83,9 +83,16 @@
     let avail =
       strip.clientWidth - Number.parseFloat(cs.paddingLeft) - Number.parseFloat(cs.paddingRight);
     // Everything on the band that ISN'T the tabs' slot (+, layout toggle)
-    // keeps its measured width; the tabs share what remains.
+    // keeps its measured width + margins; the tabs share what remains.
+    // (auto margins parse NaN → 0: they're slack, not reserved space.)
     for (const child of strip.children) {
-      if (child !== rail) avail -= (child as HTMLElement).offsetWidth + TAB_GAP;
+      if (child === rail) continue;
+      const ccs = getComputedStyle(child);
+      avail -=
+        (child as HTMLElement).offsetWidth +
+        TAB_GAP +
+        (Number.parseFloat(ccs.marginLeft) || 0) +
+        (Number.parseFloat(ccs.marginRight) || 0);
     }
     const n = chats.length;
     if (n < 1) return;
