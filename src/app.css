@@ -1003,8 +1003,9 @@ html, body {
    between the two layouts. */
 .chat-tabs { position: relative; z-index: 1; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; height: 30px; padding: 2px var(--app-pane-gap) 0; }
 /* The band bottom-aligns (the tabs' feet must sit ON the card edge), which
-   drops the 24px icon buttons below the tabs' visual center — center THEM. */
-.chat-tabs > .icon-chrome-btn { align-self: center; }
+   drops the 24px icon buttons below the tabs' visual center — center THEM.
+   Their corners match the tabs' radius (the band's shared curvature). */
+.chat-tabs > .icon-chrome-btn { align-self: center; border-radius: var(--app-tab-radius); }
 /* The sink clip is its OWN attribute (not part of data-collapsed): the
    sliding chrome deliberately dips 1px below the strip into the card's border
    row, so clipping can't be unconditional. ChatTabs sets data-clip with the
