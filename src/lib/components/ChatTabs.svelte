@@ -72,6 +72,9 @@
   const TAB_MAX = 180;
   const TAB_MIN = 72;
   const TAB_GAP = 2; // mirrors the strip's flex gap
+  // The +'s breathing room off the last tab — applied INLINE on the button
+  // (not a CSS rule) so the width math and the layout share one constant.
+  const PLUS_GAP = 6;
   let stripEl = $state<HTMLElement | null>(null);
   let railEl = $state<HTMLElement | null>(null);
   let tabWidth = $state(TAB_MAX);
@@ -83,17 +86,14 @@
     let avail =
       strip.clientWidth - Number.parseFloat(cs.paddingLeft) - Number.parseFloat(cs.paddingRight);
     // Everything on the band that ISN'T the tabs' slot (+, layout toggle)
-    // keeps its measured width + margins; the tabs share what remains.
-    // (auto margins parse NaN → 0: they're slack, not reserved space.)
+    // keeps its measured width; the tabs share what remains. NEVER read
+    // computed margins here: getComputedStyle returns the USED value of the
+    // toggle's `margin-left: auto` (hundreds of px of right-anchoring slack),
+    // which would swallow the whole band and crush the tabs to TAB_MIN.
     for (const child of strip.children) {
-      if (child === rail) continue;
-      const ccs = getComputedStyle(child);
-      avail -=
-        (child as HTMLElement).offsetWidth +
-        TAB_GAP +
-        (Number.parseFloat(ccs.marginLeft) || 0) +
-        (Number.parseFloat(ccs.marginRight) || 0);
+      if (child !== rail) avail -= (child as HTMLElement).offsetWidth + TAB_GAP;
     }
+    avail -= PLUS_GAP; // the +'s inline margin (the one real margin on the band)
     const n = chats.length;
     if (n < 1) return;
     avail -= TAB_GAP * (n - 1);
@@ -196,7 +196,12 @@
     <Tooltip.Root>
       <Tooltip.Trigger>
         {#snippet child({ props })}
-          <IconButton {...props} aria-label="New chat" onclick={() => wt && addChat(wt)}>
+          <IconButton
+            {...props}
+            style="margin-left: {PLUS_GAP}px"
+            aria-label="New chat"
+            onclick={() => wt && addChat(wt)}
+          >
             <Plus />
           </IconButton>
         {/snippet}
