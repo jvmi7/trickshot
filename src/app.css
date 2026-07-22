@@ -1006,7 +1006,7 @@ html, body {
    drops the 24px icon buttons below the tabs' visual center — center THEM.
    Their corners match the tabs' radius (the band's shared curvature), and
    the + keeps a wider berth from the last tab than the 2px tab gap. */
-.chat-tabs > .icon-chrome-btn { align-self: center; border-radius: var(--app-tab-radius); }
+.chat-tabs > .icon-chrome-btn { align-self: flex-start; border-radius: var(--app-tab-radius); }
 .chat-tabs > .chat-tabs-rail + .icon-chrome-btn { margin-left: 6px; }
 /* The sink clip is its OWN attribute (not part of data-collapsed): the
    sliding chrome deliberately dips 1px below the strip into the card's border
