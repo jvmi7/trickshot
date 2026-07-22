@@ -1342,6 +1342,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   transform: translate(-50%, -60%);
   pointer-events: none;
   color: var(--app-dim);
@@ -1354,6 +1355,28 @@ html, body {
 }
 @starting-style {
   .chat-drag-ghost { opacity: 0; }
+}
+/* The screen silhouette inside the ghost: the grabbed terminal's visible
+   buffer text at token size, transform-scaled down (raw tiny font sizes are
+   off the type scale) — 200% box + scale(.5) fills the card exactly. The
+   mask fades the tail out like a thumbnail. */
+.chat-ghost-screen {
+  position: absolute;
+  inset: 0;
+  width: 200%;
+  height: 200%;
+  margin: 0;
+  padding: 8px 10px;
+  transform: scale(0.5);
+  transform-origin: top left;
+  font-family: var(--font-sf-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+  white-space: pre;
+  overflow: hidden;
+  color: var(--app-dim);
+  -webkit-mask: linear-gradient(var(--base-text) 55%, transparent 96%);
+  mask: linear-gradient(var(--base-text) 55%, transparent 96%);
 }
 
 /* ---- sidebar v2: repos + worktrees (Conductor-style) ---- */

@@ -22,7 +22,7 @@
   } from "../stores";
   import { borderGlow } from "../borderGlow";
   import { heal, type SplitWhere, treeToGrid } from "../splitTree";
-  import { claudeTermKey } from "../terminal";
+  import { claudeTermKey, getTerminal } from "../terminal";
   import ClaudeTerminalCell from "./ClaudeTerminalCell.svelte";
   import IconButton from "./IconButton.svelte";
   import * as ContextMenu from "$lib/components/ui/context-menu";
@@ -75,7 +75,27 @@
   // carrying this window"). Sized from the source cell at grab time — a live
   // xterm clone would be absurdly heavy for a cursor affordance.
   let ghost = $state<{ x: number; y: number; w: number; h: number } | null>(null);
+  let ghostText = $state("");
   let grabbedSize: { w: number; h: number } = { w: 120, h: 80 };
+
+  /** One-time read of the grabbed terminal's visible screen (the DOM renderer
+   *  has no canvas to snapshot, but the buffer API hands us the text) — the
+   *  ghost carries a scaled-down silhouette of the actual content. */
+  function screenPreview(chatId: string): string {
+    if (!wt) return "";
+    try {
+      const t = getTerminal(claudeTermKey(wt, chatId)).term;
+      const buf = t.buffer.active;
+      const lines: string[] = [];
+      for (let i = 0; i < t.rows; i++) {
+        const line = buf.getLine(buf.viewportY + i);
+        lines.push(line ? line.translateToString(true) : "");
+      }
+      return lines.join("\n").trimEnd();
+    } catch {
+      return ""; // preview is garnish — never let it break the drag
+    }
+  }
 
   function hitTest(e: PointerEvent): { chat: string; zone: SplitWhere } | null {
     const el = document.elementFromPoint(e.clientX, e.clientY);
@@ -109,6 +129,7 @@
       const w = Math.min(200, Math.max(90, r.width * 0.25));
       grabbedSize = { w, h: Math.min(140, Math.max(60, (w * r.height) / r.width)) };
     }
+    ghostText = screenPreview(chatId);
   }
   function gripMove(e: PointerEvent) {
     if (!dragging || !pressAt) return;
@@ -219,13 +240,18 @@
       {/each}
     </div>
     {#if ghost && dragLive}
-      <!-- The miniature pane riding the cursor while rearranging. pointer-
+      <!-- The miniature pane riding the cursor while rearranging: a scaled
+           text silhouette of the grabbed terminal's actual screen. pointer-
            events: none, so elementFromPoint hit-testing sees through it. -->
       <div
         class="chat-drag-ghost"
         style="left: {ghost.x}px; top: {ghost.y}px; width: {ghost.w}px; height: {ghost.h}px"
       >
-        <GripVertical class="size-3.5" />
+        {#if ghostText}
+          <pre class="chat-ghost-screen" aria-hidden="true">{ghostText}</pre>
+        {:else}
+          <GripVertical class="size-3.5" />
+        {/if}
       </div>
     {/if}
   {:else}
