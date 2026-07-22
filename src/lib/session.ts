@@ -20,6 +20,7 @@ import {
   ensureDefaultChat,
   focusedChatByWorktree,
   removeArchived,
+  removeChat,
   selectWorktree,
   setCenterView,
   setChatSessionId,
@@ -30,7 +31,13 @@ import {
 // CIRCULAR-IMPORT CONTRACT: terminal.ts imports handleCliExit from this module
 // while we import its key/instance helpers — safe because every cross-module
 // access is a call-time function invocation (all hoisted declarations).
-import { claudeTermKey, getTerminal, muteCliActivity, noteCliInput } from "./terminal";
+import {
+  claudeTermKey,
+  disposeChatTerminal,
+  getTerminal,
+  muteCliActivity,
+  noteCliInput,
+} from "./terminal";
 import { toastSuccess } from "./toast";
 import { basename } from "./utils";
 
@@ -198,4 +205,12 @@ export async function submitTurnToChat(worktree: string, text: string): Promise<
  *  next keystroke or worktree re-activation revives it. */
 export function handleCliExit(worktree: string, key: string): void {
   setChatStatus(worktree, key, "stopped");
+}
+
+/** Close one chat: kill its PTY + xterm and drop it from the list (the
+ *  transcript on disk stays — Claude Code owns session history). The ONE
+ *  close path — the tab ✕ and the grid cell ✕ both route through here. */
+export function closeChat(worktree: string, chatId: string): void {
+  disposeChatTerminal(worktree, chatId);
+  removeChat(worktree, chatId);
 }

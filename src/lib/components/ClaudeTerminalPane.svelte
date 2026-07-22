@@ -3,16 +3,29 @@
   // chats — the focused chat's cell (tabs layout) or an n-up grid of all of
   // them. The strip that switches/closes/adds chats lives OUTSIDE the card
   // (ChatTabs.svelte, mounted above the frame in App.svelte); the MODEL is
-  // the chats store, and both components render from it. Feature component.
+  // the chats store, and both components render from it. In GRID mode the
+  // strip collapses, so the per-chat controls (status dot + ✕, hover-faded)
+  // and the +/layout cluster live here instead. Feature component.
   import {
+    addChat,
     chatLayout,
     chatSessionsByWorktree,
+    chatStatusByKey,
+    closeChat,
     DEFAULT_CHAT_ID,
     focusChat,
     focusedChatByWorktree,
     selectedWorktree,
+    setChatLayout,
   } from "../stores";
+  import { borderGlow } from "../borderGlow";
+  import { claudeTermKey } from "../terminal";
   import ClaudeTerminalCell from "./ClaudeTerminalCell.svelte";
+  import IconButton from "./IconButton.svelte";
+  import * as Tooltip from "$lib/components/ui/tooltip";
+  import PanelTop from "@lucide/svelte/icons/panel-top";
+  import Plus from "@lucide/svelte/icons/plus";
+  import X from "@lucide/svelte/icons/x";
 
   const wt = $derived($selectedWorktree);
   // ChatTabs seeds the default chat; the fallback below covers the first tick.
@@ -35,10 +48,43 @@
         <!-- focusin (not click): focusing the cell's terminal — however it
              happens — routes injected turns to it. Bubbles from xterm's
              hidden textarea; no interactive-element a11y surface needed. -->
-        <div class="chat-grid-cell" onfocusin={() => focusChat(wt, c.id)}>
+        <div class="chat-grid-cell" use:borderGlow onfocusin={() => focusChat(wt, c.id)}>
           <ClaudeTerminalCell worktree={wt} chatId={c.id} />
+          <div class="chat-cell-controls">
+            <span
+              class="chat-dot"
+              data-status={$chatStatusByKey[claudeTermKey(wt, c.id)] ?? "stopped"}
+            ></span>
+            {#if chats.length > 1}
+              <IconButton aria-label="Close chat" onclick={() => wt && closeChat(wt, c.id)}>
+                <X />
+              </IconButton>
+            {/if}
+          </div>
         </div>
       {/each}
+    </div>
+    <div class="chat-grid-controls">
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          {#snippet child({ props })}
+            <IconButton {...props} aria-label="New chat" onclick={() => wt && addChat(wt)}>
+              <Plus />
+            </IconButton>
+          {/snippet}
+        </Tooltip.Trigger>
+        <Tooltip.Content>New chat session in this worktree</Tooltip.Content>
+      </Tooltip.Root>
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          {#snippet child({ props })}
+            <IconButton {...props} aria-label="Tab layout" onclick={() => setChatLayout("tabs")}>
+              <PanelTop />
+            </IconButton>
+          {/snippet}
+        </Tooltip.Trigger>
+        <Tooltip.Content>Show one chat (tabs)</Tooltip.Content>
+      </Tooltip.Root>
     </div>
   {:else}
     <ClaudeTerminalCell worktree={wt} chatId={focusedId} />

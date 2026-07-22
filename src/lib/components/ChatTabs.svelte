@@ -9,17 +9,17 @@
     chatLayout,
     chatSessionsByWorktree,
     chatStatusByKey,
+    closeChat,
     DEFAULT_CHAT_ID,
     ensureDefaultChat,
     focusChat,
     focusedChatByWorktree,
-    removeChat,
     selectedWorktree,
     setChatLayout,
   } from "../stores";
   import { borderGlow } from "../borderGlow";
   import { slidingTabChrome } from "../slidingHighlight";
-  import { claudeTermKey, disposeChatTerminal } from "../terminal";
+  import { claudeTermKey } from "../terminal";
   import IconButton from "./IconButton.svelte";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
@@ -41,10 +41,24 @@
   });
   const grid = $derived($chatLayout === "grid" && chats.length > 1);
 
+  // Two-attribute clip protocol for the collapse animation: `data-collapsed`
+  // (height/padding/pointer-events) flips instantly with the mode, but
+  // `overflow: clip` (`data-clip`) must NOT be unconditional — the sliding
+  // chrome deliberately dips 1px below the strip into the card's border row.
+  // So the clip lands with the collapse and is released only when the EXPAND
+  // finishes (transitionend), restoring the chrome's overlap after the tabs
+  // are fully back out of the card.
+  let clipping = $state(false);
+  $effect(() => {
+    if (grid) clipping = true;
+  });
+  function releaseClip(e: TransitionEvent) {
+    // Re-check the mode: a mid-flight re-toggle back to grid must keep it.
+    if (e.propertyName === "height" && !grid) clipping = false;
+  }
+
   function close(id: string) {
-    if (!wt) return;
-    disposeChatTerminal(wt, id); // PTY + xterm; the transcript on disk stays
-    removeChat(wt, id);
+    if (wt) closeChat(wt, id);
   }
 
   /** Pin each tab to a WHOLE-pixel width. Text-driven widths are fractional
@@ -83,7 +97,18 @@
   <!-- data-first-active is OWNED by slidingTabChrome (flush choreography):
        it lands when the chrome's slide arrives at the first tab, not when
        the click happens — the card corner stays rounded during flight. -->
-  <div class="chat-tabs" role="tablist" aria-label="Chat sessions">
+  <!-- data-collapsed sinks the strip in GRID mode (height → 0; the flex-end
+       tabs get swallowed top-first by the rising card); the strip stays
+       MOUNTED so the seeding effect and the chrome's data-active tracking
+       survive the collapse. -->
+  <div
+    class="chat-tabs"
+    role="tablist"
+    aria-label="Chat sessions"
+    data-collapsed={grid ? "" : undefined}
+    data-clip={clipping ? "" : undefined}
+    ontransitionend={releaseClip}
+  >
     <!-- ONE sliding chrome overlay for the active tab (frame stroke, flares,
          glow layers — SIBLING spans: a mask clips its own pseudos):
          slidingTabChrome glides it between tabs; the silhouette bump + ring

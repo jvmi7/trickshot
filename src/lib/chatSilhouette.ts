@@ -1,16 +1,18 @@
 // Clips the shared chat-trail surface (App.svelte › .chat-trail — ONE canvas
-// behind the whole chat surface) to the SILHOUETTE of card ∪ active tab: the
-// content card's inner rounded rect, plus the active tab's rounded-top bump
-// rising through the strip band. The tab/panes above are transparent, so the
-// one surface shows through everywhere — a background with the chrome as a
-// mask, which is what makes the cursor trail seamless by construction (no
-// per-element canvases to stitch). The tiny concave flare feet are excluded;
-// the flares' own opaque fill covers them. Svelte `use:` action — the
-// borderGlow/cursorTrail sibling.
+// behind the whole chat surface) to the SILHOUETTE of the visible chrome:
+// TABS layout = the content card's inner rounded rect ∪ the active tab's
+// rounded-top bump rising through the strip band; GRID layout = the union of
+// the floating cell rects (one rounded-rect subpath per cell). The tab/panes/
+// cells above are transparent, so the one surface shows through everywhere —
+// a background with the chrome as a mask, which is what makes the cursor
+// trail seamless by construction (no per-element canvases to stitch). The
+// tiny concave flare feet are excluded; the flares' own opaque fill covers
+// them. Svelte `use:` action — the borderGlow/cursorTrail sibling.
 //
-// Geometry is measured live (the tab moves and resizes; the card resizes) and
-// rebuilt rAF-coalesced on host resize + strip mutations. clip-path: path()
-// takes absolute px, hence JS, not static CSS.
+// Geometry is measured live (the tab moves and resizes; the card and cells
+// resize) and rebuilt rAF-coalesced on host resize + strip mutations + grid
+// cell changes. clip-path: path() takes absolute px, hence JS, not static
+// CSS.
 
 /** Read a px-valued CSS var off :root (e.g. the radius tokens). */
 function pxVar(name: string, fallback: number): number {
@@ -42,6 +44,42 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
     const r = pxVar("--app-pane-radius-inner", 13); // card inner corners
     const t = pxVar("--app-tab-radius", 10); // tab top corners
     const f = pxVar("--radius-xl", 8); // flare (concave foot) radius
+
+    // GRID layout: the silhouette is the union of the floating cells' inner
+    // rounded rects — one subpath each (disjoint rects union under nonzero
+    // fill). No bump, no notch, no corner morph: clear the tab-mode vars and
+    // RESET their guards so tabs-mode re-entry rewrites them. Zero measurable
+    // cells (a mid-swap frame) falls through to the card/tab branch below.
+    const gridEl = parent.querySelector<HTMLElement>(".chat-grid");
+    if (gridEl) {
+      const subpaths: string[] = [];
+      for (const cell of gridEl.querySelectorAll<HTMLElement>(".chat-grid-cell")) {
+        const c = cell.getBoundingClientRect();
+        if (c.width <= 2 || c.height <= 2) continue;
+        // Inner edge of the cell's 1px border, in host coords.
+        const x0 = c.left + 1 - hostR.left;
+        const x1 = c.right - 1 - hostR.left;
+        const y0c = c.top + 1 - hostR.top;
+        const y1 = c.bottom - 1 - hostR.top;
+        const cr = Math.min(r, (x1 - x0) / 2, (y1 - y0c) / 2);
+        subpaths.push(
+          `M ${x0} ${y0c + cr} A ${cr} ${cr} 0 0 1 ${x0 + cr} ${y0c} L ${x1 - cr} ${y0c} A ${cr} ${cr} 0 0 1 ${x1} ${y0c + cr} L ${x1} ${y1 - cr} A ${cr} ${cr} 0 0 1 ${x1 - cr} ${y1} L ${x0 + cr} ${y1} A ${cr} ${cr} 0 0 1 ${x0} ${y1 - cr} Z`,
+        );
+      }
+      if (subpaths.length > 0) {
+        const dg = subpaths.join(" ");
+        if (dg !== lastPath) {
+          lastPath = dg;
+          host.style.clipPath = `path("${dg}")`;
+        }
+        parent.style.removeProperty("--frame-clip");
+        parent.style.removeProperty("--card-tl");
+        lastClip = "";
+        lastTl = "";
+        lastFl = "";
+        return;
+      }
+    }
 
     // Anchor on the sliding CHROME when it's live: the spring writes its
     // style every frame, the strip MutationObserver fires, and the bump/notch
@@ -147,12 +185,49 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
     mo.observe(strip, { subtree: true, attributes: true, childList: true });
     ro.observe(strip);
   }
+
+  // GRID discovery. PERFORMANCE: never subtree-observe .content — it holds
+  // the xterm DOM, which mutates on every PTY chunk. The grid mounts as a
+  // direct child of .content-clip, so a childList-only observer there catches
+  // layout flips/pane swaps; a second childList-only observer on the grid
+  // catches cell add/close; a ResizeObserver over the cells tracks the
+  // geometry. All rAF-scheduled — nothing is sprung in grid mode.
+  const gridRo = new ResizeObserver(schedule);
+  const gridMo = new MutationObserver(() => {
+    syncGridObservers();
+    schedule();
+  });
+  const clipMo = new MutationObserver(() => {
+    syncGridObservers();
+    schedule();
+  });
+  let observedGrid: Element | null = null;
+  function syncGridObservers() {
+    const gridEl = host.parentElement?.querySelector(":scope > .content-clip > .chat-grid") ?? null;
+    if (gridEl !== observedGrid) {
+      gridMo.disconnect();
+      observedGrid = gridEl;
+      if (gridEl) gridMo.observe(gridEl, { childList: true });
+    }
+    gridRo.disconnect();
+    if (gridEl) {
+      for (const cell of gridEl.querySelectorAll(":scope > .chat-grid-cell")) {
+        gridRo.observe(cell);
+      }
+    }
+  }
+  const clipEl = host.parentElement?.querySelector(":scope > .content-clip");
+  if (clipEl) clipMo.observe(clipEl, { childList: true });
+  syncGridObservers();
   schedule();
 
   return {
     destroy() {
       ro.disconnect();
       mo.disconnect();
+      clipMo.disconnect();
+      gridMo.disconnect();
+      gridRo.disconnect();
       if (raf) cancelAnimationFrame(raf);
     },
   };

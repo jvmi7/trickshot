@@ -816,6 +816,7 @@ export function setUniformType(v: boolean) {
 // `import { activateWorktree } from "./stores"` keeps working.
 export {
   activateWorktree,
+  closeChat,
   ensureClaudeOpen,
   handleCliExit,
   openRepository,

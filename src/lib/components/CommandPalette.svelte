@@ -7,10 +7,14 @@
     activeRepo,
     activeScriptRun,
     activeScripts,
+    addChat,
     archivedWorkspaces,
+    chatLayout,
+    chatSessionsByWorktree,
     closeCommandPalette,
     commandPaletteOpen,
     restoreWorkspace,
+    setChatLayout,
     setChangesOpen,
     setMainView,
     toggleShell,
@@ -42,6 +46,11 @@
   import Keyboard from "@lucide/svelte/icons/keyboard";
   import PenLine from "@lucide/svelte/icons/pen-line";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
+
+  // Grid⇄tabs only makes sense with >1 chat (the strip's own guard).
+  const multiChat = $derived(
+    !!$selectedWorktree && ($chatSessionsByWorktree[$selectedWorktree] ?? []).length > 1,
+  );
 
   // Flat list of every worktree across repos, labeled repo/branch for search.
   const allWorktrees = $derived(
@@ -118,6 +127,22 @@
           <MessageSquare class="size-3.5" />
           Go to chat
         </Command.Item>
+        <Command.Item
+          value="new chat session"
+          onSelect={() => pick(() => { setCenterView("chat"); setMainView("chat"); addChat($selectedWorktree ?? ""); })}
+        >
+          <Plus class="size-3.5" />
+          New chat
+        </Command.Item>
+        {#if multiChat}
+          <Command.Item
+            value="chat layout grid tabs toggle"
+            onSelect={() => pick(() => { setCenterView("chat"); setMainView("chat"); setChatLayout($chatLayout === "grid" ? "tabs" : "grid"); })}
+          >
+            <LayoutGrid class="size-3.5" />
+            {$chatLayout === "grid" ? "Chat tabs layout" : "Chat grid layout"}
+          </Command.Item>
+        {/if}
         <Command.Item value="shell terminal zsh" onSelect={() => pick(toggleShell)}>
           <SquareTerminal class="size-3.5" />
           Shell terminal
