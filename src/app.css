@@ -997,19 +997,29 @@ html, body {
    flares whose gradient carries the border STROKE around the curve — the
    card border flows into the tab's sides without a break. Tabs start past
    the card's rounded top-left corner so the merge lands on a straight edge. */
-/* Explicit height (28px tabs + the 2px band gap as padding-top, border-box)
-   so GRID mode can animate it to 0: with the tabs pinned to flex-end, a
-   shrinking height swallows them top-first under the rising card — "the tabs
-   sink into the terminal". */
-.chat-tabs { position: relative; z-index: 1; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; height: 30px; padding: 2px var(--app-pane-gap) 0; transition: height var(--app-duration-slow) var(--ease-out-soft), padding-top var(--app-duration-slow) var(--ease-out-soft); }
-/* The collapse clip is its OWN attribute (not part of data-collapsed): the
+/* The band PERSISTS in both layouts (it hosts the always-visible + and the
+   tabs⇄grid toggle); in GRID mode only the TABS + their chrome sink — a 30px
+   translate drops them below the band's clipped bottom edge, reading as
+   "the tabs sink into the terminal" while the band's controls stay put. */
+.chat-tabs { position: relative; z-index: 1; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; height: 30px; padding: 2px var(--app-pane-gap) 0; }
+/* The sink clip is its OWN attribute (not part of data-collapsed): the
    sliding chrome deliberately dips 1px below the strip into the card's border
    row, so clipping can't be unconditional. ChatTabs sets data-clip with the
-   collapse and releases it only when the EXPAND's height transition ends. */
+   collapse and releases it only when the EXPAND's translate transition ends. */
 .chat-tabs[data-clip] { overflow: clip; }
-/* padding-top animates too — border-box height 0 would otherwise leave a 2px
-   padding sliver. */
-.chat-tabs[data-collapsed] { height: 0; padding-top: 0; pointer-events: none; }
+.chat-tabs[data-collapsed] .chat-tab,
+.chat-tabs[data-collapsed] .chat-tab-chrome { translate: 0 30px; pointer-events: none; }
+/* The tabs' width slot: 1fr → 0fr in grid mode releases the sunk tabs'
+   LAYOUT width on the same clock, so the + glides to the band's left edge
+   instead of hanging after an invisible row. */
+.chat-tabs-rail { display: grid; grid-template-columns: 1fr; min-width: 0; transition: grid-template-columns var(--app-duration-slow) var(--ease-out-soft); }
+.chat-tabs[data-collapsed] .chat-tabs-rail { grid-template-columns: 0fr; }
+/* The chrome's offset parent + the tabs' flex row. overflow-x clips the
+   shrinking slot ONLY under data-clip (overflow-y stays visible — the
+   chrome's 1px dip into the card border row must survive tabs mode; `clip`
+   never makes a scroll container, so the axis split is honored). */
+.chat-tabs-rail-inner { position: relative; display: flex; align-items: flex-end; gap: 2px; min-width: 0; }
+.chat-tabs[data-clip] .chat-tabs-rail-inner { overflow-x: clip; }
 /* ONE frame color feeds the card border, the active tab's border, and the
    flare strokes — and carries the terminal-focus tint: the detached focus
    ring would cross the connected tabs, so WITH tabs the frame tint IS the
@@ -1019,13 +1029,11 @@ html, body {
    focus instead (one shared frame var would light all of them at once). */
 .main:has(.chat-tabs + .content .xterm.focus):not(:has(.chat-grid)) { --chat-frame: color-mix(in oklch, var(--app-text) 14%, var(--app-border)); }
 /* The card follows flush — the strip owns the vertical gap, and the active
-   tab's 1px overlap lands exactly ON the card's top border row. margin-top
-   and background-color join the transition list for the GRID choreography:
-   the collapsing strip hands its band gap to the card (0 → 6px, the same
-   clock as the strip's 30 → 0, a smooth net rise) while the card's own
-   chrome fades out under the floating cells. */
-.chat-tabs + .content { margin-top: 0; outline: none; border-color: var(--chat-frame); transition: border-color var(--app-duration-slow) var(--ease-out-soft), background-color var(--app-duration-slow) var(--ease-out-soft), margin-top var(--app-duration-slow) var(--ease-out-soft); }
-.chat-tabs[data-collapsed] + .content { margin-top: 6px; }
+   tab's 1px overlap lands exactly ON the card's top border row (the band
+   persists in GRID mode too, so the gap never changes). background-color
+   joins the transition list so the card's chrome fades out under the
+   floating cells when grid engages. */
+.chat-tabs + .content { margin-top: 0; outline: none; border-color: var(--chat-frame); transition: border-color var(--app-duration-slow) var(--ease-out-soft), background-color var(--app-duration-slow) var(--ease-out-soft); }
 /* GRID mode, keyed purely off the grid's presence: the card dissolves — its
    bg/border fade to transparent (border-color, NOT border: 0 — removing the
    1px box would shift layout and break chatSilhouette's inner-edge math) and
@@ -1040,7 +1048,7 @@ html, body {
 .content:has(.chat-grid) > .content-clip { padding: 0; border-radius: 0; overflow: visible; }
 /* Fixed height (not text-metric padding): the -1px overlap below must land on
    an integer row or the card border ghosts through at fractional layouts. */
-.chat-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: var(--app-tab-radius); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
+.chat-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: var(--app-tab-radius); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease, translate var(--app-duration-slow) var(--ease-out-soft); }
 /* Inactive hover: just the text brightening — no chip fill. */
 .chat-tab:not([data-active]):hover { color: var(--app-text); }
 /* -1px overlap: the tab's bottom row lands exactly ON the card's top border
@@ -1067,7 +1075,7 @@ html, body {
   border-bottom: 0;
   border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0;
   opacity: 0;
-  transition: opacity var(--app-duration-fast) ease;
+  transition: opacity var(--app-duration-fast) ease, translate var(--app-duration-slow) var(--ease-out-soft);
 }
 .chat-tab-frame {
   position: absolute;

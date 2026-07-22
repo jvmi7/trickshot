@@ -53,8 +53,9 @@
     if (grid) clipping = true;
   });
   function releaseClip(e: TransitionEvent) {
+    // The sink rides the tabs' translate (the band itself never resizes).
     // Re-check the mode: a mid-flight re-toggle back to grid must keep it.
-    if (e.propertyName === "height" && !grid) clipping = false;
+    if (e.propertyName === "translate" && !grid) clipping = false;
   }
 
   function close(id: string) {
@@ -97,10 +98,10 @@
   <!-- data-first-active is OWNED by slidingTabChrome (flush choreography):
        it lands when the chrome's slide arrives at the first tab, not when
        the click happens — the card corner stays rounded during flight. -->
-  <!-- data-collapsed sinks the strip in GRID mode (height → 0; the flex-end
-       tabs get swallowed top-first by the rising card); the strip stays
-       MOUNTED so the seeding effect and the chrome's data-active tracking
-       survive the collapse. -->
+  <!-- data-collapsed sinks the TABS in GRID mode (a 30px translate drops
+       them below the band's clipped edge — into the terminal); the band
+       itself persists, keeping the + and layout toggle visible in both
+       layouts, and the chrome's data-active tracking survives the sink. -->
   <div
     class="chat-tabs"
     role="tablist"
@@ -109,55 +110,64 @@
     data-clip={clipping ? "" : undefined}
     ontransitionend={releaseClip}
   >
-    <!-- ONE sliding chrome overlay for the active tab (frame stroke, flares,
-         glow layers — SIBLING spans: a mask clips its own pseudos):
-         slidingTabChrome glides it between tabs; the silhouette bump + ring
-         notch animate alongside via clip-path transitions. First in DOM so
-         the tab labels paint above it. -->
-    <div class="chat-tab-chrome" aria-hidden="true" use:slidingTabChrome use:borderGlow>
-      <span class="chat-tab-frame"></span>
-      <span class="chat-tab-glow"></span>
-      <span class="chat-tab-glow-arc" data-side="left"></span>
-      <span class="chat-tab-glow-arc" data-side="right"></span>
-    </div>
-    {#each chats as c, i (c.id)}
-      <button
-        type="button"
-        role="tab"
-        class="chat-tab"
-        aria-selected={c.id === focusedId}
-        data-active={c.id === focusedId ? "" : undefined}
-        onclick={() => focusChat(wt, c.id)}
-        use:snapWidth
-      >
-        <span
-          class="chat-dot"
-          data-status={$chatStatusByKey[claudeTermKey(wt, c.id)] ?? "stopped"}
-        ></span>
-        Chat {i + 1}
-        {#if chats.length > 1}
-          <span
-            class="chat-close"
-            role="button"
-            tabindex="-1"
-            aria-label="Close chat"
-            onclick={(e: MouseEvent) => {
-              e.stopPropagation();
-              close(c.id);
-            }}
-            onkeydown={(e: KeyboardEvent) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                e.stopPropagation();
-                close(c.id);
-              }
-            }}
+    <!-- The rail: the tabs' width slot. 1fr → 0fr in grid mode so the sunk
+         tabs also release their LAYOUT width — the + glides to the left edge
+         instead of floating after an invisible row. The inner keeps the
+         chrome's offset-parent + flex row; its horizontal clip rides
+         data-clip (vertical stays visible for the chrome's 1px card dip). -->
+    <div class="chat-tabs-rail">
+      <div class="chat-tabs-rail-inner">
+        <!-- ONE sliding chrome overlay for the active tab (frame stroke, flares,
+             glow layers — SIBLING spans: a mask clips its own pseudos):
+             slidingTabChrome glides it between tabs; the silhouette bump + ring
+             notch animate alongside via clip-path transitions. First in DOM so
+             the tab labels paint above it. -->
+        <div class="chat-tab-chrome" aria-hidden="true" use:slidingTabChrome use:borderGlow>
+          <span class="chat-tab-frame"></span>
+          <span class="chat-tab-glow"></span>
+          <span class="chat-tab-glow-arc" data-side="left"></span>
+          <span class="chat-tab-glow-arc" data-side="right"></span>
+        </div>
+        {#each chats as c, i (c.id)}
+          <button
+            type="button"
+            role="tab"
+            class="chat-tab"
+            aria-selected={c.id === focusedId}
+            data-active={c.id === focusedId ? "" : undefined}
+            onclick={() => focusChat(wt, c.id)}
+            use:snapWidth
           >
-            <X class="size-3" />
-          </span>
-        {/if}
-      </button>
-    {/each}
+            <span
+              class="chat-dot"
+              data-status={$chatStatusByKey[claudeTermKey(wt, c.id)] ?? "stopped"}
+            ></span>
+            Chat {i + 1}
+            {#if chats.length > 1}
+              <span
+                class="chat-close"
+                role="button"
+                tabindex="-1"
+                aria-label="Close chat"
+                onclick={(e: MouseEvent) => {
+                  e.stopPropagation();
+                  close(c.id);
+                }}
+                onkeydown={(e: KeyboardEvent) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    close(c.id);
+                  }
+                }}
+              >
+                <X class="size-3" />
+              </span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+    </div>
     <Tooltip.Root>
       <Tooltip.Trigger>
         {#snippet child({ props })}
@@ -170,23 +180,22 @@
     </Tooltip.Root>
     {#if chats.length > 1}
       <!-- The tabs⇄grid toggle, right-aligned on the strip band (user-placed:
-           under the header, not in it). In grid mode the band is collapsed —
-           the cell context menu's "Tab layout" and the palette cover the way
-           back. -->
+           under the header, not in it). The band PERSISTS in grid mode (only
+           the tabs sink), so this toggle is visible in BOTH layouts. -->
       <Tooltip.Root>
         <Tooltip.Trigger>
           {#snippet child({ props })}
             <IconButton
               {...props}
-              class="ml-auto"
-              aria-label="Grid layout"
-              onclick={() => setChatLayout("grid")}
+              class={grid ? "ml-auto text-foreground" : "ml-auto"}
+              aria-label={grid ? "Tab layout" : "Grid layout"}
+              onclick={() => setChatLayout(grid ? "tabs" : "grid")}
             >
               <LayoutGrid />
             </IconButton>
           {/snippet}
         </Tooltip.Trigger>
-        <Tooltip.Content>Show all chats (grid)</Tooltip.Content>
+        <Tooltip.Content>{grid ? "Show one chat (tabs)" : "Show all chats (grid)"}</Tooltip.Content>
       </Tooltip.Root>
     {/if}
   </div>
