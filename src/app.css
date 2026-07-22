@@ -1299,6 +1299,15 @@ html, body {
   pointer-events: none;
   transition: opacity var(--app-duration-slow) var(--ease-out-soft);
 }
+/* Ghost add-slot: the grid's last tile — a dashed empty floating card, the
+   one tile the trail surface does NOT fill (not a .chat-grid-cell, so the
+   silhouette skips it). Click = a new terminal lands here. */
+.chat-grid-ghost { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; background: transparent; color: var(--app-dim); border: 1px dashed var(--app-border); border-radius: var(--app-pane-radius); cursor: pointer; transition: color var(--app-duration-fast) ease, border-color var(--app-duration-fast) ease, opacity var(--app-duration-slow) var(--ease-out-soft); }
+@starting-style {
+  .chat-grid-ghost { opacity: 0; }
+}
+.chat-grid-ghost:hover { color: var(--app-text); border-color: color-mix(in oklch, var(--app-text) 14%, var(--app-border)); }
+.chat-grid-ghost svg { width: 18px; height: 18px; }
 /* Hover-fade per-cell controls (status dot + ✕, top-right) — the strip is
    collapsed in grid mode, so this is the cell's whole chrome. */
 .chat-cell-controls { position: absolute; top: 6px; right: 8px; z-index: 1; display: flex; align-items: center; gap: 4px; opacity: 0; pointer-events: none; transition: opacity var(--app-duration-fast) ease; }
