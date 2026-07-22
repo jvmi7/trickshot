@@ -203,6 +203,13 @@ export const termWrite = (worktree: string, data: string) =>
 export const termResize = (worktree: string, rows: number, cols: number) =>
   invoke<void>("term_resize", { worktree, rows, cols });
 
+/** Credit `events` processed PTY output events back to the reader thread —
+ *  the ack side of the output watermark flow control (terminal.rs › FlowGate;
+ *  terminal.ts batches via ACK_EVERY). Keeps a flood backpressuring the child
+ *  process instead of ballooning xterm's write buffer. */
+export const termAck = (worktree: string, events: number) =>
+  invoke<void>("term_ack", { worktree, events });
+
 /** Kill a worktree's PTY (no-op if none). */
 export const termClose = (worktree: string) => invoke<void>("term_close", { worktree });
 

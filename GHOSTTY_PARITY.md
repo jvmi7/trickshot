@@ -57,7 +57,7 @@ custom shaders; the compose editor.
 
 | Feature (Ghostty) | Trickshot today | Status / path |
 |---|---|---|
-| GPU renderer (Metal) | DOM renderer | ❌ **`@xterm/addon-webgl`** is our ceiling and the single biggest perf lever for TUI repaints. Must verify interplay with `allowTransparency` + the backdrop/cursor-trail layers, and keep a DOM fallback on context loss. |
+| GPU renderer (Metal) | **WebGL for glow-free themes, DOM for glow themes** (`terminal.ts › syncRenderer`) | 🟡 Shipped: `@xterm/addon-webgl` with DOM fallback (unsupported GL / context loss), chosen per theme because the `termGlow` text-shadow needs real spans. Remaining: verify transparency + backdrop/cursor-trail layering visually on macOS. Metal-class is out of reach — WebGL is the webview ceiling. |
 | Font shaping & ligatures (HarfBuzz/CoreText) | None (per-cell DOM spans) | 🟡 `@xterm/addon-ligatures` needs Node `fs` (won't run in a webview). Realistic path: bundle a ligature-light coding font and accept no cross-cell shaping; treat full shaping as 🚫. |
 | Embedded fonts (JetBrains Mono + Nerd Font symbols, zero-config) | Hardcoded `ui-monospace, Menlo, monospace` | ❌ Ship JetBrains Mono + a Nerd Font symbols fallback via `@font-face`, put them in the default `fontFamily` stack. Closes the "Powerline glyphs look broken" class of complaints. |
 | Font family / per-style / features / variable axes config | None | 🟡 Add a **terminal font-family setting** (curated list + custom string). Per-style families & `font-feature` are niche — defer. |
@@ -164,35 +164,48 @@ Trickshot has **none** of this. Path (❌, medium):
 
 ---
 
-## Roadmap (proposed order)
+## Roadmap (performance first — reordered by request)
 
-Each phase is a shippable PR-sized chunk; P0/P1 are where near-all of the daily-felt gap lives.
+Each phase is a shippable PR-sized chunk. Performance is the P0 track: the felt gap vs Ghostty is
+almost entirely output rendering + flood handling.
 
-**P0 — emulator core quality (one PR each, all small):**
-1. `@xterm/addon-webgl` with DOM fallback + transparency verification.
-2. `@xterm/addon-search` + ⌘F find bar (shell **and** claude panes).
-3. Links: `@xterm/addon-web-links` + OSC 8 `linkHandler` (cmd+click, Tauri opener).
-4. Unicode: `@xterm/addon-unicode-graphemes` active.
-5. Env: `COLORTERM=truecolor`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`; PTY pixel dims on open/resize.
-6. Options: `minimumContrastRatio`, `customGlyphs`, `macOptionIsMeta` (setting), cursor style/blink settings, scrollback-size setting.
+**P0 — performance (this branch ✅ / next up):**
+1. ✅ WebGL renderer (`@xterm/addon-webgl`) with DOM fallback — per-theme: glow themes keep the DOM
+   renderer (their `termGlow` text-shadow needs real spans), everything else gets the fast path.
+2. ✅ 64KiB PTY reads (was 8KiB) — a flood ships as ~8× fewer, larger IPC events.
+3. ✅ Watermark flow control (`FlowGate` + `term_ack`) — a flood backpressures the child process
+   instead of ballooning xterm's write buffer; fails open (old behavior) if the webview stalls.
+4. ✅ Benchmark harness (`termBench.ts`, dev-only `__termBench()`) — scroll / SGR-heavy / TUI-repaint
+   workloads, MB/s + fps, for before/after numbers on a real machine.
+5. Next: measure on macOS (`__termBench()` before/after WebGL), verify WebGL × transparency ×
+   cursor-trail layering visually, then consider Tauri `ipc::Channel` raw-payload transport for
+   `term-event` (cuts JSON escaping per chunk — a SYNC-RULE seam change, do it as its own PR).
 
-**P1 — interaction parity:**
-7. Copy-on-select (default on) + right-click menu + paste protection.
-8. Font-zoom keybinds (⌘+/⌘−/⌘0) + shell-pane keys (⌘A select-all, scroll keys, clear).
-9. Terminal font-family setting + bundled JetBrains Mono & Nerd Font symbols fallback.
-10. `@xterm/addon-clipboard` (OSC 52, gated) + drag-drop file → quoted path.
+**P1 — emulator core quality (one PR each, all small):**
+6. `@xterm/addon-search` + ⌘F find bar (shell **and** claude panes).
+7. Links: `@xterm/addon-web-links` + OSC 8 `linkHandler` (cmd+click, Tauri opener).
+8. Unicode: `@xterm/addon-unicode-graphemes` active.
+9. Env: `COLORTERM=truecolor`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`; PTY pixel dims on open/resize.
+10. Options: `minimumContrastRatio`, `customGlyphs`, `macOptionIsMeta` (setting), cursor style/blink
+    settings, scrollback-size setting.
 
-**P2 — shell integration:**
-11. OSC 133/OSC 7 injection scripts (zsh/bash/fish) for the shell slot; jump-to-prompt,
+**P2 — interaction parity:**
+11. Copy-on-select (default on) + right-click menu + paste protection.
+12. Font-zoom keybinds (⌘+/⌘−/⌘0) + shell-pane keys (⌘A select-all, scroll keys, clear).
+13. Terminal font-family setting + bundled JetBrains Mono & Nerd Font symbols fallback.
+14. `@xterm/addon-clipboard` (OSC 52, gated) + drag-drop file → quoted path.
+
+**P3 — shell integration:**
+15. OSC 133/OSC 7 injection scripts (zsh/bash/fish) for the shell slot; jump-to-prompt,
     select-command-output, cwd inheritance.
 
-**P3 — surfaces:**
-12. Shell splits/tabs per worktree (slot key scheme + UI). The big one.
-13. Light/dark auto-switch; terminal color-scheme picker (iTerm2 scheme import).
-14. `@xterm/addon-image` (sixel + iTerm IIP).
+**P4 — surfaces:**
+16. Shell splits/tabs per worktree (slot key scheme + UI). The big one.
+17. Light/dark auto-switch; terminal color-scheme picker (iTerm2 scheme import).
+18. `@xterm/addon-image` (sixel + iTerm IIP).
 
-**P4 — chrome & polish (pick by appetite):**
-15. Window opacity/blur (Tauri windowEffects), Quick-Terminal global hotkey, secure keyboard entry,
+**P5 — chrome & polish (pick by appetite):**
+19. Window opacity/blur (Tauri windowEffects), Quick-Terminal global hotkey, secure keyboard entry,
     auto-updater, overlay scrollbar for the shell pane, keybind customization.
 
 **Explicit non-goals (agreed by writing them down):** Metal renderer / custom shaders, Kitty graphics

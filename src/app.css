@@ -915,10 +915,11 @@ html, body {
   height: 100%;
 }
 /* Per-theme glyph glow (--base-term-glow, a full text-shadow; a theme sets `none`
-   to disable). Works because xterm runs its DOM renderer (real text in spans) —
-   currentColor resolves PER SPAN, so each ANSI color glows in its own hue. If a
-   WebGL/canvas addon is ever added, glyphs become canvas pixels and this rule
-   silently stops applying. */
+   to disable). Needs the DOM renderer (real text in spans — currentColor resolves
+   PER SPAN, so each ANSI color glows in its own hue); WebGL glyphs are canvas
+   pixels this rule can't reach. That's exactly why terminal.ts › syncRenderer
+   keeps GLOW themes on the DOM renderer and gives every other theme the WebGL
+   fast path — don't force WebGL on a glow theme or the glow silently vanishes. */
 .term-host .xterm-rows { text-shadow: var(--base-term-glow); }
 /* The shell popover's pane: explicit dimensions, and flex: none — the popover
    content is an AUTO-HEIGHT flex column, where the base rule's flex: 1 means

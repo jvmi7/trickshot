@@ -5,7 +5,8 @@
 // Terminal tab opens (`term_open` is idempotent) and killed on close/app quit.
 
 use std::io::{Read, Write};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::Duration;
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -103,6 +104,76 @@ pub(crate) fn claude_cli() -> Result<(String, String), String> {
     }
 }
 
+/// Watermark backpressure between a PTY's reader thread and the webview.
+/// Each emitted `data` event increments the outstanding count; the webview
+/// credits processed events back through `term_ack` (batched — see
+/// terminal.ts › ACK_EVERY). Past FLOW_HIGH the reader parks until acks bring
+/// the backlog under FLOW_RESUME; the kernel PTY buffer then fills and the
+/// CHILD blocks on write — real backpressure, instead of xterm.js buffering a
+/// flood unboundedly and rendering seconds behind the process.
+pub(crate) struct FlowGate {
+    outstanding: Mutex<u64>,
+    acked: Condvar,
+}
+
+/// Park the reader at this many unacked `data` events (worst case ~4MiB of
+/// text at the 64KiB read size — xterm parses that in well under the stall
+/// timeout, so a healthy webview never lets the reader idle long).
+const FLOW_HIGH: u64 = 64;
+/// Resume once acks bring the backlog back under this (hysteresis so the
+/// reader doesn't flap at the boundary).
+const FLOW_RESUME: u64 = 32;
+/// A webview that is processing at all acks within milliseconds; a silence
+/// this long means the acks are GONE (webview reloading dropped the events),
+/// not slow. Fail open: clear the backlog and keep relaying — the degraded
+/// mode is exactly the old unthrottled behavior, never a hung PTY.
+const FLOW_STALL: Duration = Duration::from_secs(1);
+
+impl FlowGate {
+    fn new() -> Self {
+        Self {
+            outstanding: Mutex::new(0),
+            acked: Condvar::new(),
+        }
+    }
+
+    /// Reader side: count one emitted `data` event.
+    fn note_emitted(&self) {
+        *lock_ignore_poison(&self.outstanding) += 1;
+    }
+
+    /// `term_ack` side: credit processed events. Saturating — a respawned PTY
+    /// has a fresh gate, so a straggler ack for the OLD session can at worst
+    /// resume the new reader early (harmless), never underflow.
+    fn ack(&self, events: u64) {
+        let mut outstanding = lock_ignore_poison(&self.outstanding);
+        *outstanding = outstanding.saturating_sub(events);
+        self.acked.notify_all();
+    }
+
+    /// Reader side: park while the backlog sits at the high-water mark.
+    fn wait_ready(&self) {
+        let mut outstanding = lock_ignore_poison(&self.outstanding);
+        if *outstanding < FLOW_HIGH {
+            return;
+        }
+        loop {
+            let (guard, timeout) = self
+                .acked
+                .wait_timeout(outstanding, FLOW_STALL)
+                .unwrap_or_else(|e| e.into_inner());
+            outstanding = guard;
+            if timeout.timed_out() {
+                *outstanding = 0; // fail open (see FLOW_STALL)
+                return;
+            }
+            if *outstanding <= FLOW_RESUME {
+                return;
+            }
+        }
+    }
+}
+
 /// One live PTY session. `generation` disambiguates a respawned session at the
 /// same key so a stale reader thread can't clean up its successor (the same
 /// identity check as agent.rs/scripts.rs). The writer sits behind its own
@@ -113,6 +184,9 @@ pub(crate) struct TermSession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn Child + Send + Sync>,
     generation: u64,
+    /// Output flow control (see FlowGate). Arc'd like `writer` so `term_ack`
+    /// credits it OUTSIDE the map lock.
+    flow: Arc<FlowGate>,
 }
 
 /// One PTY per worktree (poison-safe lock via WorktreeMap).
@@ -252,6 +326,8 @@ pub async fn term_open(
         // Stamp this spawn so the reader thread can prove it still owns the map
         // entry before removing it on EOF (see the identity-checked cleanup below).
         let generation = next_generation();
+        let flow = Arc::new(FlowGate::new());
+        let flow_reader = flow.clone();
 
         map.insert(
             key.clone(),
@@ -260,6 +336,7 @@ pub async fn term_open(
                 writer: Arc::new(Mutex::new(writer)),
                 child,
                 generation,
+                flow,
             },
         );
         drop(map);
@@ -272,7 +349,11 @@ pub async fn term_open(
         // On EOF the shell exited — clean up (only if we still own the entry) and
         // emit the final `exit`.
         std::thread::spawn(move || {
-            let mut buf = [0u8; 8192];
+            // 64KiB reads (the typical kernel PTY buffer): interactive output
+            // still arrives as small low-latency reads, but a FLOOD fills the
+            // buffer and ships as few large events instead of many 8KiB ones —
+            // per-event emit/serialize overhead is the transport's real cost.
+            let mut buf = [0u8; 65536];
             let mut carry: Vec<u8> = Vec::new();
             loop {
                 match reader.read(&mut buf) {
@@ -290,6 +371,12 @@ pub async fn term_open(
                                 data: Some(text),
                             },
                         );
+                        // Flow control: count the event, and park HERE (never
+                        // under a lock) when the webview is at the high-water
+                        // mark — the PTY buffer filling is what throttles the
+                        // child. See FlowGate.
+                        flow_reader.note_emitted();
+                        flow_reader.wait_ready();
                     }
                 }
             }
@@ -351,6 +438,24 @@ pub fn term_resize(
         .map_err(|e| e.to_string())
 }
 
+/// Credit back `events` processed `data` events from the webview — the ack
+/// side of the reader thread's watermark backpressure (see FlowGate; batched
+/// by terminal.ts › ACK_EVERY). Deliberately sync like `term_write` (a counter
+/// bump under its own lock — a runtime hop would tax the output hot path),
+/// and the gate is credited OUTSIDE the map lock. A dead or respawned PTY's
+/// straggler ack is a no-op by design.
+#[tauri::command]
+pub fn term_ack(worktree: String, events: u64, state: State<'_, Terminals>) -> Result<(), String> {
+    let flow = {
+        let map = state.lock();
+        map.get(&worktree).map(|s| s.flow.clone())
+    };
+    if let Some(flow) = flow {
+        flow.ack(events);
+    }
+    Ok(())
+}
+
 /// Kill a worktree's PTY (no-op if none). The reader thread sees EOF and emits
 /// the final `exit` event.
 #[tauri::command]
@@ -364,9 +469,64 @@ pub fn term_close(worktree: String, state: State<'_, Terminals>) -> Result<(), S
 
 #[cfg(test)]
 mod tests {
-    use super::{claude_key, drain_utf8, is_valid_session_id, parse_launch, Launch, CLAUDE_SLOT};
+    use super::{
+        claude_key, drain_utf8, is_valid_session_id, parse_launch, FlowGate, Launch, CLAUDE_SLOT,
+        FLOW_HIGH, FLOW_RESUME,
+    };
+    use crate::worktree_map::lock_ignore_poison;
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::io::{Read, Write};
+
+    #[test]
+    fn flow_gate_ack_is_saturating() {
+        let gate = FlowGate::new();
+        for _ in 0..3 {
+            gate.note_emitted();
+        }
+        gate.ack(2);
+        assert_eq!(*lock_ignore_poison(&gate.outstanding), 1);
+        // A straggler ack from a PREVIOUS session at this key over-credits the
+        // fresh gate — must clamp at zero, never underflow.
+        gate.ack(100);
+        assert_eq!(*lock_ignore_poison(&gate.outstanding), 0);
+    }
+
+    #[test]
+    fn flow_gate_passes_below_high_water() {
+        let gate = FlowGate::new();
+        for _ in 0..(FLOW_HIGH - 1) {
+            gate.note_emitted();
+        }
+        gate.wait_ready(); // must return immediately (a park would stall this test 1s)
+        assert_eq!(*lock_ignore_poison(&gate.outstanding), FLOW_HIGH - 1);
+    }
+
+    #[test]
+    fn flow_gate_parks_at_high_water_until_acked() {
+        use std::sync::Arc;
+        let gate = Arc::new(FlowGate::new());
+        for _ in 0..FLOW_HIGH {
+            gate.note_emitted();
+        }
+        let parked = gate.clone();
+        let reader = std::thread::spawn(move || parked.wait_ready());
+        // Credit down to the resume mark: the parked reader must wake. (If the
+        // ack lands before the reader parks, wait_ready sees the level below
+        // FLOW_HIGH and returns straight away — no ordering hazard.)
+        gate.ack(FLOW_HIGH - FLOW_RESUME);
+        reader.join().expect("reader thread");
+        assert_eq!(*lock_ignore_poison(&gate.outstanding), FLOW_RESUME);
+    }
+
+    #[test]
+    fn flow_gate_stall_times_out_and_fails_open() {
+        let gate = FlowGate::new();
+        for _ in 0..FLOW_HIGH {
+            gate.note_emitted();
+        }
+        gate.wait_ready(); // no acks ever arrive: must return via FLOW_STALL…
+        assert_eq!(*lock_ignore_poison(&gate.outstanding), 0); // …and clear the backlog
+    }
 
     #[test]
     fn launch_whitelist_accepts_only_known_targets() {

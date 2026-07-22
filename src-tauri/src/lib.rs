@@ -48,6 +48,7 @@ pub fn run() {
             terminal::term_open,
             terminal::term_write,
             terminal::term_resize,
+            terminal::term_ack,
             terminal::term_close,
             usage::get_usage,
             usage::check_auth,

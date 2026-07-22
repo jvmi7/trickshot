@@ -9,6 +9,13 @@ import {
 } from "./persist";
 import { DEFAULT_PROVIDER_ID } from "./providers";
 import type { ReviewComment } from "./review";
+// CIRCULAR-IMPORT CONTRACT: terminal.ts imports stores.ts (font-size store,
+// busy/unread mutators) while this module imports applyTerminalTheme back —
+// safe because the access is CALL-time only (inside setTheme, a user action),
+// never a module-eval dereference. Do NOT call it from a store subscribe here:
+// subscribes fire synchronously during THIS module's eval, when terminal.ts
+// may still be mid-cycle (TDZ).
+import { applyTerminalTheme } from "./terminal";
 import { profileAccent } from "./termProfiles";
 import { DEFAULT_THEME, THEMES as THEME_DEFS } from "./themes";
 import type { Repo, ScriptsConfig, UsageInfo, Worktree } from "./types";
@@ -234,9 +241,14 @@ export const theme = createPersistedString("trickshot.theme", DEFAULT_THEME, (ra
 theme.subscribe((t) => {
   if (typeof document !== "undefined") document.documentElement.dataset.theme = t;
 });
-/** Switch the active theme (validated against THEMES by the store's parse). */
+/** Switch the active theme (validated against THEMES by the store's parse).
+ *  Also re-syncs the cached terminals — their theme snapshot AND renderer
+ *  (glow themes need the DOM renderer, the rest run WebGL — terminal.ts ›
+ *  syncRenderer). theme.set() flips `data-theme` synchronously via the
+ *  subscribe above, so applyTerminalTheme reads the NEW palette. */
 export function setTheme(id: string) {
   theme.set(id);
+  applyTerminalTheme();
 }
 
 /** Which action the git panel's split commit button performs by default. */

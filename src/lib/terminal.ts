@@ -6,6 +6,7 @@
 // agentEvents/scriptEvents).
 
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { get } from "svelte/store";
@@ -46,6 +47,12 @@ function keyWorktree(key: string): string {
 interface TermInstance {
   term: Terminal;
   fit: FitAddon;
+  /** The WebGL renderer addon while active, null on the DOM renderer — which
+   *  of the two is a per-THEME choice (see syncRenderer). */
+  webgl: WebglAddon | null;
+  /** `data` events written to this xterm but not yet credited back to the PTY
+   *  reader — the flow-control ack batcher (see ACK_EVERY / api.termAck). */
+  unacked: number;
   /** Whether the PTY behind this xterm is alive (reset by `exit` events). */
   open: boolean;
   /** Which program the PTY runs (derived from the cache key). The claude slot
@@ -177,10 +184,65 @@ export function getTerminal(key: string): TermInstance {
         }
       });
     });
-    inst = { term, fit, open: false, slot };
+    inst = { term, fit, webgl: null, unacked: 0, open: false, slot };
     instances.set(key, inst);
   }
   return inst;
+}
+
+// ---- Renderer (the WebGL fast path vs the DOM renderer's glyph glow) -------
+
+/** Once `new WebglAddon()`/loadAddon itself THROWS, WebGL is unsupported here
+ *  (driver denylist, headless GL) — stop re-trying on every attach. A context
+ *  LOSS is transient (GPU reset/sleep) and does allow the next attach to retry. */
+let webglUnavailable = false;
+
+/** Whether the ACTIVE theme draws a glyph glow — a text-shadow on real spans
+ *  (app.css › `.term-host .xterm-rows`), which only the DOM renderer has. */
+function themeWantsGlow(): boolean {
+  if (typeof getComputedStyle === "undefined") return false;
+  const glow = getComputedStyle(document.documentElement)
+    .getPropertyValue("--base-term-glow")
+    .trim();
+  return glow !== "" && glow !== "none";
+}
+
+/** Load or drop the WebGL addon to match the active theme: glow themes run
+ *  the DOM renderer (their text-shadow can't reach canvas pixels), everything
+ *  else gets WebGL — the single biggest lever for full-rate TUI repaints.
+ *  Only touches CONNECTED terminals (the addon sizes its canvas from real
+ *  layout); a detached instance syncs on its next attach. */
+function syncRenderer(inst: TermInstance) {
+  const wantWebgl = !themeWantsGlow() && !webglUnavailable;
+  if (wantWebgl && !inst.webgl && inst.term.element?.isConnected) {
+    try {
+      const addon = new WebglAddon();
+      addon.onContextLoss(() => {
+        addon.dispose(); // xterm falls back to the DOM renderer in place
+        inst.webgl = null;
+      });
+      inst.term.loadAddon(addon);
+      inst.webgl = addon;
+    } catch {
+      webglUnavailable = true;
+    }
+  } else if (!wantWebgl && inst.webgl) {
+    inst.webgl.dispose();
+    inst.webgl = null;
+  }
+}
+
+/** Re-sync every cached terminal to the ACTIVE theme: colors (the key-scoped
+ *  themeColors snapshot) AND the renderer choice (see syncRenderer). Called
+ *  from `setTheme` (stores.ts) — the same call-time shape as
+ *  applyTerminalFontSize, because this module must NOT subscribe to stores at
+ *  eval (CIRCULAR-IMPORT CONTRACT). New/attaching terminals pick both up in
+ *  getTerminal/attachTerminal. */
+export function applyTerminalTheme() {
+  for (const [key, inst] of instances) {
+    inst.term.options.theme = themeColors(key);
+    syncRenderer(inst);
+  }
 }
 
 /** Open the PTY behind a worktree's terminal if it isn't running (idempotent
@@ -261,6 +323,13 @@ function clearCliActivity(key: string) {
   cliActivity.delete(key);
 }
 
+/** Ack batch size for the PTY output flow control (terminal.rs › FlowGate):
+ *  credit every N processed `data` events in ONE `term_ack` invoke, keeping
+ *  the ack traffic negligible. Must stay well under Rust's FLOW_HIGH (64) so
+ *  a parked reader is released mid-flood, and the unsent remainder (< N) is
+ *  bounded — the reader's stall timeout covers events lost to a reload. */
+const ACK_EVERY = 8;
+
 /** Route one `term-event` into the cached xterm (creating it if the first
  *  output arrives before the pane ever mounted — e.g. a background exit).
  *  `key` is the PTY key (a worktree path, or its claude-slot composite). */
@@ -268,7 +337,19 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
   const inst = getTerminal(key);
   switch (kind) {
     case "data":
-      if (data) inst.term.write(data);
+      if (data) {
+        // The write callback fires once xterm has PARSED the chunk — that's
+        // the "processed" signal the flow control credits back (O(1) per
+        // chunk; the hot path stays allocation-free).
+        inst.term.write(data, () => {
+          inst.unacked += 1;
+          if (inst.unacked >= ACK_EVERY) {
+            const events = inst.unacked;
+            inst.unacked = 0;
+            api.termAck(key, events).catch(() => {}); // dead PTY: the gate is gone anyway
+          }
+        });
+      }
       if (inst.slot === "claude") noteCliActivity(key);
       break;
     case "exit":
@@ -364,6 +445,9 @@ export function attachTerminal(
   inst.term.options.allowTransparency = true;
   inst.term.options.theme = themeColors(key);
   inst.term.options.fontSize = get(terminalFontSize);
+  // Now that the element is CONNECTED, pick the renderer for the active theme
+  // (WebGL, unless the theme's glyph glow needs the DOM renderer).
+  syncRenderer(inst);
   inst.term.focus();
 
   // Fit AFTER layout settles, coalesced to one rAF per burst. Fitting
@@ -499,4 +583,12 @@ export function attachTerminal(
     el.classList.remove("term-resizing", "term-resize-rtl");
     if (raf) cancelAnimationFrame(raf);
   };
+}
+
+// Dev-only throughput bench (termBench.ts): exposes `__termBench()` on the
+// devtools console — the "measure before tuning" harness for renderer and
+// transport work. Dynamically imported behind the DEV flag so not a byte of
+// it ships in the prod bundle.
+if (import.meta.env.DEV) {
+  void import("./termBench").then((m) => m.installTermBench(instances));
 }
