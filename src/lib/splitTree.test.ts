@@ -4,10 +4,10 @@ import {
   heal,
   isSplitNode,
   leavesOf,
+  moveLeaf,
   prune,
   type SplitNode,
   splitLeaf,
-  swapLeaves,
   treeToGrid,
 } from "./splitTree";
 
@@ -58,24 +58,36 @@ describe("prune", () => {
   });
 });
 
-describe("swapLeaves", () => {
+describe("moveLeaf", () => {
   const t: SplitNode = {
     dir: "row",
     a: leaf("a"),
     b: { dir: "column", a: leaf("b"), b: leaf("c") },
   };
 
-  test("swaps two leaves across subtrees, geometry untouched", () => {
-    const out = swapLeaves(t, "a", "c");
-    expect(leavesOf(out)).toEqual(["c", "b", "a"]);
-    // same shape: still row(leaf, column(leaf, leaf))
-    expect("dir" in out && out.dir).toBe("row");
-    expect("dir" in out && "dir" in out.b && out.b.dir).toBe("column");
+  test("moves the source into the target's half; the old slot collapses", () => {
+    // drag a onto the TOP half of c: b|c column keeps c's slot split by a
+    const out = moveLeaf(t, "a", "c", "up");
+    expect(leavesOf(out)).toEqual(["b", "a", "c"]);
+    // a's old row split is gone — the column is now the root
+    expect("dir" in out && out.dir).toBe("column");
   });
 
-  test("missing id or self-swap is an identity no-op", () => {
-    expect(swapLeaves(t, "a", "zz")).toBe(t);
-    expect(swapLeaves(t, "b", "b")).toBe(t);
+  test("each zone lands on the right side of the target", () => {
+    const two: SplitNode = { dir: "row", a: leaf("a"), b: leaf("b") };
+    expect(leavesOf(moveLeaf(two, "a", "b", "left"))).toEqual(["a", "b"]);
+    expect(leavesOf(moveLeaf(two, "a", "b", "right"))).toEqual(["b", "a"]);
+    const moved = moveLeaf(two, "a", "b", "down");
+    expect("dir" in moved && moved.dir).toBe("column");
+    expect(leavesOf(moved)).toEqual(["b", "a"]);
+  });
+
+  test("self-move, missing ids, and a source-only tree are identity no-ops", () => {
+    expect(moveLeaf(t, "a", "a", "up")).toBe(t);
+    expect(moveLeaf(t, "zz", "a", "up")).toBe(t);
+    expect(moveLeaf(t, "a", "zz", "up")).toBe(t);
+    const solo: SplitNode = leaf("a");
+    expect(moveLeaf(solo, "a", "b", "up")).toBe(solo);
   });
 });
 

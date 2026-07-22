@@ -15,10 +15,10 @@
     DEFAULT_CHAT_ID,
     focusChat,
     focusedChatByWorktree,
+    moveChat,
     selectedWorktree,
     setChatLayout,
     splitChat,
-    swapChats,
   } from "../stores";
   import { borderGlow } from "../borderGlow";
   import { heal, type SplitWhere, treeToGrid } from "../splitTree";
@@ -60,32 +60,60 @@
     { where: "up", label: "Split up", vertical: true },
   ];
 
-  // Drag-and-drop rearrange (the hover grip is the draggable, NOT the cell —
-  // dragging must never fight terminal text selection). dataTransfer is
-  // unreadable during dragover, so the source id rides local state; drop on
-  // another cell SWAPS the two leaves (geometry untouched, contents trade).
+  // Drag-and-drop rearrange, POINTER-based (Tauri's native drag-drop handler
+  // swallows HTML5 drag events in WKWebView, so `draggable` never fires):
+  // pointerdown on the hover grip captures the pointer — never the cell, so
+  // terminal text selection is untouched — pointermove hit-tests the cell +
+  // half under the cursor (dashed preview shows exactly where it lands), and
+  // release MOVES the dragged chat into that half (the old slot collapses to
+  // its sibling — splitTree.moveLeaf, the VS Code editor-group model).
   let dragging = $state<string | null>(null);
-  let dropTarget = $state<string | null>(null);
-  function startDrag(e: DragEvent, chatId: string) {
-    dragging = chatId;
-    e.dataTransfer?.setData("text/plain", chatId);
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  let dropTarget = $state<{ chat: string; zone: SplitWhere } | null>(null);
+  let dragLive = $state(false); // past the click slop — feedback engages
+  let pressAt: { x: number; y: number } | null = null;
+
+  function hitTest(e: PointerEvent): { chat: string; zone: SplitWhere } | null {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const cellEl = el?.closest<HTMLElement>(".chat-grid-cell");
+    const chat = cellEl?.dataset.chat;
+    if (!cellEl || !chat || chat === dragging) return null;
+    // Nearest edge picks the half (normalized distances → dominant side).
+    const r = cellEl.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width;
+    const y = (e.clientY - r.top) / r.height;
+    const edges: [SplitWhere, number][] = [
+      ["left", x],
+      ["right", 1 - x],
+      ["up", y],
+      ["down", 1 - y],
+    ];
+    edges.sort((p, q) => p[1] - q[1]);
+    const zone = edges[0]?.[0] ?? "right";
+    return { chat, zone };
   }
-  function overCell(e: DragEvent, chatId: string) {
-    if (!dragging || dragging === chatId) return;
-    e.preventDefault(); // allow the drop
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    dropTarget = chatId;
+  function gripDown(e: PointerEvent, chatId: string) {
+    if (e.button !== 0) return;
+    e.preventDefault(); // no text-selection drag from the grip
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    pressAt = { x: e.clientX, y: e.clientY };
+    dragging = chatId; // armed; the dim + previews engage on first real move
   }
-  function dropOnCell(e: DragEvent, chatId: string) {
-    e.preventDefault();
-    if (wt && dragging && dragging !== chatId) swapChats(wt, dragging, chatId);
+  function gripMove(e: PointerEvent) {
+    if (!dragging || !pressAt) return;
+    // 3px slop so a plain click on the grip never flickers previews.
+    if (!dragLive && Math.abs(e.clientX - pressAt.x) + Math.abs(e.clientY - pressAt.y) < 3) return;
+    dragLive = true;
+    dropTarget = hitTest(e);
+  }
+  function gripUp(e: PointerEvent) {
+    if (wt && dragging && dropTarget) {
+      moveChat(wt, dragging, dropTarget.chat, dropTarget.zone);
+    }
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     dragging = null;
     dropTarget = null;
-  }
-  function endDrag() {
-    dragging = null;
-    dropTarget = null;
+    dragLive = false;
+    pressAt = null;
   }
 </script>
 
@@ -139,13 +167,11 @@
                 {...props}
                 class="chat-grid-cell"
                 style="grid-area: {cell.area}"
-                data-dragging={dragging === cell.chat ? "" : undefined}
-                data-drop={dropTarget === cell.chat ? "" : undefined}
+                data-chat={cell.chat}
+                data-dragging={dragging === cell.chat && dragLive ? "" : undefined}
+                data-drop={dropTarget?.chat === cell.chat ? dropTarget.zone : undefined}
                 use:borderGlow
                 onfocusin={() => focusChat(wt, cell.chat)}
-                ondragover={(e: DragEvent) => overCell(e, cell.chat)}
-                ondragleave={() => dropTarget === cell.chat && (dropTarget = null)}
-                ondrop={(e: DragEvent) => dropOnCell(e, cell.chat)}
               >
                 <ClaudeTerminalCell worktree={wt} chatId={cell.chat} />
                 <div class="chat-cell-controls">
@@ -154,9 +180,10 @@
                     role="button"
                     tabindex="-1"
                     aria-label="Drag to rearrange"
-                    draggable="true"
-                    ondragstart={(e: DragEvent) => startDrag(e, cell.chat)}
-                    ondragend={endDrag}
+                    onpointerdown={(e: PointerEvent) => gripDown(e, cell.chat)}
+                    onpointermove={gripMove}
+                    onpointerup={gripUp}
+                    onpointercancel={gripUp}
                   >
                     <GripVertical class="size-3.5" />
                   </span>

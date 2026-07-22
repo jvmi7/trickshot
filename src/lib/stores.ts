@@ -12,10 +12,10 @@ import type { ReviewComment } from "./review";
 import {
   heal,
   isSplitNode,
+  moveLeaf,
   type SplitNode,
   type SplitWhere,
   splitLeaf,
-  swapLeaves,
 } from "./splitTree";
 import { profileAccent } from "./termProfiles";
 import { DEFAULT_THEME, THEMES as THEME_DEFS } from "./themes";
@@ -425,14 +425,14 @@ export function splitChat(worktree: string, targetChat: string, where: SplitWher
   return chat;
 }
 
-/** Drag-and-drop rearrange: the two cells trade places in the mosaic (the
- *  geometry is untouched — swap, not re-split). Heals first so the swap
- *  operates on the SAME tree the grid is rendering. */
-export function swapChats(worktree: string, a: string, b: string) {
+/** Drag-and-drop rearrange: MOVE the dragged chat into the chosen half of
+ *  the target cell (its old slot collapses to the sibling). Heals first so
+ *  the move operates on the SAME tree the grid is rendering. */
+export function moveChat(worktree: string, source: string, target: string, where: SplitWhere) {
   const ids = (get(chatSessionsByWorktree)[worktree] ?? []).map((c) => c.id);
   const healed = heal(get(chatSplitByWorktree)[worktree], ids);
   if (!healed) return; // no chats — nothing to rearrange
-  _splits.set(worktree, swapLeaves(healed, a, b));
+  _splits.set(worktree, moveLeaf(healed, source, target, where));
 }
 
 /** How multiple chats render: a tab strip showing one, or an n-up grid

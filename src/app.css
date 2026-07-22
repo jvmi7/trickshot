@@ -1315,10 +1315,24 @@ html, body {
 .chat-drag { display: inline-flex; align-items: center; color: var(--app-dim); cursor: grab; transition: color var(--app-duration-fast) ease; }
 .chat-drag:hover { color: var(--app-text); }
 .chat-drag:active { cursor: grabbing; }
-/* Drag feedback: the lifted cell dims; the hovered target's border lights
-   with the standard focus tint (both ride the cell's existing transitions). */
+/* Drag feedback: the lifted cell dims; the hovered target shows a DASHED
+   PREVIEW over the half the dragged terminal would land in (data-drop
+   carries the zone — up/down/left/right — from the pointer hit-test). The
+   ::before slot is free (the glow ring is ::after). */
 .chat-grid-cell[data-dragging] { opacity: 0.5; }
-.chat-grid-cell[data-drop] { border-color: color-mix(in oklch, var(--app-text) 28%, var(--app-border)); }
+.chat-grid-cell[data-drop]::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  border: 1px dashed color-mix(in oklch, var(--app-text) 40%, var(--app-border));
+  border-radius: var(--radius-xl);
+  background: color-mix(in oklch, var(--app-text) 6%, transparent);
+  pointer-events: none;
+}
+.chat-grid-cell[data-drop="up"]::before { inset: 4px 4px 50% 4px; }
+.chat-grid-cell[data-drop="down"]::before { inset: 50% 4px 4px 4px; }
+.chat-grid-cell[data-drop="left"]::before { inset: 4px 50% 4px 4px; }
+.chat-grid-cell[data-drop="right"]::before { inset: 4px 4px 4px 50%; }
 
 /* ---- sidebar v2: repos + worktrees (Conductor-style) ---- */
 .wt { display: flex; flex-direction: column; }

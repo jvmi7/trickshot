@@ -52,25 +52,22 @@ export function splitLeaf(
   return a === tree.a && b === tree.b ? tree : { dir: tree.dir, a, b };
 }
 
-/** Swap two leaves' positions (drag-and-drop rearrange): the mosaic's
- *  geometry is untouched — the two chats trade rects. Identity-preserving
- *  no-op unless BOTH ids are present (a half-found swap would teleport one
- *  chat and drop the other). */
-export function swapLeaves(tree: SplitNode, a: string, b: string): SplitNode {
-  if (a === b) return tree;
+/** Drag-and-drop rearrange: MOVE the source leaf into the chosen half of the
+ *  target cell — the source's old slot collapses to its sibling, the target
+ *  splits (the VS Code editor-group model). Identity-preserving no-op when
+ *  source === target, either id is missing, or the tree is just the source. */
+export function moveLeaf(
+  tree: SplitNode,
+  source: string,
+  target: string,
+  where: SplitWhere,
+): SplitNode {
+  if (source === target) return tree;
   const ids = leavesOf(tree);
-  if (!ids.includes(a) || !ids.includes(b)) return tree;
-  const rename = (n: SplitNode): SplitNode => {
-    if ("chat" in n) {
-      if (n.chat === a) return { chat: b };
-      if (n.chat === b) return { chat: a };
-      return n;
-    }
-    const na = rename(n.a);
-    const nb = rename(n.b);
-    return na === n.a && nb === n.b ? n : { dir: n.dir, a: na, b: nb };
-  };
-  return rename(tree);
+  if (!ids.includes(source) || !ids.includes(target)) return tree;
+  const without = prune(tree, new Set(ids.filter((i) => i !== source)));
+  if (!without) return tree;
+  return splitLeaf(without, target, where, source);
 }
 
 /** Drop leaves not in keepIds; a split with one dead side collapses to the
