@@ -998,17 +998,19 @@ html, body {
    card border flows into the tab's sides without a break. Tabs start past
    the card's rounded top-left corner so the merge lands on a straight edge. */
 /* The band PERSISTS in both layouts (it hosts the always-visible + and the
-   tabs⇄grid toggle); in GRID mode only the TABS + their chrome sink — a 30px
-   translate drops them below the band's clipped bottom edge, reading as
-   "the tabs sink into the terminal" while the band's controls stay put. */
+   tabs⇄grid toggle); in GRID mode only the TABS + their chrome disappear —
+   a fade in place while their width slot closes. NOTHING moves vertically
+   between the two layouts. */
 .chat-tabs { position: relative; z-index: 1; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; height: 30px; padding: 2px var(--app-pane-gap) 0; }
 /* The sink clip is its OWN attribute (not part of data-collapsed): the
    sliding chrome deliberately dips 1px below the strip into the card's border
    row, so clipping can't be unconditional. ChatTabs sets data-clip with the
    collapse and releases it only when the EXPAND's translate transition ends. */
 .chat-tabs[data-clip] { overflow: clip; }
-.chat-tabs[data-collapsed] .chat-tab,
-.chat-tabs[data-collapsed] .chat-tab-chrome { translate: 0 30px; pointer-events: none; }
+/* GRID mode: the tabs (chrome included — inner opacity multiplies the
+   chrome's inline opacity) FADE IN PLACE. No translate: nothing may shift
+   vertically between the two layouts. */
+.chat-tabs[data-collapsed] .chat-tabs-rail-inner { opacity: 0; pointer-events: none; }
 /* The tabs' width slot: 1fr → 0fr in grid mode releases the sunk tabs'
    LAYOUT width on the same clock, so the + glides to the band's left edge
    instead of hanging after an invisible row. */
@@ -1018,7 +1020,7 @@ html, body {
    shrinking slot ONLY under data-clip (overflow-y stays visible — the
    chrome's 1px dip into the card border row must survive tabs mode; `clip`
    never makes a scroll container, so the axis split is honored). */
-.chat-tabs-rail-inner { position: relative; display: flex; align-items: flex-end; gap: 2px; min-width: 0; }
+.chat-tabs-rail-inner { position: relative; display: flex; align-items: flex-end; gap: 2px; min-width: 0; transition: opacity var(--app-duration-slow) var(--ease-out-soft); }
 .chat-tabs[data-clip] .chat-tabs-rail-inner { overflow-x: clip; }
 /* ONE frame color feeds the card border, the active tab's border, and the
    flare strokes — and carries the terminal-focus tint: the detached focus
@@ -1048,7 +1050,7 @@ html, body {
 .content:has(.chat-grid) > .content-clip { padding: 0; border-radius: 0; overflow: visible; }
 /* Fixed height (not text-metric padding): the -1px overlap below must land on
    an integer row or the card border ghosts through at fractional layouts. */
-.chat-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: var(--app-tab-radius); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease, translate var(--app-duration-slow) var(--ease-out-soft); }
+.chat-tab { position: relative; flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: var(--app-tab-radius); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
 /* Inactive hover: just the text brightening — no chip fill. */
 .chat-tab:not([data-active]):hover { color: var(--app-text); }
 /* -1px overlap: the tab's bottom row lands exactly ON the card's top border
@@ -1075,7 +1077,7 @@ html, body {
   border-bottom: 0;
   border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0;
   opacity: 0;
-  transition: opacity var(--app-duration-fast) ease, translate var(--app-duration-slow) var(--ease-out-soft);
+  transition: opacity var(--app-duration-fast) ease;
 }
 .chat-tab-frame {
   position: absolute;

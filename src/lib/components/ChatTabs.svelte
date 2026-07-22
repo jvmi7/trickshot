@@ -53,9 +53,10 @@
     if (grid) clipping = true;
   });
   function releaseClip(e: TransitionEvent) {
-    // The sink rides the tabs' translate (the band itself never resizes).
+    // The rail's width slot is the collapse's slowest-settling property (the
+    // fade rides the same clock; hover opacities elsewhere would false-fire).
     // Re-check the mode: a mid-flight re-toggle back to grid must keep it.
-    if (e.propertyName === "translate" && !grid) clipping = false;
+    if (e.propertyName === "grid-template-columns" && !grid) clipping = false;
   }
 
   function close(id: string) {
@@ -98,10 +99,10 @@
   <!-- data-first-active is OWNED by slidingTabChrome (flush choreography):
        it lands when the chrome's slide arrives at the first tab, not when
        the click happens — the card corner stays rounded during flight. -->
-  <!-- data-collapsed sinks the TABS in GRID mode (a 30px translate drops
-       them below the band's clipped edge — into the terminal); the band
-       itself persists, keeping the + and layout toggle visible in both
-       layouts, and the chrome's data-active tracking survives the sink. -->
+  <!-- data-collapsed fades the TABS out in place in GRID mode (no vertical
+       motion) while their width slot closes; the band itself persists,
+       keeping the + and layout toggle visible in both layouts, and the
+       chrome's data-active tracking survives the fade. -->
   <div
     class="chat-tabs"
     role="tablist"
@@ -110,7 +111,7 @@
     data-clip={clipping ? "" : undefined}
     ontransitionend={releaseClip}
   >
-    <!-- The rail: the tabs' width slot. 1fr → 0fr in grid mode so the sunk
+    <!-- The rail: the tabs' width slot. 1fr → 0fr in grid mode so the fading
          tabs also release their LAYOUT width — the + glides to the left edge
          instead of floating after an invisible row. The inner keeps the
          chrome's offset-parent + flex row; its horizontal clip rides
