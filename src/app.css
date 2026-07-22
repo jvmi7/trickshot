@@ -1255,7 +1255,9 @@ html, body {
 .chat-dot[data-status="busy"] { background: var(--app-accent); }
 .chat-dot[data-status="stopped"] { background: transparent; border: 1px solid var(--app-dim); }
 /* Close ✕ inside a tab: quiet until the tab is hovered. */
-.chat-close { display: inline-flex; align-items: center; opacity: 0; color: var(--app-dim); transition: opacity var(--app-duration-fast) ease, color var(--app-duration-fast) ease; }
+/* margin-left auto: with Chrome-style fixed tab widths the ✕ rides the tab's
+   RIGHT edge, not the label's tail. */
+.chat-close { display: inline-flex; align-items: center; margin-left: auto; opacity: 0; color: var(--app-dim); transition: opacity var(--app-duration-fast) ease, color var(--app-duration-fast) ease; }
 .chat-tab:hover .chat-close { opacity: 1; }
 .chat-close:hover { color: var(--app-text); }
 /* n-up grid: every chat visible at once, each cell a FLOATING card — 1px

@@ -63,30 +63,46 @@
     if (wt) closeChat(wt, id);
   }
 
-  /** Pin each tab to a WHOLE-pixel width. Text-driven widths are fractional
-   *  (e.g. 181.95px), which puts every frame joint — arcs, ring notch, side
-   *  strokes — on a partial pixel: engines composite the boundary with
-   *  partial coverage and the seams read as 1px gaps, differently per
-   *  DPI/engine. Integer widths make every abutment exact. (Labels are
-   *  static "Chat N", so the pinned width never goes stale.) */
-  function snapWidth(el: HTMLElement) {
-    const snap = () => {
-      const w = el.getBoundingClientRect().width;
-      const target = Math.ceil(w);
-      if (target - w > 0.01) el.style.width = `${target}px`;
-    };
-    // Re-measure once fonts settle: a width pinned against fallback metrics
-    // would clip the label (the pin also mutes the ResizeObserver).
-    const resnap = () => {
-      el.style.width = "";
-      snap();
-    };
-    const ro = new ResizeObserver(snap);
-    ro.observe(el);
-    snap();
-    document.fonts?.ready.then(resnap).catch(() => {});
-    return { destroy: () => ro.disconnect() };
+  /** Chrome-style tab widths: every tab takes TAB_MAX until the band can't
+   *  fit them all, then they shrink EQUALLY (floored at TAB_MIN). Computed in
+   *  JS, not flex: the chrome's 1px frame joints — arcs, ring notch, side
+   *  strokes — must land on WHOLE pixels (fractional widths composite with
+   *  partial coverage and read as 1px gaps, differently per DPI/engine), and
+   *  flex hands out fractional shares. */
+  const TAB_MAX = 180;
+  const TAB_MIN = 72;
+  const TAB_GAP = 2; // mirrors the strip's flex gap
+  let stripEl = $state<HTMLElement | null>(null);
+  let railEl = $state<HTMLElement | null>(null);
+  let tabWidth = $state(TAB_MAX);
+  function sizeTabs() {
+    const strip = stripEl;
+    const rail = railEl;
+    if (!strip || !rail || grid) return; // never re-size mid-collapse
+    const cs = getComputedStyle(strip);
+    let avail =
+      strip.clientWidth - Number.parseFloat(cs.paddingLeft) - Number.parseFloat(cs.paddingRight);
+    // Everything on the band that ISN'T the tabs' slot (+, layout toggle)
+    // keeps its measured width; the tabs share what remains.
+    for (const child of strip.children) {
+      if (child !== rail) avail -= (child as HTMLElement).offsetWidth + TAB_GAP;
+    }
+    const n = chats.length;
+    if (n < 1) return;
+    avail -= TAB_GAP * (n - 1);
+    tabWidth = Math.max(TAB_MIN, Math.min(TAB_MAX, Math.floor(avail / n)));
   }
+  $effect(() => {
+    const strip = stripEl;
+    if (!strip) return;
+    const ro = new ResizeObserver(sizeTabs);
+    ro.observe(strip);
+    return () => ro.disconnect();
+  });
+  $effect(() => {
+    void chats.length;
+    if (!grid) requestAnimationFrame(sizeTabs); // post-layout: the toggle mounts with chat #2
+  });
 </script>
 
 {#if wt}
@@ -104,6 +120,7 @@
        keeping the + and layout toggle visible in both layouts, and the
        chrome's data-active tracking survives the fade. -->
   <div
+    bind:this={stripEl}
     class="chat-tabs"
     role="tablist"
     aria-label="Chat sessions"
@@ -116,7 +133,7 @@
          instead of floating after an invisible row. The inner keeps the
          chrome's offset-parent + flex row; its horizontal clip rides
          data-clip (vertical stays visible for the chrome's 1px card dip). -->
-    <div class="chat-tabs-rail">
+    <div class="chat-tabs-rail" bind:this={railEl}>
       <div class="chat-tabs-rail-inner">
         <!-- ONE sliding chrome overlay for the active tab (frame stroke, flares,
              glow layers — SIBLING spans: a mask clips its own pseudos):
@@ -134,10 +151,10 @@
             type="button"
             role="tab"
             class="chat-tab"
+            style="width: {tabWidth}px"
             aria-selected={c.id === focusedId}
             data-active={c.id === focusedId ? "" : undefined}
             onclick={() => focusChat(wt, c.id)}
-            use:snapWidth
           >
             <span
               class="chat-dot"
