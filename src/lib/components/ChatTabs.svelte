@@ -15,14 +15,12 @@
     focusChat,
     focusedChatByWorktree,
     selectedWorktree,
-    setChatLayout,
   } from "../stores";
   import { borderGlow } from "../borderGlow";
   import { slidingTabChrome } from "../slidingHighlight";
   import { claudeTermKey } from "../terminal";
   import IconButton from "./IconButton.svelte";
   import * as Tooltip from "$lib/components/ui/tooltip";
-  import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import Plus from "@lucide/svelte/icons/plus";
   import X from "@lucide/svelte/icons/x";
 
@@ -168,22 +166,7 @@
       </Tooltip.Trigger>
       <Tooltip.Content>New chat session in this worktree</Tooltip.Content>
     </Tooltip.Root>
-    {#if chats.length > 1}
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <IconButton
-              {...props}
-              aria-label={grid ? "Tab layout" : "Grid layout"}
-              class={grid ? "text-foreground" : ""}
-              onclick={() => setChatLayout(grid ? "tabs" : "grid")}
-            >
-              <LayoutGrid />
-            </IconButton>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content>{grid ? "Show one chat (tabs)" : "Show all chats (grid)"}</Tooltip.Content>
-      </Tooltip.Root>
-    {/if}
+    <!-- No layout button here: the ONE global tabs⇄grid toggle lives in the
+         header's ViewToggle (plus the palette / cell context menu). -->
   </div>
 {/if}

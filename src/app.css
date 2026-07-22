@@ -1310,11 +1310,6 @@ html, body {
 .chat-cell-controls { position: absolute; top: 6px; right: 8px; z-index: 1; display: flex; align-items: center; gap: 4px; opacity: 0; pointer-events: none; transition: opacity var(--app-duration-fast) ease; }
 .chat-grid-cell:hover .chat-cell-controls,
 .chat-cell-controls:focus-within { opacity: 1; pointer-events: auto; }
-/* The grid's own controls (+ / back-to-tabs), bottom-right of the card region
-   — the opposite corner from the top-right cell controls, hover-revealed. */
-.chat-grid-controls { position: absolute; right: var(--app-pane-gap); bottom: var(--app-pane-gap); z-index: 1; display: flex; align-items: center; gap: 4px; opacity: 0; pointer-events: none; transition: opacity var(--app-duration-fast) ease; }
-.content:hover .chat-grid-controls,
-.chat-grid-controls:focus-within { opacity: 1; pointer-events: auto; }
 
 /* ---- sidebar v2: repos + worktrees (Conductor-style) ---- */
 .wt { display: flex; flex-direction: column; }

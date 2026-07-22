@@ -25,7 +25,6 @@
   import ClaudeTerminalCell from "./ClaudeTerminalCell.svelte";
   import IconButton from "./IconButton.svelte";
   import * as ContextMenu from "$lib/components/ui/context-menu";
-  import * as Tooltip from "$lib/components/ui/tooltip";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import PanelTop from "@lucide/svelte/icons/panel-top";
   import SquareSplitHorizontal from "@lucide/svelte/icons/square-split-horizontal";
@@ -131,18 +130,6 @@
           {@render cellMenu(cell.chat)}
         </ContextMenu.Root>
       {/each}
-    </div>
-    <div class="chat-grid-controls">
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <IconButton {...props} aria-label="Tab layout" onclick={() => setChatLayout("tabs")}>
-              <PanelTop />
-            </IconButton>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content>Show one chat (tabs)</Tooltip.Content>
-      </Tooltip.Root>
     </div>
   {:else}
     <!-- The same split menu works from tabs layout: splitting jumps to grid

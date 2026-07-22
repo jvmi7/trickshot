@@ -11,6 +11,9 @@
     activeScriptRun,
     changesOpen,
     setChangesOpen,
+    chatLayout,
+    chatSessionsByWorktree,
+    setChatLayout,
     shellOpen,
     setShellOpen,
     selectedWorktree,
@@ -21,6 +24,7 @@
   import { Button } from "$lib/components/ui/button";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import FileDiff from "@lucide/svelte/icons/file-diff";
+  import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import Terminal from "@lucide/svelte/icons/terminal";
   import { slidingToggle } from "../slidingHighlight";
@@ -36,9 +40,39 @@
   // of the clean-but-ahead state).
   const hasCounts = $derived(!!stat && (stat.insertions > 0 || stat.deletions > 0));
   const scriptRun = $derived($activeScriptRun);
+  // Grid only means something with >1 chat (the layout derivation's guard) —
+  // hide the toggle below that, like the strip's + / the palette entry.
+  const multiChat = $derived(
+    !!$selectedWorktree && ($chatSessionsByWorktree[$selectedWorktree] ?? []).length > 1,
+  );
 </script>
 
 <div class="view-toggle" use:slidingToggle>
+  {#if multiChat}
+    <!-- THE global tabs⇄grid toggle (the one home for it — the strip and the
+         grid carry no layout buttons of their own; the palette/context menu
+         call the same mutator). -->
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <Button
+            {...props}
+            size="icon-sm"
+            variant="ghost"
+            class="view-toggle-item size-8 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
+            data-active={$chatLayout === "grid" ? "" : undefined}
+            aria-label={$chatLayout === "grid" ? "Tab layout" : "Grid layout"}
+            onclick={() => setChatLayout($chatLayout === "grid" ? "tabs" : "grid")}
+          >
+            <LayoutGrid class="size-4.5" />
+          </Button>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content>
+        {$chatLayout === "grid" ? "Show one chat (tabs)" : "Show all chats (grid)"}
+      </Tooltip.Content>
+    </Tooltip.Root>
+  {/if}
   {#if hasChanges && stat}
     <!-- Changes is a POPOVER over the terminal (not a page swap): the ± trigger
          drops the whole git panel in place. -->
