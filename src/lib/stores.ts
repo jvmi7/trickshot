@@ -9,6 +9,7 @@ import {
 } from "./persist";
 import { DEFAULT_PROVIDER_ID } from "./providers";
 import type { ReviewComment } from "./review";
+import { heal, isSplitNode, type SplitNode, type SplitWhere, splitLeaf } from "./splitTree";
 import { profileAccent } from "./termProfiles";
 import { DEFAULT_THEME, THEMES as THEME_DEFS } from "./themes";
 import type { Repo, ScriptsConfig, UsageInfo, Worktree } from "./types";
@@ -385,6 +386,38 @@ export const focusedChatByWorktree = _focusedChat.store;
 /** The selected worktree's focused chat id. */
 export const activeFocusedChat = _focusedChat.active<string>(DEFAULT_CHAT_ID);
 
+/** GRID mosaic per worktree: the binary split tree behind right-click →
+ *  split up/down/left/right (splitTree.ts owns the pure ops). Persisted so
+ *  the mosaic survives restarts; renders go through splitTree.heal, which
+ *  prunes leaves whose chat closed and places chats added outside a split
+ *  (tab-strip +, palette) — so this store never has to chase removeChat. */
+const _splits = createWorktreeMap<SplitNode>({
+  persistKey: "trickshot.chatSplits",
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    if (!isPlainObject(v)) return {};
+    const out: Record<string, SplitNode> = {};
+    for (const [wt, tree] of Object.entries(v)) {
+      if (isSplitNode(tree)) out[wt] = tree;
+    }
+    return out;
+  },
+});
+export const chatSplitByWorktree = _splits.store;
+
+/** Right-click → split: a NEW chat takes the chosen half of the target cell.
+ *  Splitting from tabs layout jumps to grid (that's where the halves show). */
+export function splitChat(worktree: string, targetChat: string, where: SplitWhere): ChatSession {
+  const before = (get(chatSessionsByWorktree)[worktree] ?? []).map((c) => c.id);
+  const chat = addChat(worktree);
+  _splits.update(worktree, (tree) => {
+    const healed = heal(tree, before) ?? { chat: targetChat };
+    return splitLeaf(healed, targetChat, where, chat.id);
+  });
+  setChatLayout("grid");
+  return chat;
+}
+
 /** How multiple chats render: a tab strip showing one, or an n-up grid
  *  showing all. Presentation only — the chats store is layout-agnostic. */
 export type ChatLayout = "tabs" | "grid";
@@ -446,10 +479,11 @@ export function setChatSessionId(worktree: string, chatId: string, sessionId: st
   );
 }
 
-/** Drop a worktree's chats + focus state (worktree removal / archive purge). */
+/** Drop a worktree's chats + focus + mosaic (worktree removal / archive purge). */
 export function forgetChats(worktree: string) {
   _chats.remove(worktree);
   _focusedChat.remove(worktree);
+  _splits.remove(worktree);
 }
 
 // Per-PTY-KEY chat status (the per-tab/per-cell dot). The worktree-level

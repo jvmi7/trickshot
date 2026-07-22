@@ -203,9 +203,9 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
   });
   let observedGrid: Element | null = null;
   function syncGridObservers() {
-    // Descendant (not child) query: the grid sits inside .chat-grid-wrap —
-    // the clip's childList observer still fires on the WRAPPER mounting,
-    // which is the same tick the grid appears.
+    // Descendant (not child) query: tolerant of a wrapper between the clip
+    // and the grid (the contextmenu-era markup has none, but the clip's
+    // childList observer fires on whatever direct child mounts either way).
     const gridEl = host.parentElement?.querySelector(":scope > .content-clip .chat-grid") ?? null;
     if (gridEl !== observedGrid) {
       gridMo.disconnect();
