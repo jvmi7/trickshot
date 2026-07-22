@@ -37,15 +37,13 @@
     return chats.some((c) => c.id === f) ? (f as string) : (chats[0]?.id ?? DEFAULT_CHAT_ID);
   });
   const grid = $derived($chatLayout === "grid" && chats.length > 1);
-  // n-up shape: 2 side-by-side, 3-4 in a 2×2, beyond that 3 columns. The
-  // ghost add-slot NEVER counts — it must not shrink real terminals, so it
-  // only appears when the last row already has a hole.
+  // n-up shape: 2 side-by-side, 3-4 in a 2×2, beyond that 3 columns.
   const cols = $derived(chats.length <= 4 ? 2 : 3);
-  const showGhost = $derived(chats.length % cols !== 0);
 </script>
 
 {#if wt}
   {#if grid}
+    <div class="chat-grid-wrap">
     <div class="chat-grid" style="--chat-cols: {cols}">
       {#each chats as c (c.id)}
         <!-- focusin (not click): focusing the cell's terminal — however it
@@ -66,33 +64,20 @@
           </div>
         </div>
       {/each}
-      <!-- Ghost add-slot: fills the last row's ALREADY-EMPTY hole (odd chat
-           counts) — never a slot of its own, so terminals keep their size.
-           NOT a .chat-grid-cell, so the silhouette skips it (no trail wash
-           in an empty socket). When the grid is full it disappears; the
-           hover cluster's + and the palette cover adding then. -->
-      {#if showGhost}
-        <button
-          type="button"
-          class="chat-grid-ghost"
-          aria-label="New chat"
-          onclick={() => wt && addChat(wt)}
-        >
-          <Plus />
-        </button>
-      {/if}
+    </div>
+    <!-- Slim add strip: a thin dashed bar under the grid, always visible —
+         the one fixed, discoverable "new terminal" affordance. Not a
+         .chat-grid-cell, so the trail silhouette skips it. -->
+    <button
+      type="button"
+      class="chat-add-strip"
+      aria-label="New chat"
+      onclick={() => wt && addChat(wt)}
+    >
+      <Plus />
+    </button>
     </div>
     <div class="chat-grid-controls">
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <IconButton {...props} aria-label="New chat" onclick={() => wt && addChat(wt)}>
-              <Plus />
-            </IconButton>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content>New chat session in this worktree</Tooltip.Content>
-      </Tooltip.Root>
       <Tooltip.Root>
         <Tooltip.Trigger>
           {#snippet child({ props })}

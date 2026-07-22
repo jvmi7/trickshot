@@ -203,7 +203,10 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
   });
   let observedGrid: Element | null = null;
   function syncGridObservers() {
-    const gridEl = host.parentElement?.querySelector(":scope > .content-clip > .chat-grid") ?? null;
+    // Descendant (not child) query: the grid sits inside .chat-grid-wrap —
+    // the clip's childList observer still fires on the WRAPPER mounting,
+    // which is the same tick the grid appears.
+    const gridEl = host.parentElement?.querySelector(":scope > .content-clip .chat-grid") ?? null;
     if (gridEl !== observedGrid) {
       gridMo.disconnect();
       observedGrid = gridEl;
