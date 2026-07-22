@@ -1310,6 +1310,15 @@ html, body {
 .chat-cell-controls { position: absolute; top: 6px; right: 8px; z-index: 1; display: flex; align-items: center; gap: 4px; opacity: 0; pointer-events: none; transition: opacity var(--app-duration-fast) ease; }
 .chat-grid-cell:hover .chat-cell-controls,
 .chat-cell-controls:focus-within { opacity: 1; pointer-events: auto; }
+/* The rearrange grip (the cell's draggable — never the cell itself, which
+   would fight terminal text selection). */
+.chat-drag { display: inline-flex; align-items: center; color: var(--app-dim); cursor: grab; transition: color var(--app-duration-fast) ease; }
+.chat-drag:hover { color: var(--app-text); }
+.chat-drag:active { cursor: grabbing; }
+/* Drag feedback: the lifted cell dims; the hovered target's border lights
+   with the standard focus tint (both ride the cell's existing transitions). */
+.chat-grid-cell[data-dragging] { opacity: 0.5; }
+.chat-grid-cell[data-drop] { border-color: color-mix(in oklch, var(--app-text) 28%, var(--app-border)); }
 
 /* ---- sidebar v2: repos + worktrees (Conductor-style) ---- */
 .wt { display: flex; flex-direction: column; }

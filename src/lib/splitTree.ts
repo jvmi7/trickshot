@@ -52,6 +52,27 @@ export function splitLeaf(
   return a === tree.a && b === tree.b ? tree : { dir: tree.dir, a, b };
 }
 
+/** Swap two leaves' positions (drag-and-drop rearrange): the mosaic's
+ *  geometry is untouched — the two chats trade rects. Identity-preserving
+ *  no-op unless BOTH ids are present (a half-found swap would teleport one
+ *  chat and drop the other). */
+export function swapLeaves(tree: SplitNode, a: string, b: string): SplitNode {
+  if (a === b) return tree;
+  const ids = leavesOf(tree);
+  if (!ids.includes(a) || !ids.includes(b)) return tree;
+  const rename = (n: SplitNode): SplitNode => {
+    if ("chat" in n) {
+      if (n.chat === a) return { chat: b };
+      if (n.chat === b) return { chat: a };
+      return n;
+    }
+    const na = rename(n.a);
+    const nb = rename(n.b);
+    return na === n.a && nb === n.b ? n : { dir: n.dir, a: na, b: nb };
+  };
+  return rename(tree);
+}
+
 /** Drop leaves not in keepIds; a split with one dead side collapses to the
  *  surviving side (the sibling reclaims the space). Returns null when nothing
  *  survives. Identity-preserving when nothing changed. */

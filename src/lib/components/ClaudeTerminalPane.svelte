@@ -18,6 +18,7 @@
     selectedWorktree,
     setChatLayout,
     splitChat,
+    swapChats,
   } from "../stores";
   import { borderGlow } from "../borderGlow";
   import { heal, type SplitWhere, treeToGrid } from "../splitTree";
@@ -25,6 +26,7 @@
   import ClaudeTerminalCell from "./ClaudeTerminalCell.svelte";
   import IconButton from "./IconButton.svelte";
   import * as ContextMenu from "$lib/components/ui/context-menu";
+  import GripVertical from "@lucide/svelte/icons/grip-vertical";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import PanelTop from "@lucide/svelte/icons/panel-top";
   import SquareSplitHorizontal from "@lucide/svelte/icons/square-split-horizontal";
@@ -57,6 +59,34 @@
     { where: "down", label: "Split down", vertical: true },
     { where: "up", label: "Split up", vertical: true },
   ];
+
+  // Drag-and-drop rearrange (the hover grip is the draggable, NOT the cell —
+  // dragging must never fight terminal text selection). dataTransfer is
+  // unreadable during dragover, so the source id rides local state; drop on
+  // another cell SWAPS the two leaves (geometry untouched, contents trade).
+  let dragging = $state<string | null>(null);
+  let dropTarget = $state<string | null>(null);
+  function startDrag(e: DragEvent, chatId: string) {
+    dragging = chatId;
+    e.dataTransfer?.setData("text/plain", chatId);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  }
+  function overCell(e: DragEvent, chatId: string) {
+    if (!dragging || dragging === chatId) return;
+    e.preventDefault(); // allow the drop
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    dropTarget = chatId;
+  }
+  function dropOnCell(e: DragEvent, chatId: string) {
+    e.preventDefault();
+    if (wt && dragging && dragging !== chatId) swapChats(wt, dragging, chatId);
+    dragging = null;
+    dropTarget = null;
+  }
+  function endDrag() {
+    dragging = null;
+    dropTarget = null;
+  }
 </script>
 
 {#snippet cellMenu(chatId: string)}
@@ -109,11 +139,27 @@
                 {...props}
                 class="chat-grid-cell"
                 style="grid-area: {cell.area}"
+                data-dragging={dragging === cell.chat ? "" : undefined}
+                data-drop={dropTarget === cell.chat ? "" : undefined}
                 use:borderGlow
                 onfocusin={() => focusChat(wt, cell.chat)}
+                ondragover={(e: DragEvent) => overCell(e, cell.chat)}
+                ondragleave={() => dropTarget === cell.chat && (dropTarget = null)}
+                ondrop={(e: DragEvent) => dropOnCell(e, cell.chat)}
               >
                 <ClaudeTerminalCell worktree={wt} chatId={cell.chat} />
                 <div class="chat-cell-controls">
+                  <span
+                    class="chat-drag"
+                    role="button"
+                    tabindex="-1"
+                    aria-label="Drag to rearrange"
+                    draggable="true"
+                    ondragstart={(e: DragEvent) => startDrag(e, cell.chat)}
+                    ondragend={endDrag}
+                  >
+                    <GripVertical class="size-3.5" />
+                  </span>
                   <span
                     class="chat-dot"
                     data-status={$chatStatusByKey[claudeTermKey(wt, cell.chat)] ?? "stopped"}

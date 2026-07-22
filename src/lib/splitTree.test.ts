@@ -7,6 +7,7 @@ import {
   prune,
   type SplitNode,
   splitLeaf,
+  swapLeaves,
   treeToGrid,
 } from "./splitTree";
 
@@ -54,6 +55,27 @@ describe("prune", () => {
   test("nothing kept → null; everything kept → same identity", () => {
     expect(prune(t, new Set())).toBeNull();
     expect(prune(t, new Set(["a", "b", "c"]))).toBe(t);
+  });
+});
+
+describe("swapLeaves", () => {
+  const t: SplitNode = {
+    dir: "row",
+    a: leaf("a"),
+    b: { dir: "column", a: leaf("b"), b: leaf("c") },
+  };
+
+  test("swaps two leaves across subtrees, geometry untouched", () => {
+    const out = swapLeaves(t, "a", "c");
+    expect(leavesOf(out)).toEqual(["c", "b", "a"]);
+    // same shape: still row(leaf, column(leaf, leaf))
+    expect("dir" in out && out.dir).toBe("row");
+    expect("dir" in out && "dir" in out.b && out.b.dir).toBe("column");
+  });
+
+  test("missing id or self-swap is an identity no-op", () => {
+    expect(swapLeaves(t, "a", "zz")).toBe(t);
+    expect(swapLeaves(t, "b", "b")).toBe(t);
   });
 });
 
