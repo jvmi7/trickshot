@@ -580,7 +580,10 @@
   --app-pane-radius-inner: calc(var(--app-pane-radius) - 1px);
   /* Chat-tab top corners (the connected Chrome-style tabs) — rounder than the
      control ladder, shy of the pane. */
-  --app-tab-radius: 10px;
+  --app-tab-radius: 12px;
+  /* Tab height — the strip band (h + 2), the trail's band reach (h + 3), and
+     the arc-glow light anchors all derive from this one token. */
+  --app-tab-h: 34px;
 
   --app-panel: var(--base-surface);
   --app-panel-2: var(--base-surface-raised);
@@ -821,11 +824,11 @@ html, body {
 .content-clip { flex: 1; display: flex; min-width: 0; min-height: 0; overflow: hidden; padding: 1px; border-radius: var(--app-pane-radius-inner); }
 /* THE shared chat background: one trail canvas behind the whole surface,
    clipped to card∪tab by chatSilhouette (a live-measured path). Extends up
-   over the strip band (28px tab + 2px strip margin + 1px border row) so the
+   over the strip band (--app-tab-h + 2px strip padding + 1px border row) so
    active tab's bump is part of the same sheet; its own bg fills the bump
    (the tab button is transparent). Everything above — panes, tab label,
    borders — is the mask's chrome. */
-.chat-trail { position: absolute; left: 0; right: 0; bottom: 0; top: -31px; background: linear-gradient(var(--app-term-bg-top), var(--app-term-bg-bottom)); pointer-events: none; }
+.chat-trail { position: absolute; left: 0; right: 0; bottom: 0; top: calc(-3px - var(--app-tab-h)); background: linear-gradient(var(--app-term-bg-top), var(--app-term-bg-bottom)); pointer-events: none; }
 .chat-trail canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 /* Cursor-proximity border highlight (borderGlow.ts writes --glow-x/y/o): a
    radial light centered on the pointer, masked to ONLY a 1px ring sitting at
@@ -1015,7 +1018,7 @@ html, body {
    tabs⇄grid toggle); in GRID mode only the TABS + their chrome disappear —
    a fade in place while their width slot closes. NOTHING moves vertically
    between the two layouts. */
-.chat-tabs { position: relative; z-index: 1; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; height: 30px; padding: 2px var(--app-pane-gap) 0; }
+.chat-tabs { position: relative; z-index: 1; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; height: calc(var(--app-tab-h) + 2px); padding: 2px var(--app-pane-gap) 0; }
 /* The band bottom-aligns (the tabs' feet must sit ON the card edge), which
    drops the 24px icon buttons below the tabs' visual center — center THEM.
    Their corners match the tabs' radius (the band's shared curvature). The
@@ -1080,7 +1083,7 @@ html, body {
 .content:has(.chat-grid) > .content-clip { padding: 0; border-radius: 0; overflow: visible; }
 /* Fixed height (not text-metric padding): the -1px overlap below must land on
    an integer row or the card border ghosts through at fractional layouts. */
-.chat-tab { position: relative; flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: var(--app-tab-radius); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
+.chat-tab { position: relative; flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: var(--app-tab-h); padding: 0 12px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: var(--app-tab-radius); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
 /* Inactive hover: just the text brightening — no chip fill. */
 .chat-tab:not([data-active]):hover { color: var(--app-text); }
 /* -1px overlap: the tab's bottom row lands exactly ON the card's top border
@@ -1203,8 +1206,8 @@ html, body {
    same offsets land the same boxes), painting the 260px light masked to the
    arc's stroke band. The frame recolor turns the corner with the cursor.
    Gradient centers re-anchor the tab-relative --glow-x/y into each box (the
-   right side uses the action's right-anchored --glow-xr; 28px = the tab's
-   fixed height). z-index 1 floats them above the flares' own stroke. */
+   right side uses the action's right-anchored --glow-xr; --app-tab-h = the
+   tab's fixed height). z-index 1 floats them above the flares' own stroke. */
 .chat-tab-glow-arc {
   position: absolute;
   bottom: 0;
@@ -1219,7 +1222,7 @@ html, body {
   left: calc(-1 * var(--flare-l, var(--radius-xl)) - 1px);
   width: calc(var(--flare-l, var(--radius-xl)) + 2px);
   background: radial-gradient(
-      260px circle at calc(var(--glow-x, 0px) + var(--flare-l, var(--radius-xl))) calc(var(--glow-y, 0px) - 28px + var(--radius-xl)),
+      260px circle at calc(var(--glow-x, 0px) + var(--flare-l, var(--radius-xl))) calc(var(--glow-y, 0px) - var(--app-tab-h) + var(--radius-xl)),
       var(--app-glow),
       transparent 70%
     );
@@ -1235,7 +1238,7 @@ html, body {
 .chat-tab-glow-arc[data-side="right"] {
   right: calc(-1 * var(--radius-xl));
   background: radial-gradient(
-      260px circle at calc(var(--glow-xr, 0px) + 2px) calc(var(--glow-y, 0px) - 28px + var(--radius-xl)),
+      260px circle at calc(var(--glow-xr, 0px) + 2px) calc(var(--glow-y, 0px) - var(--app-tab-h) + var(--radius-xl)),
       var(--app-glow),
       transparent 70%
     );
