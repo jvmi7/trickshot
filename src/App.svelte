@@ -49,7 +49,6 @@
   import ViewToggle from "./lib/components/ViewToggle.svelte";
   import RunScripts from "./lib/components/RunScripts.svelte";
   import RunOutput from "./lib/components/RunOutput.svelte";
-  import WindowControls from "./lib/components/WindowControls.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import ArchivedSection from "./lib/components/ArchivedSection.svelte";
   import Fleet from "./lib/components/Fleet.svelte";
@@ -263,9 +262,6 @@
 <ComposeDialog />
 <CommandPalette />
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
-  <!-- The window is undecorated (custom-radius shell) — draw our own
-       traffic lights in the native footprint. -->
-  <WindowControls />
   <aside class="sidebar" class:collapsed={!$sidebarOpen}>
     <!-- empty strip aligning the worktree list's top with the content's top bar
          and clearing the traffic lights + floating toggle; the sidebar's right

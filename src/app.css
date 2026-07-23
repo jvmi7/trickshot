@@ -382,11 +382,6 @@
   --base-danger: #f07178;         /* errors / destructive (the TUI's soft pink-red) */
   --base-success: #5fb87a;        /* online / running */
   --base-info: #82aaff;           /* chart / info (the TUI's link blue) */
-  /* macOS window-control hues (the custom traffic lights on the undecorated
-     window) — system colors, deliberately un-themed. */
-  --base-mac-close: #ff5f57;
-  --base-mac-min: #febc2e;
-  --base-mac-zoom: #28c840;
   --base-warning: #f0b03c;        /* chart / warning (the TUI's amber) */
   --base-special: #b48ef0;        /* chart / extra */
   --base-overlay: rgb(0 0 0 / 0.6); /* modal scrim */
@@ -530,9 +525,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    /* NO bg-background: the window is transparent and .layout draws the
-       rounded shell — an opaque body would square the corners back. */
-    @apply text-foreground bg-transparent;
+    @apply bg-background text-foreground;
   }
   /* Keyboard-focus ring for every HAND-STYLED interactive element (pills, ghost
      text buttons, chrome buttons, list rows, links). Never write a per-component
@@ -579,7 +572,7 @@
      gap (10 − 8 = 2px), but at a visible ≥8px gap that reads pinched — so the
      card runs DELIBERATELY rounder (a chosen departure, not an oversight).
      The eye stops comparing curvatures once the gap is this wide. */
-  --app-window-radius: 26px; /* pane radius (14) + pane gap (12): the card nests CONCENTRICALLY */
+  --app-window-radius: 10px;
   --app-pane-gap: 12px;
   --app-pane-radius: 14px;
   /* The concentric inner radius for rings drawn 1px inside the pane frame
@@ -680,25 +673,7 @@ html, body {
   position: relative; /* anchors the floating sidebar toggle */
   overflow: hidden;
   background: var(--app-shell);
-  /* The window is UNDECORATED + transparent (tauri.conf.json): this element
-     DRAWS the window, at a radius chosen so the inset card nests
-     concentrically (macOS' own ~13px corner can't — see the token). */
-  border-radius: var(--app-window-radius);
 }
-/* Fullscreen fills the screen edge-to-edge — square the shell (the data
-   attr is maintained by WindowControls from the window's resize events). */
-html[data-fullscreen] .layout { border-radius: 0; }
-
-/* ---- custom traffic lights (WindowControls.svelte) — the undecorated
-   window draws its own. Same footprint the native ones occupied. ---- */
-.window-controls { position: fixed; top: 22px; left: 14px; z-index: var(--app-z-chrome); display: flex; gap: 8px; }
-.window-controls button { width: 12px; height: 12px; padding: 0; border: 0; border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
-.window-controls .wc-close { background: var(--base-mac-close); }
-.window-controls .wc-min { background: var(--base-mac-min); }
-.window-controls .wc-zoom { background: var(--base-mac-zoom); }
-/* Glyphs appear when the GROUP is hovered (the native behavior). */
-.window-controls button svg { width: 8px; height: 8px; color: color-mix(in oklch, black 55%, transparent); opacity: 0; transition: opacity var(--app-duration-fast) ease; }
-.window-controls:hover button svg { opacity: 1; }
 
 /* ---- content-column top bar (Header.svelte) ---- */
 .app-header {

@@ -83,7 +83,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Background fleet (unread badges) | `unreadByWorktree` store + `Worktrees.svelte`/`Fleet.svelte` badges; the busy/turn-end signal is derived from PTY output flow (`cliActivity.ts`). (The notification system — OS `notify` command + in-app bell — was DELETED by user request; don’t reintroduce it.) |
 | Rust commands: session-store scan / git worktrees + repo icons | `src-tauri/src/agent.rs`, `worktree.rs` |
 | Rust command registry (`generate_handler!`) | `src-tauri/src/lib.rs` |
-| Permission scope (dialog + window controls) | `src-tauri/capabilities/default.json` |
+| Permission scope (dialog) | `src-tauri/capabilities/default.json` |
 
 `src/lib/api.ts` is the **sole hook layer.** Components import `* as api` and call `pickDirectory` / `termOpen` / `onTermEvent` etc. **Never** import or call `invoke()` (`@tauri-apps/api/core`) or `listen()` (`@tauri-apps/api/event`) directly in a `.svelte` file — add a new typed wrapper to `api.ts` first. Its header says `THIS IS THE PRIMARY HOOK POINT`.
 
