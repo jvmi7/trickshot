@@ -487,6 +487,18 @@ export function focusChat(worktree: string, id: string) {
   _focusedChat.set(worktree, id);
 }
 
+/** Pending close-chat confirmation — the modal guards EVERY close path (tab
+ *  ✕, grid cell ✕, the cell context menu). null = no dialog. The dialog
+ *  itself renders in ChatTabs (mounted for the whole chat surface); the
+ *  confirmed action is session.ts › closeChat. */
+export const chatCloseRequest = writable<{ worktree: string; chatId: string } | null>(null);
+export function requestCloseChat(worktree: string, chatId: string) {
+  chatCloseRequest.set({ worktree, chatId });
+}
+export function clearChatCloseRequest() {
+  chatCloseRequest.set(null);
+}
+
 /** Record a chat's Claude session id once known (no-op when unchanged). */
 export function setChatSessionId(worktree: string, chatId: string, sessionId: string) {
   _chats.update(worktree, (cur) =>

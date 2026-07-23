@@ -11,11 +11,11 @@
     chatSessionsByWorktree,
     chatSplitByWorktree,
     chatStatusByKey,
-    closeChat,
     DEFAULT_CHAT_ID,
     focusChat,
     focusedChatByWorktree,
     moveChat,
+    requestCloseChat,
     selectedWorktree,
     setChatLayout,
     splitChat,
@@ -166,7 +166,7 @@
     {/each}
     {#if chats.length > 1}
       <ContextMenu.Separator />
-      <ContextMenu.Item variant="destructive" onclick={() => wt && closeChat(wt, chatId)}>
+      <ContextMenu.Item variant="destructive" onclick={() => wt && requestCloseChat(wt, chatId)}>
         <X class="size-3.5" />
         Close chat
       </ContextMenu.Item>
@@ -227,7 +227,7 @@
                     data-status={$chatStatusByKey[claudeTermKey(wt, cell.chat)] ?? "stopped"}
                   ></span>
                   {#if chats.length > 1}
-                    <IconButton aria-label="Close chat" onclick={() => wt && closeChat(wt, cell.chat)}>
+                    <IconButton aria-label="Close chat" onclick={() => wt && requestCloseChat(wt, cell.chat)}>
                       <X />
                     </IconButton>
                   {/if}

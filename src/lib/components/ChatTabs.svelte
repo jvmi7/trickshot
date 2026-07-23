@@ -6,14 +6,17 @@
   // the card (ClaudeTerminalPane). Feature component.
   import {
     addChat,
+    chatCloseRequest,
     chatLayout,
     chatSessionsByWorktree,
     chatStatusByKey,
+    clearChatCloseRequest,
     closeChat,
     DEFAULT_CHAT_ID,
     ensureDefaultChat,
     focusChat,
     focusedChatByWorktree,
+    requestCloseChat,
     selectedWorktree,
     setChatLayout,
   } from "../stores";
@@ -21,6 +24,8 @@
   import { slidingTabChrome } from "../slidingHighlight";
   import { claudeTermKey } from "../terminal";
   import IconButton from "./IconButton.svelte";
+  import { Button } from "$lib/components/ui/button";
+  import * as Dialog from "$lib/components/ui/dialog";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import Plus from "@lucide/svelte/icons/plus";
@@ -60,8 +65,21 @@
   }
 
   function close(id: string) {
-    if (wt) closeChat(wt, id);
+    if (wt) requestCloseChat(wt, id); // the confirm dialog below does the deed
   }
+  // The confirmed close (the dialog's OK): dispose + drop, then dismiss.
+  function confirmClose() {
+    const req = $chatCloseRequest;
+    if (req) closeChat(req.worktree, req.chatId);
+    clearChatCloseRequest();
+  }
+  // "Chat N" for the dialog copy — the pending chat's position in the list.
+  const closingLabel = $derived.by(() => {
+    const req = $chatCloseRequest;
+    if (!req) return "";
+    const i = chats.findIndex((c) => c.id === req.chatId);
+    return i >= 0 ? `Chat ${i + 1}` : "this chat";
+  });
 
   /** Chrome-style tab widths: every tab takes TAB_MAX until the band can't
    *  fit them all, then they shrink EQUALLY (floored at TAB_MIN). Computed in
@@ -230,4 +248,23 @@
       </Tooltip.Root>
     {/if}
   </div>
+
+  <!-- Close-chat confirmation (the Worktrees confirm-Dialog pattern): every
+       close path — tab ✕, grid cell ✕, cell context menu — routes through
+       requestCloseChat and lands here before anything is disposed. -->
+  <Dialog.Root open={!!$chatCloseRequest} onOpenChange={(open) => !open && clearChatCloseRequest()}>
+    <Dialog.Content>
+      <Dialog.Header>
+        <Dialog.Title>Close {closingLabel}?</Dialog.Title>
+        <Dialog.Description>
+          This ends the chat's CLI session. The conversation stays in Claude Code's history — a
+          future chat can resume it.
+        </Dialog.Description>
+      </Dialog.Header>
+      <Dialog.Footer>
+        <Button variant="secondary" onclick={clearChatCloseRequest}>Cancel</Button>
+        <Button variant="destructive" onclick={confirmClose}>Close chat</Button>
+      </Dialog.Footer>
+    </Dialog.Content>
+  </Dialog.Root>
 {/if}
