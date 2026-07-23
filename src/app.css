@@ -812,7 +812,7 @@ html, body {
    untouched. Scoped to the xterm focus class (NOT :focus-within) so
    Settings/Fleet focus doesn't light it. */
 .content:has(.xterm.focus) {
-  outline-color: color-mix(in oklch, var(--app-text) 14%, var(--app-border));
+  outline-color: color-mix(in oklch, var(--app-text) 25%, var(--app-border));
 }
 /* The card's clipping box: children clip to the rounded PADDING box here
    (not on .content itself) so the glow ring above can overlay the border.
@@ -835,7 +835,7 @@ html, body {
    mirrors .chat-trail's; overflow visible lets the outset stroke escape. */
 .chat-focus-ring { position: absolute; left: 0; right: 0; bottom: 0; top: -31px; overflow: visible; pointer-events: none; }
 .chat-focus-ring path { fill: none; stroke: transparent; stroke-width: 1px; transition: stroke var(--app-duration-slow) var(--ease-out-soft); }
-.main:has(.chat-tabs + .content .xterm.focus) .chat-focus-ring path { stroke: color-mix(in oklch, var(--app-text) 14%, var(--app-border)); }
+.main:has(.chat-tabs + .content .xterm.focus) .chat-focus-ring path { stroke: color-mix(in oklch, var(--app-text) 25%, var(--app-border)); }
 /* Grid focus rings are per-cell (plain rects need no path — see the cell's
    outline below). */
 .content:has(.chat-grid) .chat-focus-ring { display: none; }
@@ -1328,7 +1328,7 @@ html, body {
 .chat-grid-cell > .term-pane { overflow: hidden; border-radius: var(--app-pane-radius-inner); z-index: 0; }
 /* The keyboard-owning cell tints its OWN border AND raises a detached ring
    4px out — the same ring + tint pairing as the tabs-mode frame. */
-.chat-grid-cell:has(.xterm.focus) { border-color: color-mix(in oklch, var(--app-text) 14%, var(--app-border)); outline-color: color-mix(in oklch, var(--app-text) 14%, var(--app-border)); }
+.chat-grid-cell:has(.xterm.focus) { border-color: color-mix(in oklch, var(--app-text) 14%, var(--app-border)); outline-color: color-mix(in oklch, var(--app-text) 25%, var(--app-border)); }
 /* Per-cell cursor-glow ring: the .content::after recipe verbatim (radial
    light at the cell's own use:borderGlow vars, xor-masked to the 1px border
    row at -1px) — no --frame-clip analogue, cells have no tab opening. */
