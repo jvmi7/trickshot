@@ -1011,6 +1011,13 @@ html, body {
 /* GRID mode hides the + (splits are the add path there); opacity, not
    unmount, so it keeps its slot and fades with the tabs. */
 .chat-tabs[data-collapsed] .chat-add-btn { opacity: 0; pointer-events: none; }
+/* The tabs⇄grid slider (ChatTabs, right end of the band): two icon segments
+   above slidingToggle's gliding pill. Items keep no hover fill of their own
+   (the pill IS the fill); the active icon brightens. */
+.chat-layout-toggle { display: inline-flex; align-items: center; gap: 2px; position: relative; align-self: flex-start; }
+.chat-layout-toggle .icon-chrome-btn { position: relative; z-index: 1; border-radius: var(--app-tab-radius); }
+.chat-layout-toggle .icon-chrome-btn:hover { background: transparent; }
+.chat-layout-toggle .icon-chrome-btn[data-active] { color: var(--app-text); }
 /* The sink clip is its OWN attribute (not part of data-collapsed): the
    sliding chrome deliberately dips 1px below the strip into the card's border
    row, so clipping can't be unconditional. ChatTabs sets data-clip with the

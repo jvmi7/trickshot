@@ -189,7 +189,7 @@ export function slidingRowHighlight(wrap: HTMLElement, opts: { rowSelector?: str
 // slides to the SELECTED item (the one carrying `data-active`), animating its
 // x-position + width. Apply to the element wrapping the items; the items should
 // be transparent (the sliding bg is the only fill) and stack above it (z-index).
-export function slidingToggle(wrap: HTMLElement) {
+export function slidingToggle(wrap: HTMLElement, opts: { radius?: string } = {}) {
   wrap.style.position = "relative";
 
   const hl = document.createElement("div");
@@ -198,7 +198,7 @@ export function slidingToggle(wrap: HTMLElement) {
     top: "0",
     left: "0",
     height: "100%",
-    borderRadius: "calc(var(--radius) - 6px)",
+    borderRadius: opts.radius ?? "calc(var(--radius) - 6px)",
     background: "var(--secondary)",
     opacity: "0",
     pointerEvents: "none",

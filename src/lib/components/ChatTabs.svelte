@@ -21,13 +21,14 @@
     setChatLayout,
   } from "../stores";
   import { borderGlow } from "../borderGlow";
-  import { slidingTabChrome } from "../slidingHighlight";
+  import { slidingTabChrome, slidingToggle } from "../slidingHighlight";
   import { claudeTermKey } from "../terminal";
   import IconButton from "./IconButton.svelte";
   import { Button } from "$lib/components/ui/button";
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+  import PanelTop from "@lucide/svelte/icons/panel-top";
   import Plus from "@lucide/svelte/icons/plus";
   import X from "@lucide/svelte/icons/x";
 
@@ -228,24 +229,47 @@
       <Tooltip.Content>New chat session in this worktree</Tooltip.Content>
     </Tooltip.Root>
     {#if chats.length > 1}
-      <!-- The tabs⇄grid toggle, right-aligned on the strip band (user-placed:
-           under the header, not in it). The band PERSISTS in grid mode (only
-           the tabs sink), so this toggle is visible in BOTH layouts. -->
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <IconButton
-              {...props}
-              class={grid ? "ml-auto text-foreground" : "ml-auto"}
-              aria-label={grid ? "Tab layout" : "Grid layout"}
-              onclick={() => setChatLayout(grid ? "tabs" : "grid")}
-            >
-              <LayoutGrid />
-            </IconButton>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content>{grid ? "Show one chat (tabs)" : "Show all chats (grid)"}</Tooltip.Content>
-      </Tooltip.Root>
+      <!-- The tabs⇄grid control, right-aligned on the strip band (user-placed:
+           under the header, not in it) and visible in BOTH layouts (the band
+           persists). A two-segment SLIDER: the active pill glides between the
+           tab icon and the grid icon (slidingToggle, the ViewToggle sibling). -->
+      <div
+        class="chat-layout-toggle ml-auto"
+        role="group"
+        aria-label="Chat layout"
+        use:slidingToggle={{ radius: "var(--app-tab-radius)" }}
+      >
+        <Tooltip.Root>
+          <Tooltip.Trigger>
+            {#snippet child({ props })}
+              <IconButton
+                {...props}
+                data-active={grid ? undefined : ""}
+                aria-label="Tab layout"
+                onclick={() => setChatLayout("tabs")}
+              >
+                <PanelTop />
+              </IconButton>
+            {/snippet}
+          </Tooltip.Trigger>
+          <Tooltip.Content>Show one chat (tabs)</Tooltip.Content>
+        </Tooltip.Root>
+        <Tooltip.Root>
+          <Tooltip.Trigger>
+            {#snippet child({ props })}
+              <IconButton
+                {...props}
+                data-active={grid ? "" : undefined}
+                aria-label="Grid layout"
+                onclick={() => setChatLayout("grid")}
+              >
+                <LayoutGrid />
+              </IconButton>
+            {/snippet}
+          </Tooltip.Trigger>
+          <Tooltip.Content>Show all chats (grid)</Tooltip.Content>
+        </Tooltip.Root>
+      </div>
     {/if}
   </div>
 
