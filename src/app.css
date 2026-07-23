@@ -549,6 +549,12 @@
   /* Bespoke-layout tokens — now derive from the same base palette as the
      shadcn tokens, so a theme restyles the header/sidebar/chat too. */
   --app-bg: var(--base-bg);
+  /* The terminal surface's vertical gradient (the chat-trail backdrop): a
+     whisper lighter than the bg at the top, sinking toward black at the
+     bottom — "lit from above". Derived from the base palette (the --app-shell
+     black-mix precedent) so themes keep the effect for free. */
+  --app-term-bg-top: color-mix(in oklch, var(--base-bg) 99%, var(--base-text));
+  --app-term-bg-bottom: color-mix(in oklch, var(--base-bg) 78%, black);
   /* The SHELL: the chrome around the content card (layout, sidebar, header) —
      one step darker than the terminal/card bg so the card reads as raised.
      Derived (not a palette key) so every theme gets it for free. */
@@ -811,7 +817,7 @@ html, body {
    active tab's bump is part of the same sheet; its own bg fills the bump
    (the tab button is transparent). Everything above — panes, tab label,
    borders — is the mask's chrome. */
-.chat-trail { position: absolute; left: 0; right: 0; bottom: 0; top: -31px; background: var(--app-bg); pointer-events: none; }
+.chat-trail { position: absolute; left: 0; right: 0; bottom: 0; top: -31px; background: linear-gradient(var(--app-term-bg-top), var(--app-term-bg-bottom)); pointer-events: none; }
 .chat-trail canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 /* Cursor-proximity border highlight (borderGlow.ts writes --glow-x/y/o): a
    radial light centered on the pointer, masked to ONLY a 1px ring sitting at
