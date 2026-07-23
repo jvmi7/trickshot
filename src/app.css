@@ -370,6 +370,11 @@
   --base-surface: #161616;        /* panels: header, sidebar, cards, popovers */
   --base-surface-raised: #1f1f1f; /* hover / secondary / muted / accent surfaces */
   --base-border: #2e2e2e;         /* dividers, inputs */
+  /* DERIVED (not a palette key — themes override --base-border and flow
+     through): the globally SOFTENED border tint every border token maps to.
+     Turn intensity up/down here, one knob for the whole app. The full-
+     strength --base-border remains for non-border uses (ANSI black). */
+  --base-border-soft: color-mix(in oklch, var(--base-border) 65%, var(--base-bg));
   --base-text: #e7e7e7;           /* primary text (plain light gray, like the TUI) */
   --base-text-muted: #8f8f8f;     /* dim / secondary text */
   --base-accent: #d97757;         /* the TUI's coral cursor / Claude brand */
@@ -428,8 +433,8 @@
   --accent: var(--base-surface-raised);
   --accent-foreground: var(--base-text);
   --destructive: var(--base-danger);
-  --border: var(--base-border);
-  --input: var(--base-border);
+  --border: var(--base-border-soft);
+  --input: var(--base-border-soft);
   --ring: var(--base-accent);
   --chart-1: var(--base-accent);
   --chart-2: var(--base-success);
@@ -442,7 +447,7 @@
   --sidebar-primary-foreground: var(--base-on-accent);
   --sidebar-accent: var(--base-surface-raised);
   --sidebar-accent-foreground: var(--base-text);
-  --sidebar-border: var(--base-border);
+  --sidebar-border: var(--base-border-soft);
   --sidebar-ring: var(--base-accent);
 }
 
@@ -576,7 +581,7 @@
 
   --app-panel: var(--base-surface);
   --app-panel-2: var(--base-surface-raised);
-  --app-border: var(--base-border);
+  --app-border: var(--base-border-soft);
   --app-text: var(--base-text);
   --app-dim: var(--base-text-muted);
   --app-accent: var(--base-accent);
