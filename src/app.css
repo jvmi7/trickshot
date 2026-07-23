@@ -558,6 +558,9 @@
      whisper lighter than the bg at the top, sinking toward black at the
      bottom — "lit from above". Derived from the base palette (the --app-shell
      black-mix precedent) so themes keep the effect for free. */
+  /* The cursor-proximity border glow's light color — ONE knob for every
+     masked ring (card frame, grid cells, tab chrome + arcs). */
+  --app-glow: color-mix(in oklch, var(--base-text) 30%, transparent);
   --app-term-bg-top: color-mix(in oklch, var(--base-bg) 99%, var(--base-text));
   --app-term-bg-bottom: color-mix(in oklch, var(--base-bg) 78%, black);
   /* The SHELL: the chrome around the content card (layout, sidebar, header) —
@@ -839,7 +842,7 @@ html, body {
   border-radius: var(--app-pane-radius);
   background: radial-gradient(
       260px circle at var(--glow-x, 50%) var(--glow-y, 50%),
-      color-mix(in oklch, var(--base-text) 45%, transparent),
+      var(--app-glow),
       transparent 70%
     )
     border-box;
@@ -1179,7 +1182,7 @@ html, body {
   border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0;
   background: radial-gradient(
       260px circle at var(--glow-x, 50%) var(--glow-y, 50%),
-      color-mix(in oklch, var(--base-text) 45%, transparent),
+      var(--app-glow),
       transparent 70%
     )
     border-box;
@@ -1217,7 +1220,7 @@ html, body {
   width: calc(var(--flare-l, var(--radius-xl)) + 2px);
   background: radial-gradient(
       260px circle at calc(var(--glow-x, 0px) + var(--flare-l, var(--radius-xl))) calc(var(--glow-y, 0px) - 28px + var(--radius-xl)),
-      color-mix(in oklch, var(--base-text) 45%, transparent),
+      var(--app-glow),
       transparent 70%
     );
   -webkit-mask:
@@ -1233,7 +1236,7 @@ html, body {
   right: calc(-1 * var(--radius-xl));
   background: radial-gradient(
       260px circle at calc(var(--glow-xr, 0px) + 2px) calc(var(--glow-y, 0px) - 28px + var(--radius-xl)),
-      color-mix(in oklch, var(--base-text) 45%, transparent),
+      var(--app-glow),
       transparent 70%
     );
   -webkit-mask:
@@ -1325,7 +1328,7 @@ html, body {
   border-radius: var(--app-pane-radius);
   background: radial-gradient(
       260px circle at var(--glow-x, 50%) var(--glow-y, 50%),
-      color-mix(in oklch, var(--base-text) 45%, transparent),
+      var(--app-glow),
       transparent 70%
     )
     border-box;
