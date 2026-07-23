@@ -189,7 +189,7 @@
     void submitTurnToChat(
       worktree,
       `Our PR "${pr.title}" (#${pr.number}) has failing CI checks:\n${lines}\n\nInvestigate why they fail and fix them.`,
-    );
+    ).catch(() => {});
     setChangesOpen(false);
   }
 </script>

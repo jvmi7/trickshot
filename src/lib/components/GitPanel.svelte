@@ -161,7 +161,7 @@
     const draft = draftComment();
     if (!w || !draft) return;
     // Keystroke-injected into the CLI chat; fire-and-forget like the send.
-    void submitTurnToChat(w, formatReviewPrompt([{ ...draft, id: 0 }]));
+    void submitTurnToChat(w, formatReviewPrompt([{ ...draft, id: 0 }])).catch(() => {});
     lineComment = null;
     lineCommentText = "";
     setChangesOpen(false);
@@ -172,7 +172,7 @@
     const w = wt;
     const queue = $activeReviewQueue;
     if (!w || queue.length === 0) return;
-    void submitTurnToChat(w, formatReviewPrompt(queue));
+    void submitTurnToChat(w, formatReviewPrompt(queue)).catch(() => {});
     clearReviewQueue(w);
     setChangesOpen(false);
   }

@@ -110,9 +110,9 @@ export interface PrText {
 }
 
 /** Envelope for a worktree-tagged script event on the `script-event` channel
- *  (mirrors the Rust `ScriptEvent` struct in scripts.rs — the scripts sibling
- *  of `AgentEnvelope`). `data` is the script name for `started`, an output line
- *  for `stdout`/`stderr`, and the status code (or null) for `exit`. */
+ *  (mirrors the Rust `WorktreeEvent` struct in worktree_map.rs). `data` is the
+ *  script name for `started`, an output line for `stdout`/`stderr`, and the
+ *  status code (or null) for `exit`. */
 export interface ScriptEnvelope {
   worktree: string;
   kind: "started" | "stdout" | "stderr" | "exit";
@@ -120,8 +120,8 @@ export interface ScriptEnvelope {
 }
 
 /** Envelope for a worktree-tagged terminal event on the `term-event` channel
- *  (mirrors the Rust `TermEvent` struct in terminal.rs). `data` is a raw PTY
- *  output chunk for `data`, null for `exit`. */
+ *  (mirrors the Rust `WorktreeEvent` struct in worktree_map.rs). `data` is a raw
+ *  PTY output chunk for `data`, null for `exit`. */
 export interface TermEnvelope {
   worktree: string;
   kind: "data" | "exit";

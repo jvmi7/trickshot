@@ -584,8 +584,9 @@ export async function refreshUsage(force = false) {
 // ambiguous check failures (keychain/HOME errors) leave the state alone so we
 // never false-alarm.
 export const authState = writable<"unknown" | "ok" | "missing">("unknown");
-/** Set the ambient auth state (the one mutator — agentEvents flips it to
- *  `missing` on a recognized auth failure; refreshAuth settles it). */
+/** Set the ambient auth state (the sanctioned mutator for the
+ *  auth-failure→sign-in notice flip; `refreshAuth` settles the state on each
+ *  probe). */
 export function setAuthState(v: "unknown" | "ok" | "missing") {
   authState.set(v);
 }

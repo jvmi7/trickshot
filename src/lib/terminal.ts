@@ -3,7 +3,7 @@
 // hops), plus the `term-event` router that feeds PTY output into them. The
 // TerminalPane component just attaches the cached instance to its container;
 // App wires `handleTermEvent` into `api.onTermEvent` (the same wiring shape as
-// agentEvents/scriptEvents).
+// scriptEvents).
 
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";

@@ -9,6 +9,7 @@
 // function invocation (all hoisted declarations), never a module-eval
 // dereference. Keep it that way.
 
+import { get } from "svelte/store";
 import * as api from "./api";
 import {
   type ArchivedWorkspace,
@@ -17,6 +18,7 @@ import {
   clearUnread,
   removeArchived,
   selectWorktree,
+  sessionStatus,
   setCenterView,
   setStatus,
   setWorktrees,
@@ -125,7 +127,13 @@ export async function ensureClaudeOpen(worktree: string): Promise<void> {
     await api.termResize(key, rows, cols).catch(() => {});
   }
   inst.open = true;
-  setStatus(worktree, "ready");
+  // Don't clobber an in-flight turn: re-activating a concurrently-busy worktree
+  // (tab switch, ⌘1-9) re-enters here while its PTY is mid-turn. The tracker has
+  // already announced "busy" for that burst, so it won't re-announce (see
+  // cliActivity.ts) — an unconditional "ready" would then leave the sidebar/fleet
+  // dot idle for the rest of the turn. A live "busy" always resolves via the idle
+  // timer; a crashed CLI is "stopped", never "busy", so "ready" still applies.
+  if (get(sessionStatus)[worktree] !== "busy") setStatus(worktree, "ready");
 }
 
 /** Inject a prompt into the worktree's CLI chat as keystrokes: bracketed paste

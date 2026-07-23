@@ -4,9 +4,6 @@
   "files": {
     "includes": [
       "src/**/*.ts",
-      "sidecar/**/*.ts",
-      "shared/**/*.ts",
-      "scripts/**/*.js",
       "*.ts",
       "*.js",
       "package.json",
