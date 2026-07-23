@@ -812,7 +812,7 @@ html, body {
    untouched. Scoped to the xterm focus class (NOT :focus-within) so
    Settings/Fleet focus doesn't light it. */
 .content:has(.xterm.focus) {
-  outline-color: color-mix(in oklch, var(--app-text) 25%, var(--app-border));
+  outline-color: color-mix(in oklch, var(--app-text) 14%, var(--app-border));
 }
 /* The card's clipping box: children clip to the rounded PADDING box here
    (not on .content itself) so the glow ring above can overlay the border.
@@ -827,18 +827,6 @@ html, body {
    borders — is the mask's chrome. */
 .chat-trail { position: absolute; left: 0; right: 0; bottom: 0; top: -31px; background: linear-gradient(var(--app-term-bg-top), var(--app-term-bg-bottom)); pointer-events: none; }
 .chat-trail canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-/* The chat surface's terminal-FOCUS ring: an SVG stroking the card∪tab
-   silhouette OUTSET 4px past the border (chatSilhouette owns the element and
-   rewrites the path in the same pass as the clip, so it rides the tab slide
-   and the flush morph). Stroke fades in when the terminal owns the keyboard
-   — the ring + frame-tint pairing, like the tab-less views' outline. The box
-   mirrors .chat-trail's; overflow visible lets the outset stroke escape. */
-.chat-focus-ring { position: absolute; left: 0; right: 0; bottom: 0; top: -31px; overflow: visible; pointer-events: none; }
-.chat-focus-ring path { fill: none; stroke: transparent; stroke-width: 1px; transition: stroke var(--app-duration-slow) var(--ease-out-soft); }
-.main:has(.chat-tabs + .content .xterm.focus) .chat-focus-ring path { stroke: color-mix(in oklch, var(--app-text) 25%, var(--app-border)); }
-/* Grid focus rings are per-cell (plain rects need no path — see the cell's
-   outline below). */
-.content:has(.chat-grid) .chat-focus-ring { display: none; }
 /* Cursor-proximity border highlight (borderGlow.ts writes --glow-x/y/o): a
    radial light centered on the pointer, masked to ONLY a 1px ring sitting at
    -1px — EXACTLY over the real border, so proximity is a pure RECOLOR of the
@@ -1312,7 +1300,7 @@ html, body {
    — fr tracks at the mosaic's cut lines; each cell spans its rect's range,
    swallowing interior gaps). */
 .chat-grid { flex: 1; min-width: 0; min-height: 0; display: grid; gap: var(--app-pane-gap); background: transparent; }
-.chat-grid-cell { position: relative; display: flex; min-width: 0; min-height: 0; background: transparent; border: 1px solid var(--chat-frame); border-radius: var(--app-pane-radius); outline: 1px solid transparent; outline-offset: 4px; transition: border-color var(--app-duration-slow) var(--ease-out-soft), opacity var(--app-duration-slow) var(--ease-out-soft), outline-color var(--app-duration-slow) var(--ease-out-soft); }
+.chat-grid-cell { position: relative; display: flex; min-width: 0; min-height: 0; background: transparent; border: 1px solid var(--chat-frame); border-radius: var(--app-pane-radius); transition: border-color var(--app-duration-slow) var(--ease-out-soft), opacity var(--app-duration-slow) var(--ease-out-soft); }
 /* Mount fade-in: cells develop onto the band as the card frame fades out. */
 @starting-style {
   .chat-grid-cell { opacity: 0; }
@@ -1326,9 +1314,9 @@ html, body {
    cell's corners; keep the base .term-pane padding — the TUI inset. z-index 0
    containerizes xterm's internal stacking so the controls (z 1) float above. */
 .chat-grid-cell > .term-pane { overflow: hidden; border-radius: var(--app-pane-radius-inner); z-index: 0; }
-/* The keyboard-owning cell tints its OWN border AND raises a detached ring
-   4px out — the same ring + tint pairing as the tabs-mode frame. */
-.chat-grid-cell:has(.xterm.focus) { border-color: color-mix(in oklch, var(--app-text) 14%, var(--app-border)); outline-color: color-mix(in oklch, var(--app-text) 25%, var(--app-border)); }
+/* The keyboard-owning cell tints its OWN border — the same recipe as the
+   tabs-mode frame tint, scoped per cell. */
+.chat-grid-cell:has(.xterm.focus) { border-color: color-mix(in oklch, var(--app-text) 14%, var(--app-border)); }
 /* Per-cell cursor-glow ring: the .content::after recipe verbatim (radial
    light at the cell's own use:borderGlow vars, xor-masked to the 1px border
    row at -1px) — no --frame-clip analogue, cells have no tab opening. */
