@@ -580,7 +580,7 @@
   --app-pane-radius-inner: calc(var(--app-pane-radius) - 1px);
   /* Chat-tab top corners (the connected Chrome-style tabs) — rounder than the
      control ladder, shy of the pane. */
-  --app-tab-radius: 16px;
+  --app-tab-radius: var(--app-pane-radius); /* tabs share the card curvature */
   /* Tab height — the strip band (h + 2), the trail's band reach (h + 3), and
      the arc-glow light anchors all derive from this one token. */
   --app-tab-h: 34px;
