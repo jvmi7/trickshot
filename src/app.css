@@ -812,7 +812,7 @@ html, body {
    untouched. Scoped to the xterm focus class (NOT :focus-within) so
    Settings/Fleet focus doesn't light it. */
 .content:has(.xterm.focus) {
-  outline-color: color-mix(in oklch, var(--app-text) 14%, var(--app-border));
+  outline-color: color-mix(in oklch, var(--app-text) 30%, var(--app-border));
 }
 /* The card's clipping box: children clip to the rounded PADDING box here
    (not on .content itself) so the glow ring above can overlay the border.
@@ -1059,7 +1059,7 @@ html, body {
 .main { --chat-frame: var(--app-border); }
 /* :not(:has(.chat-grid)) — in GRID mode every cell tints its OWN border on
    focus instead (one shared frame var would light all of them at once). */
-.main:has(.chat-tabs + .content .xterm.focus):not(:has(.chat-grid)) { --chat-frame: color-mix(in oklch, var(--app-text) 14%, var(--app-border)); }
+.main:has(.chat-tabs + .content .xterm.focus):not(:has(.chat-grid)) { --chat-frame: color-mix(in oklch, var(--app-text) 30%, var(--app-border)); }
 /* The card follows flush — the strip owns the vertical gap, and the active
    tab's 1px overlap lands exactly ON the card's top border row (the band
    persists in GRID mode too, so the gap never changes). background-color
@@ -1316,7 +1316,7 @@ html, body {
 .chat-grid-cell > .term-pane { overflow: hidden; border-radius: var(--app-pane-radius-inner); z-index: 0; }
 /* The keyboard-owning cell tints its OWN border — the same recipe as the
    tabs-mode frame tint, scoped per cell. */
-.chat-grid-cell:has(.xterm.focus) { border-color: color-mix(in oklch, var(--app-text) 14%, var(--app-border)); }
+.chat-grid-cell:has(.xterm.focus) { border-color: color-mix(in oklch, var(--app-text) 30%, var(--app-border)); }
 /* Per-cell cursor-glow ring: the .content::after recipe verbatim (radial
    light at the cell's own use:borderGlow vars, xor-masked to the 1px border
    row at -1px) — no --frame-clip analogue, cells have no tab opening. */
