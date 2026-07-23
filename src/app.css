@@ -374,7 +374,7 @@
      through): the globally SOFTENED border tint every border token maps to.
      Turn intensity up/down here, one knob for the whole app. The full-
      strength --base-border remains for non-border uses (ANSI black). */
-  --base-border-soft: color-mix(in oklch, var(--base-border) 65%, var(--base-bg));
+  --base-border-soft: color-mix(in oklch, var(--base-border) 45%, var(--base-bg));
   --base-text: #e7e7e7;           /* primary text (plain light gray, like the TUI) */
   --base-text-muted: #8f8f8f;     /* dim / secondary text */
   --base-accent: #d97757;         /* the TUI's coral cursor / Claude brand */
