@@ -29,6 +29,27 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
   let lastClip = "";
   let lastTl = "";
   let lastFl = "";
+  let lastRing = "";
+
+  // The FOCUS RING overlay: an SVG stroking the silhouette OUTSET past the
+  // border (RING_OUT: 4px gap + the border px) — the terminal-focus "ring +
+  // frame tint" treatment for the connected chat frame. It must be a SIBLING
+  // of the host (a child would be cut by the host's clip-path); its box
+  // mirrors the host's (.chat-focus-ring), so the path shares host coords.
+  // Grid cells use a plain CSS outline instead (rects need no path).
+  const RING_OUT = 5;
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const ringSvg = document.createElementNS(SVG_NS, "svg");
+  ringSvg.setAttribute("class", "chat-focus-ring");
+  ringSvg.setAttribute("aria-hidden", "true");
+  const ringPath = document.createElementNS(SVG_NS, "path");
+  ringSvg.appendChild(ringPath);
+  host.after(ringSvg);
+  const setRing = (d: string) => {
+    if (d === lastRing) return;
+    lastRing = d;
+    ringPath.setAttribute("d", d);
+  };
 
   const update = () => {
     raf = 0;
@@ -77,6 +98,7 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
         lastClip = "";
         lastTl = "";
         lastFl = "";
+        setRing(""); // grid focus rings are per-cell CSS outlines
         return;
       }
     }
@@ -97,6 +119,7 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       d = `M 0 ${y0 + r} A ${r} ${r} 0 0 1 ${r} ${y0} L ${W - r} ${y0} A ${r} ${r} 0 0 1 ${W} ${y0 + r} L ${W} ${b} A ${r} ${r} 0 0 1 ${W - r} ${H} L ${r} ${H} A ${r} ${r} 0 0 1 0 ${b} Z`;
       parent.style.removeProperty("--frame-clip");
       parent.style.removeProperty("--card-tl");
+      setRing("");
     } else {
       const tr = tab.getBoundingClientRect();
       const xL = tr.left - hostR.left;
@@ -133,6 +156,45 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
         lastFl = flv;
         chromeEl.style.setProperty("--flare-l", flv);
       }
+
+      // The focus ring: the SAME silhouette, outset RING_OUT — convex radii
+      // grow by the offset, the concave feet SHRINK by it (degenerating to a
+      // square join once the offset eats them), and the flush morph re-clamps
+      // against the ring's own left edge. Written in the same pass as the
+      // clip, so the ring rides the sprung chrome frame-for-frame.
+      const o = RING_OUT;
+      const yt0 = y0 - o; // ring's top edge
+      const yb = H + o;
+      const rc = r + o; // plain ring corners
+      const t2 = t + o; // bump top radius
+      const f2 = Math.max(0, f - o); // concave feet, offset-eaten
+      const xl2 = xl - o;
+      const xr2 = xr + o;
+      // Flush morph vs the ring's left edge at -o: the available span
+      // between edge and bump is the SAME xl as the fill's (both offset by o).
+      const flR = Math.max(0, Math.min(f2, xl));
+      const rlR = Math.max(0, Math.min(rc, xl - flR));
+      const cornerR =
+        rlR > 0.5
+          ? `M ${-o} ${yt0 + rlR} A ${rlR} ${rlR} 0 0 1 ${-o + rlR} ${yt0}`
+          : `M ${-o} ${yt0}`;
+      const footR =
+        flR > 0.5
+          ? `L ${xl2 - flR} ${yt0} A ${flR} ${flR} 0 0 0 ${xl2} ${yt0 - flR}`
+          : `L ${xl2} ${yt0}`;
+      const footRight =
+        f2 > 0.5
+          ? `L ${xr2} ${yt0 - f2} A ${f2} ${f2} 0 0 0 ${xr2 + f2} ${yt0}`
+          : `L ${xr2} ${yt0}`;
+      setRing(
+        `${cornerR} ${footR} L ${xl2} ${yT - o + t2} A ${t2} ${t2} 0 0 1 ${xl2 + t2} ${yT - o} L ${
+          xr2 - t2
+        } ${yT - o} A ${t2} ${t2} 0 0 1 ${xr2} ${yT - o + t2} ${footRight} L ${W + o - rc} ${yt0} A ${rc} ${rc} 0 0 1 ${
+          W + o
+        } ${yt0 + rc} L ${W + o} ${yb - rc} A ${rc} ${rc} 0 0 1 ${W + o - rc} ${yb} L ${-o + rc} ${yb} A ${rc} ${rc} 0 0 1 ${-o} ${
+          yb - rc
+        } Z`,
+      );
     }
     if (d !== lastPath) {
       lastPath = d;
@@ -231,6 +293,7 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
       clipMo.disconnect();
       gridMo.disconnect();
       gridRo.disconnect();
+      ringSvg.remove();
       if (raf) cancelAnimationFrame(raf);
     },
   };
