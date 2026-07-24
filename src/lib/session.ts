@@ -13,14 +13,19 @@ import { get } from "svelte/store";
 import * as api from "./api";
 import {
   type ArchivedWorkspace,
+  addArchived,
   addRepo,
   addWorktree,
+  clearStatus,
   clearUnread,
   DEFAULT_CHAT_ID,
   ensureDefaultChat,
   focusedChatByWorktree,
   removeArchived,
   removeChat,
+  removeScriptRun,
+  removeWorktreeFromRepo,
+  selectedWorktree,
   selectWorktree,
   setCenterView,
   setChatSessionId,
@@ -35,11 +40,13 @@ import {
   claudeTermKey,
   cliBusy,
   disposeChatTerminal,
+  disposeTerminal,
   getTerminal,
   muteCliActivity,
   noteCliInput,
 } from "./terminal";
-import { toastSuccess } from "./toast";
+import { toastMessage, toastSuccess } from "./toast";
+import type { Worktree } from "./types";
 import { basename } from "./utils";
 
 /** Pick a folder and open it as a repo: validate it's a git repo FIRST (so a
@@ -95,6 +102,56 @@ export async function restoreWorkspace(entry: ArchivedWorkspace): Promise<void> 
   addWorktree(entry.repoPath, wt);
   removeArchived(entry.repoPath, entry.branch);
   await activateWorktree(wt.path);
+}
+
+/** The repo's archive cleanup script failed — a DECISION, not a dead end:
+ *  callers catch this to offer "archive anyway" (re-run with skipHook). */
+export class ArchiveHookError extends Error {}
+
+/** Archive a workspace: run the repo's archive script (unless `skipHook`),
+ *  kill its processes, remove the worktree DIR (branch kept — Claude Code's
+ *  path-keyed session store makes restore resume the chat), record the
+ *  archive entry, and raise the Undo toast. The ONE archive path — the
+ *  sidebar row and the changes popover's lifecycle button both route through
+ *  here; callers own their confirm surfaces (dirty trees, hook failures) and
+ *  their local error state. */
+export async function archiveWorkspace(repoPath: string, wt: Worktree, skipHook = false) {
+  if (!wt.branch) throw new Error("a detached-HEAD worktree can't archive (restore needs a branch)");
+  let archiveCmd: string | null = null;
+  if (!skipHook) {
+    try {
+      archiveCmd = (await api.getScripts(repoPath)).archive;
+    } catch {
+      // unreadable settings file — archive proceeds without a hook
+    }
+  }
+  if (archiveCmd) {
+    try {
+      await api.runScriptBlocking(repoPath, wt.path, "archive");
+    } catch (err) {
+      throw new ArchiveHookError(String(err));
+    }
+  }
+  await api.stopScript(wt.path);
+  disposeTerminal(wt.path);
+  await api.removeWorktree(repoPath, wt.path, true);
+  clearStatus(wt.path);
+  removeScriptRun(wt.path);
+  removeWorktreeFromRepo(repoPath, wt.path);
+  const entry: ArchivedWorkspace = {
+    repoPath,
+    repoName: basename(repoPath),
+    branch: wt.branch,
+    path: wt.path,
+    archivedAt: Date.now(),
+  };
+  addArchived(entry);
+  if (get(selectedWorktree) === wt.path) selectWorktree(null);
+  // Archiving is lossless (restore revives chat + context) — offer the
+  // instant round-trip instead of making the action feel scary.
+  toastMessage(`Archived ${wt.branch}`, {
+    action: { label: "Undo", onClick: () => void restoreWorkspace(entry).catch(() => {}) },
+  });
 }
 
 /** The session id the DEFAULT chat's first open should resume: the newest

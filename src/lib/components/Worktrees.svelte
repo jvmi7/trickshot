@@ -25,18 +25,16 @@
     clearUnread,
     forgetChats,
     archivedWorkspaces,
-    addArchived,
-    restoreWorkspace,
+    archiveWorkspace,
+    ArchiveHookError,
     gitStatByWorktree,
     homePath,
     repoIconByRepo,
     loadRepoIcon,
-    type ArchivedWorkspace,
   } from "../stores";
   import * as api from "../api";
   import { generateWorktreeName } from "../branchNames";
   import { slidingRowHighlight } from "../slidingHighlight";
-  import { toastMessage } from "../toast";
   import { disposeTerminal } from "../terminal";
   import { profileAccent } from "../termProfiles";
   import { basename } from "../utils";
@@ -277,56 +275,22 @@
     }
   }
 
-  // Archive: remove the worktree DIR (branch kept). Claude Code's own session
-  // store is keyed by the worktree path, so restoring the branch recreates the
-  // same path and the conversation resumes on restore (see stores.ts ›
-  // archivedWorkspaces). The repo's archive script (if any) runs to completion
-  // FIRST, while the worktree still exists.
+  // Archive: remove the worktree DIR (branch kept) — the shared
+  // session.ts › archiveWorkspace does the work (the changes popover's
+  // lifecycle button routes through the same path). This wrapper owns the
+  // sidebar's confirm surface: a failing archive hook must not dead-end the
+  // flow (archive is the only exit for a branched workspace), so it
+  // re-prompts "archive anyway" (skipHook) instead of just erroring.
   async function doArchive(repoPath: string, wt: Worktree, skipHook = false) {
     error = "";
     if (!wt.branch) return; // restore needs a branch; detached HEAD can't archive
     try {
-      let archiveCmd: string | null = null;
-      if (!skipHook) {
-        try {
-          archiveCmd = (await api.getScripts(repoPath)).archive;
-        } catch {
-          // unreadable settings file — archive proceeds without a hook
-        }
-      }
-      // A failing archive script must not dead-end the flow: archive is the
-      // only exit for a branched workspace, so offer "archive anyway" (the
-      // hook exists to clean up resources — the user decides whether leaking
-      // them beats being stuck with an unarchivable workspace).
-      if (archiveCmd) {
-        try {
-          await api.runScriptBlocking(repoPath, wt.path, "archive");
-        } catch (err) {
-          confirmAction = { kind: "archive-skip-hook", repoPath, wt, scriptError: String(err) };
-          return;
-        }
-      }
-      await api.stopScript(wt.path);
-      disposeTerminal(wt.path);
-      await api.removeWorktree(repoPath, wt.path, true);
-      clearStatus(wt.path);
-      removeScriptRun(wt.path);
-      removeWorktreeFromRepo(repoPath, wt.path);
-      const entry: ArchivedWorkspace = {
-        repoPath,
-        repoName: basename(repoPath),
-        branch: wt.branch,
-        path: wt.path,
-        archivedAt: Date.now(),
-      };
-      addArchived(entry);
-      if ($selectedWorktree === wt.path) selectWorktree(null);
-      // Archiving is lossless (restore revives chat + context) — offer the
-      // instant round-trip instead of making the action feel scary.
-      toastMessage(`Archived ${wt.branch}`, {
-        action: { label: "Undo", onClick: () => void restoreWorkspace(entry).catch(() => {}) },
-      });
+      await archiveWorkspace(repoPath, wt, skipHook);
     } catch (err) {
+      if (err instanceof ArchiveHookError) {
+        confirmAction = { kind: "archive-skip-hook", repoPath, wt, scriptError: err.message };
+        return;
+      }
       error = String(err);
     }
   }

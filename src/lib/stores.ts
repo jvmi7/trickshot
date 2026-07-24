@@ -160,6 +160,15 @@ export function toggleChanges() {
   changesOpen.update((v) => !v);
 }
 
+/** Whether the FULL git review dialog (per-file diffs, stage/commit, the
+ *  review queue — GitPanel in a modal) is open. Lives beside `changesOpen`
+ *  but OUTSIDE the popover (ViewToggle mounts the dialog): a popover child
+ *  would unmount with it on the dialog's own backdrop click. Ephemeral. */
+export const reviewDialogOpen = writable<boolean>(false);
+export function setReviewDialogOpen(v: boolean) {
+  reviewDialogOpen.set(v);
+}
+
 /** Whether the SHELL terminal popover is open. The PTY + xterm scrollback
  *  persist across open/close (lib/terminal.ts instance cache) — the popover
  *  only re-parents the same terminal. Ephemeral. */
@@ -981,6 +990,8 @@ export function setCursorTrailEnabled(v: boolean) {
 // `import { activateWorktree } from "./stores"` keeps working.
 export {
   activateWorktree,
+  ArchiveHookError,
+  archiveWorkspace,
   closeChat,
   ensureClaudeOpen,
   handleCliExit,

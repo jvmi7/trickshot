@@ -11,12 +11,16 @@
     activeScriptRun,
     changesOpen,
     setChangesOpen,
+    reviewDialogOpen,
+    setReviewDialogOpen,
     shellOpen,
     setShellOpen,
     selectedWorktree,
   } from "../stores";
   import GitPanel from "./GitPanel.svelte";
+  import GitQuickPanel from "./GitQuickPanel.svelte";
   import TerminalPane from "./TerminalPane.svelte";
+  import * as Dialog from "$lib/components/ui/dialog";
   import * as Popover from "$lib/components/ui/popover";
   import { Button } from "$lib/components/ui/button";
   import * as Tooltip from "$lib/components/ui/tooltip";
@@ -137,6 +141,8 @@
           </Button>
         {/snippet}
       </Popover.Trigger>
+      <!-- The COMPACT lifecycle menu (file count + one stateful action);
+           the full review surface opens from its files row (dialog below). -->
       <Popover.Content
         align="end"
         sideOffset={8}
@@ -144,7 +150,7 @@
         onpointerenter={() => changesHover.cancelClose()}
         onpointerleave={() => changesHover.leave()}
       >
-        <GitPanel />
+        <GitQuickPanel />
       </Popover.Content>
     </Popover.Root>
   {/if}
@@ -211,6 +217,15 @@
     </Popover.Root>
   {/if}
 </div>
+
+<!-- The FULL git review surface (GitPanel: per-file diffs, stage/commit, the
+     review queue) as a modal — opened from GitQuickPanel's files row. Mounted
+     HERE, outside the popover, so it survives the popover closing. -->
+<Dialog.Root open={$reviewDialogOpen} onOpenChange={setReviewDialogOpen}>
+  <Dialog.Content class="w-auto max-w-none p-0 sm:max-w-none" showCloseButton={false}>
+    <GitPanel />
+  </Dialog.Content>
+</Dialog.Root>
 
 <style>
   /* Segmented view toggle: items sit above the sliding highlight (slidingToggle
