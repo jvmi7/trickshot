@@ -81,7 +81,9 @@
   {#if error}
     <p class="error-text">{error}</p>
   {/if}
-  <InputGroup.Root class="rounded-xl">
+  <!-- rounded-none: the input box is deliberately SQUARE (terminal-crisp,
+       squarer than the radius ladder's floor). -->
+  <InputGroup.Root class="rounded-none">
     <InputGroup.Textarea
       bind:ref={textareaEl}
       bind:value={draft}
