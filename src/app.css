@@ -621,6 +621,7 @@
      shimmer, caret blink) keeps literal durations — those are animations with
      their own rhythm, not interaction feedback. */
   --app-duration-fast: 120ms;
+  --app-duration-mid: 250ms; /* between feedback and structure — the dim wipe */
   --app-duration-slow: 300ms;
   --app-duration-lazy: 600ms; /* ambient shifts (grid focus dim) — felt, not watched */
   /* Shadows. Black-based so the value works over light-valued theme palettes
@@ -1351,7 +1352,7 @@ html, body {
    mouse. Hovering a dimmed cell wakes it. */
 .chat-grid-cell > .term-pane {
   --cell-wipe: 125%;
-  transition: --cell-wipe var(--app-duration-slow) linear;
+  transition: --cell-wipe var(--app-duration-mid) linear;
   -webkit-mask: linear-gradient(
     var(--cell-wake-dir, to right),
     var(--base-text) calc(var(--cell-wipe) - 25%),
