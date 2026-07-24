@@ -165,16 +165,14 @@ export function getTerminal(key: string): TermInstance {
       // CLI's documented newline fallback ("\" + CR) ourselves and swallow
       // the keystroke.
       term.attachCustomKeyEventHandler((e) => {
-        if (
-          e.type === "keydown" &&
-          e.key === "Enter" &&
-          e.shiftKey &&
-          !e.ctrlKey &&
-          !e.altKey &&
-          !e.metaKey
-        ) {
-          noteCliInput(key);
-          api.termWrite(key, "\\\r").catch(() => {});
+        if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+          // Swallow BOTH the keydown and the trailing keypress — xterm
+          // consults this handler for each, and an unswallowed keypress
+          // still emits a bare \r (which submits).
+          if (e.type === "keydown") {
+            noteCliInput(key);
+            api.termWrite(key, "\\\r").catch(() => {});
+          }
           return false;
         }
         return true;
