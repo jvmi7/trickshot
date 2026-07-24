@@ -39,8 +39,12 @@
 {/if}
 
 <style>
-  /* Avatar-stack of live swatches: slight overlap; the cluster sits at the
-     header's right edge, so added swatches extend the row leftward. */
+  /* A row of live swatches; the cluster sits at the header's right edge, so
+     added swatches extend the row leftward. FLUSH placement (no gap, no
+     overlap) is deliberate: each glyph's shapes inset 0.7 viewBox-units from
+     its own edge, so adjacent SVGs already read with the SAME 1.4-unit gap
+     the 3×3 grid keeps between its shapes — the stack looks like one
+     continuous grid. */
   .session-stack {
     display: inline-flex;
     align-items: center;
@@ -48,9 +52,6 @@
   .stack-swatch {
     display: inline-flex;
     align-items: center;
-  }
-  .stack-swatch + .stack-swatch {
-    margin-left: -3px;
   }
   .stack-count {
     margin-left: 6px;
