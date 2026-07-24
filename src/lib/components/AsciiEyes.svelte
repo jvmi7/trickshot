@@ -8,6 +8,7 @@
   // sampled ONCE per geometry from an offscreen canvas (the real SVG paths
   // via Path2D, supersampled so the wedge edges land cleanly); only the
   // character/color roll runs per tick.
+  import { spring } from "svelte/motion";
   import { GLYPH_PALETTES } from "../identityGlyph";
 
   let {
@@ -275,15 +276,6 @@
     sv: number;
   }
   const NEUTRAL: Gaze = { lean: 0, sv: 1 };
-  /** The cartoon position shift is SHARED — the pair moves as one face
-   *  (per-eye translation made them drift apart, which read as broken).
-   *  Computed from the PAIR's center, applied to both eyes identically;
-   *  only lean/hood may differ per eye. */
-  interface PairShift {
-    dx: number;
-    dy: number;
-  }
-  const NO_SHIFT: PairShift = { dx: 0, dy: 0 };
   /** Horizontal/vertical px offsets where the gaze saturates. */
   const GAZE_REACH_X = 260;
   const GAZE_REACH_Y = 220;
@@ -294,10 +286,12 @@
   /** Looking down hoods to 1-HOOD; looking up opens to 1+OPEN. */
   const HOOD = 0.3;
   const OPEN = 0.12;
-  /** Translation reach in cells: how far an eye may SHIFT toward the cursor
-   *  at full deflection (kept small — the lean stays the dominant cue). */
-  const SHIFT_X = 2;
-  const SHIFT_Y = 1;
+  /** Position reach in PIXELS: the pair's shared shift is a continuous
+   *  transform on the mover wrapper (svelte/motion spring — the platform's
+   *  framer-motion), NOT a grid offset — cell-stepped position read as
+   *  chunky. Kept small; the lean stays the dominant cue. */
+  const SHIFT_PX_X = 14;
+  const SHIFT_PX_Y = 10;
   /** Mask padding so no pose clips: max lean columns + the translate shift;
    *  open-stretch rows + the translate row. */
   const PAD_X = 6;
@@ -305,7 +299,9 @@
   let wrapEl = $state<HTMLDivElement | null>(null);
   let gazeL = $state<Gaze>(NEUTRAL);
   let gazeR = $state<Gaze>(NEUTRAL);
-  let pairShift = $state<PairShift>(NO_SHIFT);
+  /** The pair's position, springing continuously toward its target — the
+   *  face GLIDES as one unit while the grid handles shape only. */
+  const shiftSpring = spring({ x: 0, y: 0 }, { stiffness: 0.18, damping: 0.55 });
 
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
   const sameGaze = (a: Gaze, b: Gaze) => a.lean === b.lean && a.sv === b.sv;
@@ -314,7 +310,7 @@
     if (!track) {
       gazeL = NEUTRAL;
       gazeR = NEUTRAL;
-      pairShift = NO_SHIFT;
+      shiftSpring.set({ x: 0, y: 0 }, { hard: true });
       return;
     }
     let raf = 0;
@@ -342,14 +338,11 @@
       const nextR = eye(rect.left + rect.width * 0.75);
       if (!sameGaze(nextL, gazeL)) gazeL = nextL;
       if (!sameGaze(nextR, gazeR)) gazeR = nextR;
-      // ONE shift for the pair, from the pair's own center — the face moves
-      // as a unit (whole-cell steps, written only on change).
+      // ONE shift for the pair, from the pair's own center — continuous px,
+      // the spring supplies the glide (no quantization needed).
       const nxc = clamp((sx - (rect.left + rect.width / 2)) / GAZE_REACH_X, -1, 1);
       const nyc = clamp((sy - cy) / GAZE_REACH_Y, -1, 1);
-      const nextShift = { dx: Math.round(nxc * SHIFT_X), dy: Math.round(nyc * SHIFT_Y) };
-      if (nextShift.dx !== pairShift.dx || nextShift.dy !== pairShift.dy) {
-        pairShift = nextShift;
-      }
+      shiftSpring.set({ x: nxc * SHIFT_PX_X, y: nyc * SHIFT_PX_Y });
     };
     // rAF-coalesced only — one recompute per frame at most; quantization
     // already keeps grid rebuilds to actual pose changes.
@@ -367,7 +360,7 @@
       } else {
         gazeL = NEUTRAL;
         gazeR = NEUTRAL;
-        pairShift = NO_SHIFT;
+        shiftSpring.set({ x: 0, y: 0 });
       }
     };
     window.addEventListener("pointermove", move, { passive: true });
@@ -404,18 +397,6 @@
     });
   }
 
-  /** The pair's shared position shift: ONE whole-grid translate after the
-   *  eyes merge — the face moves as a unit, never eye-by-eye. */
-  function shiftPair(g: Cell[][], s: PairShift): Cell[][] {
-    if (s.dx === 0 && s.dy === 0) return g;
-    return g.map((row, y) =>
-      row.map((_, x) => {
-        const src = g[y - s.dy]?.[x - s.dx];
-        return src && src.ch !== " " ? src : SPACE;
-      }),
-    );
-  }
-
   /** Apply each eye's gaze: each eye is ISOLATED by masking the other half
    *  (the mark's gap sits on the center column) but warped on the FULL-width
    *  canvas — so a convergent lean crosses the center seam and overlaps
@@ -441,8 +422,7 @@
   const display = $derived.by(() => {
     const gazed =
       sameGaze(gazeL, NEUTRAL) && sameGaze(gazeR, NEUTRAL) ? grid : applyGaze(grid, gazeL, gazeR);
-    const placed = shiftPair(gazed, pairShift); // the pair moves as ONE face
-    return squash >= 1 ? placed : squashGrid(placed, squash);
+    return squash >= 1 ? gazed : squashGrid(gazed, squash);
   });
 
   $effect(() => {
@@ -491,10 +471,16 @@
        which collapsed the mask's gaps into a centered blob. (Biome doesn't
        format .svelte — the long line survives.) Colors are dynamic runtime
        values, not source literals. -->
-  {#each display as row, y (y)}
-    <!-- prettier-ignore -->
-    <div class="ascii-row">{#each row as cell, x (x)}{#if cell.ch === " "}<span>{" "}</span>{:else}<span style="color: {cell.color}">{cell.ch}</span>{/if}{/each}</div>
-  {/each}
+  <!-- The mover: position rides a spring transform HERE (continuous px),
+       while the grid inside only ever changes shape. Inner element on
+       purpose — the gaze math measures the OUTER rect, which a transform
+       on the same node would displace. -->
+  <div class="eyes-mover" style="translate: {$shiftSpring.x}px {$shiftSpring.y}px">
+    {#each display as row, y (y)}
+      <!-- prettier-ignore -->
+      <div class="ascii-row">{#each row as cell, x (x)}{#if cell.ch === " "}<span>{" "}</span>{:else}<span style="color: {cell.color}">{cell.ch}</span>{/if}{/each}</div>
+    {/each}
+  </div>
 </div>
 
 <style>
@@ -507,6 +493,9 @@
     letter-spacing: 0;
     user-select: none;
     cursor: pointer; /* the click toy: cycle the palette */
+  }
+  .eyes-mover {
+    will-change: translate;
   }
   .ascii-row {
     white-space: pre;
