@@ -272,10 +272,14 @@
   interface Gaze {
     /** Signed lean toward the cursor, -1..1 (quantized to eighths). */
     lean: number;
-    /** Vertical scale about the base: hood < 1 < open. */
+    /** Vertical compression (≤ 1) about `anchor`. */
     sv: number;
+    /** Which edge stays planted: looking DOWN compresses about the base
+     *  (top edge drops — the hood); looking UP compresses about the TOP
+     *  (bottom edge rises — the lift). Mirrored moves, equal visual mass. */
+    anchor: "base" | "top";
   }
-  const NEUTRAL: Gaze = { lean: 0, sv: 1 };
+  const NEUTRAL: Gaze = { lean: 0, sv: 1, anchor: "base" };
   /** Horizontal/vertical px offsets where the gaze saturates. */
   const GAZE_REACH_X = 260;
   const GAZE_REACH_Y = 220;
@@ -285,10 +289,10 @@
   const LEAN_SHEAR = 2.5;
   /** Looking down hoods to 1-HOOD; looking up opens to 1+OPEN. */
   const HOOD = 0.3;
-  // OPEN matches HOOD in visual weight: at 0.12 the up-gaze read as no
-  // change at all next to the 0.3 hood — eyes now visibly WIDEN when the
-  // cursor is above them.
-  const OPEN = 0.28;
+  /** Looking UP is the hood's mirror — the same compression anchored at the
+   *  TOP, so the bottom edge visibly LIFTS. (A stretch "open" was tried and
+   *  read as nothing: it only added thin wedge-tip rows into empty space.) */
+  const LIFT = 0.3;
   /** Position reach in PIXELS: the pair's shared shift is a continuous
    *  transform on the mover wrapper (svelte/motion spring — the platform's
    *  framer-motion), NOT a grid offset — cell-stepped position read as
@@ -298,7 +302,7 @@
   /** Mask padding so no pose clips: max lean columns + the translate shift;
    *  open-stretch rows + the translate row. */
   const PAD_X = 6;
-  const PAD_Y = 5; /* headroom for the full OPEN stretch (markRows × 0.28) */
+  const PAD_Y = 3;
   let wrapEl = $state<HTMLDivElement | null>(null);
   let gazeL = $state<Gaze>(NEUTRAL);
   let gazeR = $state<Gaze>(NEUTRAL);
@@ -307,7 +311,8 @@
   const shiftSpring = spring({ x: 0, y: 0 }, { stiffness: 0.18, damping: 0.55 });
 
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-  const sameGaze = (a: Gaze, b: Gaze) => a.lean === b.lean && a.sv === b.sv;
+  const sameGaze = (a: Gaze, b: Gaze) =>
+    a.lean === b.lean && a.sv === b.sv && a.anchor === b.anchor;
 
   $effect(() => {
     if (!track) {
@@ -331,10 +336,8 @@
         const ny = clamp((sy - cy) / GAZE_REACH_Y, -1, 1) * gain;
         return {
           lean: Math.round(nx * 8) / 8,
-          sv:
-            ny > 0
-              ? Math.round((1 - HOOD * ny) * 20) / 20
-              : Math.round((1 + OPEN * -ny) * 20) / 20,
+          sv: Math.round((1 - (ny > 0 ? HOOD * ny : LIFT * -ny)) * 20) / 20,
+          anchor: ny > 0 ? ("base" as const) : ("top" as const),
         };
       };
       const nextL = eye(rect.left + rect.width * 0.25);
@@ -385,7 +388,8 @@
   function warpEye(eye: Cell[][], gz: Gaze): Cell[][] {
     const rows = eye.length;
     if (rows === 0) return eye;
-    const anchor = rows - 1 - PAD_Y; // the mark's bottom edge — the pivot
+    // The planted edge: the mark's bottom for the hood, its top for the lift.
+    const anchor = gz.anchor === "top" ? PAD_Y : rows - 1 - PAD_Y;
     const norm = Math.max(1, rows - 1);
     return eye.map((row, y) => {
       const ys = Math.round(anchor + (y - anchor) / gz.sv);
