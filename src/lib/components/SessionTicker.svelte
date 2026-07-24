@@ -1,59 +1,50 @@
 <script lang="ts">
-  // Header ticker: how many CLI sessions are WORKING right now, across every
-  // worktree (busy chats — the cliActivity-derived signal, so it counts real
-  // turns, not open-but-idle PTYs). Hidden at zero: the header stays quiet
-  // unless agents are actually running. Feature component (reads stores).
-  import { busyChatCount } from "../stores";
+  // Header running-sessions indicator: ONE morphing swatch per busy chat —
+  // each running instance shows its workspace's identity mark in the loading
+  // morph (the sidebar/tab/grid signal, stacked). The stack anchors RIGHT
+  // (it leads the right-aligned header actions cluster) and grows LEFTWARD
+  // as instances start. Hidden at zero. Feature component (reads stores).
+  import { chatStatusByKey } from "../stores";
+  import { keyWorktree } from "../terminal";
+  import { profileAccent } from "../termProfiles";
+  import { basename } from "$lib/utils";
+  import IdentityGlyph from "./IdentityGlyph.svelte";
+
+  // One entry per busy chat KEY (a worktree can run several chats — each
+  // gets its own swatch, all in that workspace's palette).
+  const busy = $derived(
+    Object.entries($chatStatusByKey)
+      .filter(([, s]) => s === "busy")
+      .map(([key]) => ({ key, wt: keyWorktree(key) })),
+  );
 </script>
 
-{#if $busyChatCount > 0}
-  <span class="session-ticker" title="CLI sessions working right now">
-    <span class="ticker-dot" aria-hidden="true"></span>
-    {#key $busyChatCount}
-      <span class="ticker-n">{$busyChatCount}</span>
-    {/key}
-    <span class="ticker-label">running</span>
-  </span>
+{#if busy.length > 0}
+  <div
+    class="session-stack"
+    role="status"
+    aria-label="{busy.length} running session{busy.length === 1 ? '' : 's'}"
+  >
+    {#each busy as b (b.key)}
+      <span class="stack-swatch" title="{basename(b.wt)} — working…">
+        <IdentityGlyph seed={b.wt} color={profileAccent(b.wt)} size={12} loading={true} />
+      </span>
+    {/each}
+  </div>
 {/if}
 
 <style>
-  /* Header-scale chip (split-by-reach): quiet type, a breathing busy dot,
-     and a digit that rolls in on every count change. */
-  .session-ticker {
+  /* Avatar-stack of live swatches: slight overlap; the cluster sits at the
+     header's right edge, so added swatches extend the row leftward. */
+  .session-stack {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    font-size: var(--text-xs);
-    color: var(--app-dim);
-    user-select: none;
   }
-  .ticker-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--base-warning);
-    /* Keyframe choreography keeps literal durations by design (a rhythm,
-       not interaction feedback — see DESIGN_SYSTEM.md motion notes). */
-    animation: ticker-breathe 1.6s ease-in-out infinite;
+  .stack-swatch {
+    display: inline-flex;
+    align-items: center;
   }
-  .ticker-n {
-    display: inline-block;
-    min-width: 1ch;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    font-weight: 600;
-    color: var(--app-text);
-    animation: ticker-roll 220ms var(--ease-out-soft);
-  }
-  @keyframes ticker-breathe {
-    50% {
-      opacity: 0.35;
-    }
-  }
-  @keyframes ticker-roll {
-    from {
-      transform: translateY(0.55em);
-      opacity: 0;
-    }
+  .stack-swatch + .stack-swatch {
+    margin-left: -3px;
   }
 </style>

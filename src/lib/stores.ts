@@ -611,12 +611,6 @@ export function setChatStatus(worktree: string, key: string, status: SessionStat
       : "stopped";
   setStatus(worktree, agg);
 }
-/** How many chats are RUNNING a turn right now, across every worktree — the
- *  header ticker's count of concurrent working sessions. */
-export const busyChatCount = derived(chatStatusByKey, ($m) =>
-  Object.values($m).reduce((n, s) => (s === "busy" ? n + 1 : n), 0),
-);
-
 /** Drop every chat-status entry for a worktree (terminal disposal). */
 export function clearChatStatuses(worktree: string) {
   const prefix = `${worktree}\u0000claude`;
