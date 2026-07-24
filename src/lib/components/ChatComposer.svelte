@@ -107,7 +107,9 @@
       aria-label="Prompt for Claude"
       onkeydown={onKeydown}
     />
-    <InputGroup.Addon align="inline-end">
+    <!-- self-start: the send/stop button pins to the TOP line as the
+         textarea grows multiline (centering made it float mid-message). -->
+    <InputGroup.Addon align="inline-end" class="self-start pt-1.5">
       {#if busy}
         <InputGroup.Button
           size="icon-xs"
