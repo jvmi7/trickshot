@@ -1439,7 +1439,7 @@ html, body {
 .chat-cell-controls:focus-within { opacity: 1; pointer-events: auto; }
 /* The rearrange grip (the cell's draggable — never the cell itself, which
    would fight terminal text selection). */
-.chat-drag { display: inline-flex; align-items: center; color: var(--app-dim); cursor: grab; transition: color var(--app-duration-fast) ease; }
+.chat-drag { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; color: var(--app-dim); cursor: grab; transition: color var(--app-duration-fast) ease; } /* square, matching the IconButton footprint */
 .chat-drag:hover { color: var(--app-text); }
 .chat-drag:active { cursor: grabbing; }
 /* Drag feedback: the lifted cell dims; the hovered target shows a DASHED
