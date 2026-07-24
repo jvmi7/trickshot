@@ -96,6 +96,23 @@
     }
   }
 
+  /** Stamp the pointer's nearest edge on the cell (data-wake): the focus-dim
+   *  wipe reads it as its travel direction, so the fade follows the mouse in
+   *  on entry and out on exit. */
+  function noteWakeEdge(e: PointerEvent) {
+    const el = e.currentTarget as HTMLElement;
+    const r = el.getBoundingClientRect();
+    const edges: [string, number][] = [
+      ["left", e.clientX - r.left],
+      ["right", r.right - e.clientX],
+      ["top", e.clientY - r.top],
+      ["bottom", r.bottom - e.clientY],
+    ];
+    edges.sort((a, b) => a[1] - b[1]);
+    const edge = edges[0]?.[0];
+    if (edge) el.dataset.wake = edge;
+  }
+
   function hitTest(e: PointerEvent): { chat: string; zone: SplitWhere } | null {
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const cellEl = el?.closest<HTMLElement>(".chat-grid-cell");
@@ -208,6 +225,8 @@
                 data-drop={dropTarget?.chat === cell.chat ? dropTarget.zone : undefined}
                 use:borderGlow
                 onfocusin={() => focusChat(wt, cell.chat)}
+                onpointerenter={noteWakeEdge}
+                onpointerleave={noteWakeEdge}
               >
                 <ClaudeTerminalCell worktree={wt} chatId={cell.chat} />
                 <div class="chat-cell-controls">

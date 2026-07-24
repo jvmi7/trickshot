@@ -657,6 +657,13 @@
 }
 
 * { box-sizing: border-box; }
+/* The grid focus-dim wipe position (see .chat-grid-cell > .term-pane):
+   registered so transitions INTERPOLATE it — the fade edge travels. */
+@property --cell-wipe {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 125%;
+}
 html, body {
   margin: 0;
   height: 100%;
@@ -1335,11 +1342,32 @@ html, body {
    tabs-mode frame tint, scoped per cell. */
 .chat-grid-cell:has(.xterm.focus) { border-color: color-mix(in oklch, var(--app-text) 30%, var(--app-border)); }
 /* …and the OTHER cells recede: once any cell owns the keyboard, unfocused
-   terminals dim to half (their content — the shared trail wash behind stays
-   lit). Hovering a dimmed cell wakes it, so reaching for its controls or
-   text never feels like grabbing through fog. Rides the cell's existing
-   opacity transition. */
-.chat-grid:has(.xterm.focus) .chat-grid-cell:not(:has(.xterm.focus)):not(:hover) { opacity: 0.3; }
+   terminals dim to 30% — as a DIRECTIONAL WIPE over the terminal content
+   only (the resize veil's linear-fade language; border/controls/trail stay
+   crisp). The mask ink is only read for ALPHA (the --base-text mix is the
+   codebase's no-color-literal idiom). --cell-wipe sweeps 0% ⇄ 125% on a
+   linear clock, and the gradient's direction comes from data-wake — set by
+   the pane from the pointer's entry/exit edge, so the fade travels with the
+   mouse. Hovering a dimmed cell wakes it. */
+.chat-grid-cell > .term-pane {
+  --cell-wipe: 125%;
+  transition: --cell-wipe var(--app-duration-lazy) linear;
+  -webkit-mask: linear-gradient(
+    var(--cell-wake-dir, to right),
+    var(--base-text) calc(var(--cell-wipe) - 25%),
+    color-mix(in srgb, var(--base-text) 30%, transparent) var(--cell-wipe)
+  );
+  mask: linear-gradient(
+    var(--cell-wake-dir, to right),
+    var(--base-text) calc(var(--cell-wipe) - 25%),
+    color-mix(in srgb, var(--base-text) 30%, transparent) var(--cell-wipe)
+  );
+}
+.chat-grid:has(.xterm.focus) .chat-grid-cell:not(:has(.xterm.focus)):not(:hover) > .term-pane { --cell-wipe: 0%; }
+.chat-grid-cell[data-wake="left"] > .term-pane { --cell-wake-dir: to right; }
+.chat-grid-cell[data-wake="right"] > .term-pane { --cell-wake-dir: to left; }
+.chat-grid-cell[data-wake="top"] > .term-pane { --cell-wake-dir: to bottom; }
+.chat-grid-cell[data-wake="bottom"] > .term-pane { --cell-wake-dir: to top; }
 /* Per-cell cursor-glow ring: the .content::after recipe verbatim (radial
    light at the cell's own use:borderGlow vars, xor-masked to the 1px border
    row at -1px) — no --frame-clip analogue, cells have no tab opening. */
