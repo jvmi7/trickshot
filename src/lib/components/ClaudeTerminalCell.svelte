@@ -17,7 +17,17 @@
   import { Button } from "$lib/components/ui/button";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
 
-  let { worktree, chatId }: { worktree: string; chatId: string } = $props();
+  let {
+    worktree,
+    chatId,
+    showComposer = true,
+  }: {
+    worktree: string;
+    chatId: string;
+    /** Grid renders ONE composer — the focused cell's (the pane decides).
+     *  Tabs layout always shows it (the one visible cell IS focused). */
+    showComposer?: boolean;
+  } = $props();
 
   let container = $state<HTMLDivElement | null>(null);
   let error = $state("");
@@ -131,10 +141,13 @@
   </div>
   <!-- The custom input for normal CLI use — injects into THIS chat. The TUI
        above stays interactive for mouse reporting; a plain click hands the
-       keyboard back to the composer (onTermClick). -->
-  <div class="cell-composer">
-    <ChatComposer bind:this={composer} {worktree} {chatId} autofocus={composerFocus} />
-  </div>
+       keyboard back to the composer (onTermClick). Unfocused grid cells hide
+       it (showComposer) — focusing the cell mounts it, pre-focused. -->
+  {#if showComposer}
+    <div class="cell-composer">
+      <ChatComposer bind:this={composer} {worktree} {chatId} autofocus={composerFocus} />
+    </div>
+  {/if}
 </div>
 
 <style>
