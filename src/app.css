@@ -781,7 +781,7 @@ html, body {
   bottom: 0;
   left: 50%;
   /* 2px left of the card border — a hairline of air between line and frame. */
-  transform: translateX(calc(-50% - 4px));
+  transform: translateX(calc(-50% - 8px));
   width: 1px;
   opacity: 0;
   /* The line itself: neutral tint, TAPERING to transparent at both ends
