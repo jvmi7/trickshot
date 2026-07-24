@@ -126,6 +126,9 @@
   // feed the new width (clamped in setSidebarWidth) live. `resizing` flips a class
   // that shows the col-resize cursor and suppresses text selection during the drag.
   let resizing = $state(false);
+  // Hover-peek: the floating sidebar overlay while collapsed (left-edge graze).
+  let sidebarPeek = $state(false);
+  let peekEl = $state<HTMLElement | null>(null);
   // 50px past the width clamp (stores.ts › SIDEBAR_MIN = 200) reads as intent
   // to close, not to resize.
   const SIDEBAR_CLOSE_AT = 150;
@@ -269,11 +272,7 @@
       <PanelLeft />
     </HeaderIconButton>
   {/if}
-  <aside class="sidebar" class:collapsed={!$sidebarOpen}>
-    <!-- empty strip aligning the worktree list's top with the content's top bar
-         and clearing the traffic lights + floating toggle; the sidebar's right
-         border runs full-height as the only column divider. -->
-    <div class="sidebar-head" data-tauri-drag-region></div>
+  {#snippet sidebarContent()}
     <div class="sidebar-list"><Worktrees /></div>
     <!-- Archived workspaces: pinned BELOW the scrolling list (its own footer
          band) so a long repo list can't push it off screen. -->
@@ -293,7 +292,39 @@
         Settings
       </Button>
     </div>
+  {/snippet}
+
+  <aside class="sidebar" class:collapsed={!$sidebarOpen}>
+    <!-- empty strip aligning the worktree list's top with the content's top bar
+         and clearing the traffic lights + floating toggle; the sidebar's right
+         border runs full-height as the only column divider. -->
+    <div class="sidebar-head" data-tauri-drag-region></div>
+    {@render sidebarContent()}
   </aside>
+
+  {#if !$sidebarOpen}
+    <!-- PEEK: with the sidebar closed, grazing the window's left edge slides
+         a floating copy of it in (the Linear pattern) — same content via the
+         snippet above, gone when the pointer leaves it. -->
+    <div
+      class="sidebar-peek-zone"
+      role="presentation"
+      onpointerenter={() => (sidebarPeek = true)}
+      onpointerleave={(e: PointerEvent) => {
+        if (!(e.relatedTarget instanceof Node) || !peekEl?.contains(e.relatedTarget))
+          sidebarPeek = false;
+      }}
+    ></div>
+    <div
+      bind:this={peekEl}
+      class="sidebar-peek"
+      class:open={sidebarPeek}
+      role="presentation"
+      onpointerleave={() => (sidebarPeek = false)}
+    >
+      {@render sidebarContent()}
+    </div>
+  {/if}
 
   <main class="main">
     <!-- top bar: the workspace path sits inline in the header band. -->

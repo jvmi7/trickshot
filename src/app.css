@@ -758,6 +758,38 @@ html, body {
   transition: margin-left var(--app-duration-slow) var(--ease-slide);
 }
 .sidebar.collapsed { margin-left: calc(-1 * var(--sidebar-width, 320px)); }
+/* ---- hover-peek (collapsed sidebar): graze the left edge → a floating copy
+   of the sidebar slides in as a card over the content; leaves with the
+   pointer. The zone sits under the card (its left edge overlaps), so
+   zone → card is one continuous hover. ---- */
+.sidebar-peek-zone {
+  position: fixed;
+  top: 35px; /* below the titlebar band */
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  z-index: var(--app-z-float);
+}
+.sidebar-peek {
+  position: fixed;
+  top: 42px;
+  bottom: 8px;
+  left: 8px;
+  width: var(--sidebar-width, 320px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-top: 4px;
+  background: var(--app-shell);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-pane-radius);
+  box-shadow: var(--app-shadow-float);
+  overflow: hidden;
+  z-index: var(--app-z-chrome);
+  translate: calc(-100% - 16px) 0;
+  transition: translate var(--app-duration-slow) var(--ease-slide);
+}
+.sidebar-peek.open { translate: 0 0; }
 .sidebar-head { height: 35px; flex-shrink: 0; } /* stays in step with .app-header */
 .sidebar-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 4px 16px 16px; /* slim right gutter — content runs close to the resize line */ }
 .sidebar-foot { flex-shrink: 0; padding: 8px; }
