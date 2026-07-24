@@ -782,7 +782,7 @@ html, body {
   left: 50%;
   /* 2px left of the card border — a hairline of air between line and frame. */
   transform: translateX(calc(-50% - 4px));
-  width: 2px;
+  width: 1px;
   opacity: 0;
   /* The line itself: neutral tint, TAPERING to transparent at both ends
      (only opacity animates — the gradient is the line's shape). */
