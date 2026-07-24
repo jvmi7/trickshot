@@ -313,30 +313,52 @@
       if (!sameGaze(nextL, gazeL)) gazeL = nextL;
       if (!sameGaze(nextR, gazeR)) gazeR = nextR;
     };
-    // DEBOUNCE: the eyes don't chase a cursor in flight — the target commits
-    // only after the pointer rests this long, then the pursuit ease glides
-    // there (a saccade-after-settle, not continuous tracking).
-    const MOVE_DEBOUNCE_MS = 150;
+    // VELOCITY GATE, not a debounce: at a reasonable cursor speed the eyes
+    // track continuously (the pursuit ease above IS the reaction time), but
+    // a cursor FLYING across the screen isn't followed frame by frame — the
+    // gaze holds until the smoothed velocity drops back under the gate. A
+    // short stopped-timer catches the case where a fast flight simply ends
+    // (no slow samples ever arrive) so the eyes still land on the rest point.
+    const V_TRACK = 1.0; // px/ms — above this the cursor is "flying"
+    const V_SMOOTH = 0.35; // EMA weight per sample (raw dt jitter is noisy)
+    const STOP_COMMIT_MS = 90;
     let settle: ReturnType<typeof setTimeout> | undefined;
+    let lastMoveAt = 0;
+    let lastMx = 0;
+    let lastMy = 0;
+    let vAvg = 0;
+    const commit = (cx: number, cy: number) => {
+      px = cx;
+      py = cy;
+      if (!raf) raf = requestAnimationFrame(step);
+    };
     const move = (e: PointerEvent) => {
       const cx = e.clientX;
       const cy = e.clientY;
+      const now = e.timeStamp;
       if (!seeded) {
         // First sighting: no lag on the very first pose (nothing to trail from).
         seeded = true;
-        px = cx;
-        py = cy;
         sx = cx;
         sy = cy;
-        if (!raf) raf = requestAnimationFrame(step);
+        lastMoveAt = now;
+        lastMx = cx;
+        lastMy = cy;
+        commit(cx, cy);
         return;
       }
+      const dt = Math.max(1, now - lastMoveAt);
+      const v = Math.hypot(cx - lastMx, cy - lastMy) / dt;
+      vAvg += (v - vAvg) * V_SMOOTH;
+      lastMoveAt = now;
+      lastMx = cx;
+      lastMy = cy;
+      if (vAvg <= V_TRACK) commit(cx, cy);
       clearTimeout(settle);
       settle = setTimeout(() => {
-        px = cx;
-        py = cy;
-        if (!raf) raf = requestAnimationFrame(step);
-      }, MOVE_DEBOUNCE_MS);
+        vAvg = 0; // events ceased — the cursor is at rest
+        commit(cx, cy);
+      }, STOP_COMMIT_MS);
     };
     const leave = () => {
       // Ease HOME rather than snapping: target the stage center (gaze = 0)
