@@ -215,4 +215,11 @@
     border-color: var(--composer-accent);
     box-shadow: none;
   }
+  /* Selected text rides the SAME session accent (the global ::selection is
+     app-theme; this instance overrides): accent text on a translucent
+     accent wash — the focus ring's palette, applied to the highlight. */
+  .chat-composer :global([data-slot="input-group-control"]::selection) {
+    background: color-mix(in oklch, var(--composer-accent) 30%, transparent);
+    color: var(--composer-accent);
+  }
 </style>
