@@ -50,10 +50,15 @@
 
   const canSend = $derived(!sending && draft.trim().length > 0);
   // The button wears the WINDOW's theme — the workspace identity accent (the
-  // swatch/header ❯ color, the same family as the monochrome terminal), with
-  // a dark member of the same hue for the label. Dynamic values, inline.
+  // swatch/header ❯ color, the same family as the monochrome terminal).
+  // SEND is an outline (accent border + accent text, quiet until it matters);
+  // STOP is the filled urgent state (accent fill, dark same-hue label).
+  // Dynamic values, inline.
   const accent = $derived(profileAccent(worktree));
-  const buttonStyle = $derived(
+  const sendStyle = $derived(
+    `background-color: transparent; border: 1px solid ${accent}; color: ${accent}`,
+  );
+  const stopStyle = $derived(
     `background-color: ${accent}; color: color-mix(in oklch, ${accent} 22%, black)`,
   );
   // While THIS chat runs a turn, the send button becomes INTERRUPT (Enter
@@ -105,11 +110,14 @@
   <!-- rounded-none: the input box is deliberately SQUARE (terminal-crisp,
        squarer than the radius ladder's floor). -->
   <InputGroup.Root class="rounded-none">
+    <!-- text-base: the input reads at the app's body size (the primitive's
+         stock text-sm sat smaller than everything around it). -->
     <InputGroup.Textarea
       bind:ref={textareaEl}
       bind:value={draft}
       rows={1}
       {placeholder}
+      class="text-base"
       aria-label="Prompt for Claude"
       onkeydown={onKeydown}
     />
@@ -121,7 +129,7 @@
           size="xs"
           variant="default"
           class="rounded-none hover:opacity-90"
-          style={buttonStyle}
+          style={stopStyle}
           title="Stop the running turn (Esc)"
           onclick={interrupt}
         >
@@ -132,7 +140,7 @@
           size="xs"
           variant="default"
           class="rounded-none hover:opacity-90"
-          style={buttonStyle}
+          style={sendStyle}
           disabled={!canSend}
           onclick={() => void submit()}
         >
