@@ -5,7 +5,7 @@
   // CTA, CLI preflight, feature steps, sign-in notice) or the Fleet grid
   // (mission control). Feature component (reads stores by design);
   // Fleet stays the grid-only component this composes.
-  import { openRepository, repos } from "../stores";
+  import { lastSelectedWorktree, openRepository, repos, worktreesByRepo } from "../stores";
   import * as api from "../api";
   import { Button } from "$lib/components/ui/button";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
@@ -15,6 +15,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import AuthNotice from "./AuthNotice.svelte";
   import Fleet from "./Fleet.svelte";
+  import HomeComposer from "./HomeComposer.svelte";
 
   let picking = $state(false);
   let error = $state("");
@@ -25,6 +26,16 @@
   let cliState = $state<"checking" | "ok" | "missing" | "unknown">("checking");
 
   const hasRepos = $derived($repos.length > 0);
+
+  // The composer's backing worktree: the most recent selection if it still
+  // exists (git repopulates the lists on launch — a removed worktree must not
+  // resurrect), else the first repo's main worktree (first entry is main).
+  const composerTarget = $derived.by(() => {
+    const all = $repos.flatMap((r) => $worktreesByRepo[r.path] ?? []);
+    if (all.length === 0) return null;
+    const last = $lastSelectedWorktree;
+    return all.some((w) => w.path === last) ? last : (all[0]?.path ?? null);
+  });
 
   async function probeCli() {
     cliState = "checking";
@@ -114,6 +125,14 @@
     {/if}
   </div>
 
+  {#if hasRepos && composerTarget}
+    <!-- The masked Claude input: the real CLI's composer box, cropped, wired
+         to the most recent worktree's chat (HomeComposer). -->
+    <div class="home-composer">
+      <HomeComposer worktree={composerTarget} />
+    </div>
+  {/if}
+
   {#if hasRepos}
     <Fleet />
   {/if}
@@ -149,6 +168,10 @@
   .home-hero.compact {
     flex: none;
     padding: 28px 24px 4px;
+  }
+  .home-composer {
+    flex: none;
+    padding: 14px 24px 6px;
   }
   .wordmark {
     font-size: 20px; /* conformance-allowlisted: one-off display size, off the token scale */

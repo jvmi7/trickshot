@@ -404,8 +404,14 @@ selectedWorktree.subscribe((sel) => {
   else st.removeProperty("--ws-accent");
 });
 
+/** The most recent NON-NULL selection — survives deselecting (Home), so the
+ *  homepage composer knows which worktree's chat to drive. Persisted; "" =
+ *  never selected anything. */
+export const lastSelectedWorktree = createPersistedString("trickshot.lastSelected", "");
+
 export function selectWorktree(path: string | null) {
   selectedWorktree.set(path);
+  if (path) lastSelectedWorktree.set(path);
 }
 
 // ---- Per-worktree session status ----
