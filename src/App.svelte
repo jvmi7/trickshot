@@ -61,21 +61,8 @@
   import { Button } from "./lib/components/ui/button";
   import { Toaster } from "./lib/components/ui/sonner";
   import * as Tooltip from "./lib/components/ui/tooltip";
-  import { basename } from "./lib/utils";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import PanelLeft from "@lucide/svelte/icons/panel-left";
-
-  // Header breadcrumb: `repo / branch` reads better than the raw absolute path
-  // (which survives as the tooltip). Branch comes from the worktree list.
-  const activeBranch = $derived.by(() => {
-    const sel = $selectedWorktree;
-    if (!sel) return null;
-    for (const list of Object.values($worktreesByRepo)) {
-      const w = list.find((x) => x.path === sel);
-      if (w) return w.branch ?? "(detached)";
-    }
-    return null;
-  });
 
   // Re-probe the login when the window regains focus, but only while the
   // sign-in notice is showing — this is the "cmd-tab to a terminal, run
@@ -311,31 +298,6 @@
   <main class="main">
     <!-- top bar: the workspace path sits inline in the header band. -->
     <Header>
-      {#snippet left()}
-        <!-- Plain breadcrumb — no toggle here. The sidebar closes by dragging
-             its resize line past the minimum width; the floating PanelLeft
-             button (next to the traffic lights, below) brings it back. -->
-        <div class="workspace-label">
-          {#if $centerView === "settings"}
-            <span class="path">Settings</span>
-          {:else if $selectedWorktree && $selectedWorktree === $homePath}
-            <!-- The Home workspace (~) is repo-less — "Home" beats a bare "~". -->
-            <span class="path" title={$selectedWorktree}>Home</span>
-          {:else if $selectedWorktree}
-            <!-- The separator lives inside ONE expression — text at element
-                 boundaries gets whitespace-collapsed ("kosha/ main"). -->
-            <span class="path" title={$selectedWorktree}>
-              {$activeRepo ? basename($activeRepo.path) : basename($selectedWorktree)}{#if activeBranch}<span
-                  class="dim">{` / ${activeBranch}`}</span
-                >{/if}
-            </span>
-          {:else if $repos.length === 0}
-            <span class="dim">add a repository to get started</span>
-          {:else}
-            <span class="dim">select or create a worktree on the left</span>
-          {/if}
-        </div>
-      {/snippet}
       {#snippet actions()}
         <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
              nothing to act on there. -->

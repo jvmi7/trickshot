@@ -1533,29 +1533,6 @@ html, body {
 /* ---- header breadcrumb ---- */
 /* workspace path shown inline in the content column's top bar (Header), as a
    subtle rounded chip. */
-/* Left-aligned in the header's flex flow (the first slot). A plain LABEL —
-   the sidebar closes by dragging its resize line past the minimum, and the
-   floating PanelLeft titlebar button reopens it. */
-.workspace-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  overflow: hidden;
-}
-.workspace-label .path {
-  display: inline-block;
-  max-width: 100%;
-  font-size: var(--text-xs);
-  color: var(--app-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: middle;
-  /* It's a label, not selectable text. -webkit- prefix is required in WKWebView. */
-  -webkit-user-select: none;
-  user-select: none;
-}
 .dim { color: var(--app-dim); }
 
 /* highlight.js scopes → the theme's existing chart hues (no imported hljs theme,
