@@ -12,6 +12,7 @@
     cols = 56,
     charset = "%#!&TRCKSHOT",
     tickMs = 120,
+    blink = true,
     class: className,
   }: {
     /** Grid width in characters (height follows the mark's aspect). */
@@ -19,6 +20,9 @@
     charset?: string;
     /** Shimmer cadence — each tick re-rolls ~a third of the inked cells. */
     tickMs?: number;
+    /** Blink every few seconds: the top and bottom halves close in at the
+     *  same rate and meet as a single line at the vertical middle. */
+    blink?: boolean;
     class?: string;
   } = $props();
 
@@ -138,6 +142,85 @@
     }, tickMs);
     return () => clearInterval(timer);
   });
+
+  // ---- The blink, frame by frame ----
+  // Each frame is a vertical SQUASH of the open grid toward the center line:
+  // display row y shows the union of the source rows its band covers at
+  // squash factor s (1 = open), so the top and bottom halves close in at the
+  // SAME rate and meet in the middle. s = 0 is the fully-shut frame — one
+  // line at the center carrying the eyes' full horizontal silhouette (the
+  // vertical projection). Chars/colors ride along from the open grid, so the
+  // art visibly compresses rather than being redrawn.
+  const BLINK_FRAMES = [0.75, 0.5, 0.28, 0, 0, 0.28, 0.5, 0.75, 1] as const;
+  const BLINK_FRAME_MS = 45;
+  const BLINK_GAP_MIN_MS = 2600;
+  const BLINK_GAP_JITTER_MS = 3800;
+  let squash = $state(1);
+
+  function squashGrid(g: Cell[][], s: number): Cell[][] {
+    const rows = g.length;
+    if (rows === 0) return g;
+    const center = (rows - 1) / 2;
+    // Shut (or shut enough that one band covers everything): the single line.
+    if (s <= 1 / rows) {
+      const lineY = Math.round(center);
+      return g.map((row, y) =>
+        y === lineY
+          ? row.map((_, x) => {
+              for (const src of g) {
+                const cell = src[x];
+                if (cell && cell.ch !== " ") return cell;
+              }
+              return SPACE;
+            })
+          : row.map(() => SPACE),
+      );
+    }
+    return g.map((row, y) => {
+      const lo = center + (y - 0.5 - center) / s;
+      const hi = center + (y + 0.5 - center) / s;
+      const y0 = Math.max(0, Math.ceil(lo));
+      const y1 = Math.min(rows - 1, Math.floor(hi));
+      if (y0 > y1) return row.map(() => SPACE);
+      return row.map((_, x) => {
+        for (let yy = y0; yy <= y1; yy++) {
+          const cell = g[yy]?.[x];
+          if (cell && cell.ch !== " ") return cell;
+        }
+        return SPACE;
+      });
+    });
+  }
+
+  /** What actually renders: the open grid, or the current blink frame. */
+  const display = $derived(squash >= 1 ? grid : squashGrid(grid, squash));
+
+  $effect(() => {
+    if (!blink) {
+      squash = 1;
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      timer = setTimeout(play, BLINK_GAP_MIN_MS + Math.random() * BLINK_GAP_JITTER_MS);
+    };
+    const play = () => {
+      let i = 0;
+      const step = () => {
+        const s = BLINK_FRAMES[i++];
+        if (s === undefined) {
+          squash = 1;
+          schedule();
+          return;
+        }
+        squash = s;
+        timer = setTimeout(step, BLINK_FRAME_MS);
+      };
+      step();
+    };
+    schedule();
+    return () => clearTimeout(timer);
+  });
 </script>
 
 <div class="ascii-eyes {className ?? ''}" aria-hidden="true">
@@ -149,7 +232,7 @@
        which collapsed the mask's gaps into a centered blob. (Biome doesn't
        format .svelte — the long line survives.) Colors are dynamic runtime
        values, not source literals. -->
-  {#each grid as row, y (y)}
+  {#each display as row, y (y)}
     <!-- prettier-ignore -->
     <div class="ascii-row">{#each row as cell, x (x)}{#if cell.ch === " "}<span>{" "}</span>{:else}<span style="color: {cell.color}">{cell.ch}</span>{/if}{/each}</div>
   {/each}
