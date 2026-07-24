@@ -141,15 +141,17 @@
 </script>
 
 <div class="ascii-eyes {className ?? ''}" aria-hidden="true">
-  <!-- Each row's cells MUST be one unbroken template line: Svelte keeps a
-       single space around inline elements split across source lines, and
-       under white-space: pre those phantom spaces widen every cell and
-       garble the sampled shape. (Biome doesn't format .svelte — the long
-       line survives.) Colors are dynamic runtime values, not source
-       literals. -->
+  <!-- Two whitespace landmines, both defused here: (1) each row's cells MUST
+       be one unbroken template line — Svelte keeps a single space around
+       inline elements split across source lines, which white-space: pre
+       would render; (2) uninked cells MUST be the {" "} EXPRESSION — a
+       literal space in markup is whitespace-only text the compiler TRIMS,
+       which collapsed the mask's gaps into a centered blob. (Biome doesn't
+       format .svelte — the long line survives.) Colors are dynamic runtime
+       values, not source literals. -->
   {#each grid as row, y (y)}
     <!-- prettier-ignore -->
-    <div class="ascii-row">{#each row as cell, x (x)}{#if cell.ch === " "}<span> </span>{:else}<span style="color: {cell.color}">{cell.ch}</span>{/if}{/each}</div>
+    <div class="ascii-row">{#each row as cell, x (x)}{#if cell.ch === " "}<span>{" "}</span>{:else}<span style="color: {cell.color}">{cell.ch}</span>{/if}{/each}</div>
   {/each}
 </div>
 
@@ -165,5 +167,8 @@
   }
   .ascii-row {
     white-space: pre;
+    /* The hero centers text; a masked row must keep its leading spaces
+       meaningful — left-anchor the glyph grid regardless of the parent. */
+    text-align: left;
   }
 </style>
