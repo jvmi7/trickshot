@@ -15,6 +15,7 @@
     interruptChat,
     sendToCli,
   } from "../stores";
+  import * as api from "../api";
   import { claudeTermKey } from "../terminal";
   import { profileAccent } from "../termProfiles";
   import * as InputGroup from "$lib/components/ui/input-group";
@@ -101,35 +102,76 @@
       void submit();
     }
   }
+
+  /** Base64 for the save_attachment wire (btoa chokes on raw bytes > 0x7f,
+   *  so build a binary string in bounded chunks first). */
+  function toBase64(bytes: Uint8Array): string {
+    let bin = "";
+    const CHUNK = 0x8000; // fromCharCode's spread has an argument-count limit
+    for (let i = 0; i < bytes.length; i += CHUNK)
+      bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    return btoa(bin);
+  }
+
+  /** Pasted FILES (screenshots, images, documents) can't ride a text PTY —
+   *  persist each via save_attachment and splice the resulting path into the
+   *  draft; the CLI reads files by path. Plain-text pastes keep the browser
+   *  default (this handler only claims the event when files are present). */
+  async function onPaste(e: ClipboardEvent) {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter((it) => it.kind === "file")
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (files.length === 0) return;
+    e.preventDefault();
+    error = "";
+    try {
+      for (const f of files) {
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        const dot = f.name.lastIndexOf(".");
+        const ext = dot >= 0 ? f.name.slice(dot + 1) : (f.type.split("/")[1] ?? "png");
+        const path = await api.saveAttachment(toBase64(bytes), ext);
+        draft = draft === "" || draft.endsWith(" ") ? `${draft}${path} ` : `${draft} ${path} `;
+      }
+      textareaEl?.focus();
+    } catch (err) {
+      error = String(err);
+    }
+  }
 </script>
 
-<div class="chat-composer">
+<div class="chat-composer" style="--composer-accent: {accent}">
   {#if error}
     <p class="error-text">{error}</p>
   {/if}
-  <!-- rounded-none: the input box is deliberately SQUARE (terminal-crisp,
-       squarer than the radius ladder's floor). -->
-  <InputGroup.Root class="rounded-none">
+  <!-- Concentric with the terminal card: --app-composer-radius = pane radius
+       − the composer's inset (the same recipe that nests the card in the
+       window). -->
+  <InputGroup.Root class="rounded-[var(--app-composer-radius)]">
     <!-- Body-size type at EVERY width: the base Textarea ships
          `text-base md:text-sm`, so a plain text-base still lost to the
-         responsive md: variant on desktop — override that breakpoint too. -->
+         responsive md: variant on desktop — override that breakpoint too.
+         FIXED height (field-sizing-fixed h-16): content scrolls INSIDE the
+         box instead of growing it — growth resized the terminal above and
+         forced a veiled refit (the "flash") on every wrap. -->
     <InputGroup.Textarea
       bind:ref={textareaEl}
       bind:value={draft}
       rows={1}
       {placeholder}
-      class="text-base md:text-base"
+      class="field-sizing-fixed h-16 text-base md:text-base"
       aria-label="Prompt for Claude"
       onkeydown={onKeydown}
+      onpaste={onPaste}
     />
-    <!-- self-start: the send/stop button pins to the TOP line as the
-         textarea grows multiline (centering made it float mid-message). -->
+    <!-- self-start: the send/stop button pins to the TOP line (the fixed box
+         still scrolls multiline content under it). -->
     <InputGroup.Addon align="inline-end" class="self-start pt-1.5">
       {#if busy}
         <InputGroup.Button
           size="xs"
           variant="default"
-          class="rounded-none hover:opacity-90"
+          class="rounded-full hover:opacity-90"
           style={stopStyle}
           title="Stop the running turn (Esc)"
           onclick={interrupt}
@@ -140,7 +182,7 @@
         <InputGroup.Button
           size="xs"
           variant="default"
-          class="rounded-none hover:opacity-90"
+          class="rounded-full hover:opacity-90"
           style={sendStyle}
           disabled={!canSend}
           onclick={() => void submit()}
@@ -161,16 +203,16 @@
     gap: 4px;
     min-width: 0;
   }
-  /* NO focus chrome on the input: the border keeps its RESTING color and
-     the stock ring is suppressed — the caret is the focus signal (user
-     call; the shadcn border-ring/ring-3 focus treatment read as a darker
-     border here). :global — the slots live inside ui/input-group, which
-     never gets hand-edited; the consumer restyles its own instance. */
+  /* Focus ring in the SESSION's color: the workspace identity accent (the
+     swatch/❯/send-button hue) replaces both the resting border and the stock
+     shadcn ring while the input owns the keyboard. :global — the slots live
+     inside ui/input-group, which never gets hand-edited; the consumer
+     restyles its own instance. */
   .chat-composer
     :global(
       [data-slot="input-group"]:has([data-slot="input-group-control"]:focus-visible)
     ) {
-    border-color: var(--input);
+    border-color: var(--composer-accent);
     box-shadow: none;
   }
 </style>

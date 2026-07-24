@@ -179,6 +179,38 @@ fn drain_utf8(carry: &mut Vec<u8>) -> Option<String> {
     }
 }
 
+/// Save a pasted attachment (raw bytes from the webview clipboard, base64)
+/// into a per-app temp dir and return its absolute path. The composer inserts
+/// that path into the prompt text — a PTY can only carry text, so "paste an
+/// image" means "materialize it as a file the CLI can read by path".
+/// Extension is sanitized (alphanumerics only, defaulting to png); names are
+/// time-stamped so repeated pastes never collide.
+#[tauri::command]
+pub async fn save_attachment(data: String, ext: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+        let bytes = BASE64_STANDARD.decode(data).map_err(|e| e.to_string())?;
+        let ext: String = ext
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .take(8)
+            .collect::<String>()
+            .to_ascii_lowercase();
+        let ext = if ext.is_empty() { "png".to_string() } else { ext };
+        let dir = std::env::temp_dir().join("trickshot-attachments");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis();
+        let path = dir.join(format!("paste-{stamp}.{ext}"));
+        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+        Ok(path.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Whether the user's `claude` CLI resolves on the login shell's PATH — the
 /// onboarding preflight (Welcome). Distinct from `check_auth` (credentials):
 /// this answers "is the binary even installed?". Async + spawn_blocking: the

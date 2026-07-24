@@ -51,6 +51,7 @@ pub fn run() {
             generate::generate_pr_text,
             generate::generate_branch_name,
             terminal::check_cli,
+            terminal::save_attachment,
             terminal::term_open,
             terminal::term_write,
             terminal::term_resize,

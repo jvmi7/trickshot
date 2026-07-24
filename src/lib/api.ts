@@ -215,6 +215,12 @@ export const termResize = (worktree: string, rows: number, cols: number) =>
 /** Kill a worktree's PTY (no-op if none). */
 export const termClose = (worktree: string) => invoke<void>("term_close", { worktree });
 
+/** Persist a pasted attachment (base64 bytes from the clipboard) to a temp
+ *  file and return its absolute path — the composer inserts the path into the
+ *  prompt so the CLI can read the file (a PTY carries only text). */
+export const saveAttachment = (data: string, ext: string) =>
+  invoke<string>("save_attachment", { data, ext });
+
 /** Subscribe to PTY output across ALL worktrees (`data` chunks + the final
  *  `exit`). Returns an unlisten function. */
 export function onTermEvent(

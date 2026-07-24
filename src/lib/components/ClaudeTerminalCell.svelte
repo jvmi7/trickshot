@@ -162,11 +162,14 @@
     padding: 6px 12px;
   }
   /* The composer bar: docked under the terminal inside the cell's flex
-     column (the host flexes; this doesn't). Right inset mirrors the pane's
-     left gutter so the row sits symmetric in the card. */
+     column (the host flexes; this doesn't). The box sits --app-pane-gap from
+     the card's side edges — the inset the concentric --app-composer-radius
+     is derived from. The negative left margin subtracts the pane's fixed
+     14px terminal gutter down to that same gap. */
   .cell-composer {
     flex: none;
-    padding: 8px 14px 2px 0;
+    padding: 8px var(--app-pane-gap) 0 0;
+    margin-left: calc(var(--app-pane-gap) - 14px);
   }
   /* The crop window: takes the host's old flex slot and clips the taller
      attach surface below (where the TUI renders its own input + hint). */

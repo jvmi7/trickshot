@@ -579,6 +579,10 @@
   /* The concentric inner radius for rings drawn 1px inside the pane frame
      (the .content::after glow) — outer radius minus the 1px border. */
   --app-pane-radius-inner: calc(var(--app-pane-radius) - 1px);
+  /* The chat composer's radius: pane radius − its inset from the card edges
+     (--app-pane-gap) — the input nests concentric in the terminal card the
+     same way the card nests in the window. */
+  --app-composer-radius: calc(var(--app-pane-radius) - var(--app-pane-gap));
   /* Chat-tab top corners (the connected Chrome-style tabs) — rounder than the
      control ladder, shy of the pane. */
   --app-tab-radius: var(--app-pane-radius); /* tabs share the card curvature */
