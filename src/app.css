@@ -1693,7 +1693,7 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
    dialog-overlay rule above. The ring rides the box-shadow list (replacing
    the utilities' composed --tw-* shadows wholesale). */
 [data-slot="tooltip-content"] {
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl); /* top of the ladder — matches the header popovers */
   box-shadow:
     var(--app-shadow-float),
     0 0 0 1px color-mix(in oklch, var(--base-text) 10%, transparent);
