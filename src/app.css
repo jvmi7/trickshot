@@ -804,6 +804,9 @@ html, body {
   transition: translate var(--app-duration-slow) var(--ease-slide);
 }
 .sidebar-peek.open { translate: 0 0; }
+/* The docked list's slim right gutter exists for the resize line — the peek
+   has none, so its padding mirrors the left. */
+.sidebar-peek .sidebar-list { padding-right: 16px; }
 .sidebar-head { height: 35px; flex-shrink: 0; } /* stays in step with .app-header */
 .sidebar-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 4px 16px 16px; /* slim right gutter — content runs close to the resize line */ }
 .sidebar-foot { flex-shrink: 0; padding: 8px; }
