@@ -156,14 +156,12 @@
   // fully open). Each keyframe carries its own hold time (`ms` = how long
   // this squash shows before the next frame).
   const BLINK_KEYFRAMES: { s: number; ms: number }[] = [
-    { s: 0.8, ms: 30 }, // the lid starts moving…
-    { s: 0.45, ms: 20 }, // …accelerating…
-    { s: 0.15, ms: 14 }, // …snapping
-    { s: 0, ms: 70 }, // shut — the hold beat
-    { s: 0.18, ms: 34 }, // reopening, quick off the line
-    { s: 0.42, ms: 44 }, // …decelerating…
-    { s: 0.68, ms: 56 },
-    { s: 0.88, ms: 70 }, // …settling into open
+    { s: 0.7, ms: 18 }, // the lid snaps…
+    { s: 0.3, ms: 12 }, // …accelerating shut
+    { s: 0, ms: 45 }, // shut — the hold beat
+    { s: 0.25, ms: 22 }, // reopening, quick off the line
+    { s: 0.55, ms: 30 }, // …decelerating…
+    { s: 0.85, ms: 42 }, // …settling into open
   ];
   const BLINK_GAP_MIN_MS = 2600;
   const BLINK_GAP_JITTER_MS = 3800;
