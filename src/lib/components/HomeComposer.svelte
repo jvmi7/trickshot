@@ -1,54 +1,58 @@
 <script lang="ts">
-  // The homepage's masked Claude input: the REAL Claude Code TUI on the
-  // backing worktree's focused-chat PTY, cropped to just its composer box so
-  // custom UI can wrap it. The TUI bottom-anchors its input, so the mask is a
-  // bottom-aligned window over the live xterm surface — everything above (the
-  // transcript, spinners, dialogs) is clipped away and a top fade absorbs the
-  // partial row at the seam. Typing goes straight to the CLI (this is the
-  // same cached xterm the chat pane re-parents); pressing Enter on a
-  // non-empty input activates the worktree, revealing the full chat right as
-  // the turn starts. Feature component (stores + session orchestration).
-  import { activateWorktree, ensureClaudeOpen, focusedChatByWorktree } from "../stores";
-  import { attachTerminal, claudeTermKey, getTerminal } from "../terminal";
+  // The homepage's "Ask Claude" composer — a fully CUSTOM input whose text
+  // reaches the real CLI on submit via sendToCli (bracketed paste + Enter,
+  // the ComposeDialog path), so the visuals are entirely ours while the chat
+  // stays the untouched TUI. Submit activates the worktree, so the response
+  // streams in the full chat pane. Deliberate trade (user choice): the TUI
+  // input's own interactivity (slash-command menu, @-file completion,
+  // ↑-history) lives in the CLI and doesn't apply while typing HERE — text
+  // arrives when submitted. Feature component (stores + session).
+  import { activateWorktree, sendToCli } from "../stores";
   import { profileAccent } from "../termProfiles";
   import { basename } from "$lib/utils";
+  import * as InputGroup from "$lib/components/ui/input-group";
   import GitBranch from "@lucide/svelte/icons/git-branch";
+  import ArrowUp from "@lucide/svelte/icons/arrow-up";
 
   let { worktree }: { worktree: string } = $props();
 
-  let container = $state<HTMLDivElement | null>(null);
+  let draft = $state("");
+  let sending = $state(false);
   let error = $state("");
+  let textareaEl = $state<HTMLTextAreaElement | null>(null);
 
-  // The same key the chat pane will attach: the worktree's FOCUSED chat.
-  const key = $derived(claudeTermKey(worktree, $focusedChatByWorktree[worktree]));
+  const canSend = $derived(!sending && draft.trim().length > 0);
 
+  // Focus the input on mount — Home's primary affordance, type right away.
   $effect(() => {
-    const wt = worktree;
-    const k = key;
-    const el = container;
-    if (!el) return;
-    error = "";
-    const detach = attachTerminal(k, el, {
-      onOpen: () => ensureClaudeOpen(wt),
-      onError: (e) => (error = String(e)),
-    });
-    // Enter on a non-empty input = the turn is submitted — jump to the full
-    // chat so the response streams in the normal pane. Plain data-tap on the
-    // shared xterm: "\r" is the TUI's submit; any other typed byte marks the
-    // input non-empty (an Enter on an empty composer must not navigate).
-    let typed = false;
-    const tap = getTerminal(k).term.onData((data) => {
-      if (data === "\r") {
-        if (typed) void activateWorktree(wt).catch((e) => (error = String(e)));
-      } else if (data.length > 0) {
-        typed = true;
-      }
-    });
-    return () => {
-      tap.dispose();
-      detach();
-    };
+    textareaEl?.focus();
   });
+
+  async function submit() {
+    const text = draft.trim();
+    if (!text || sending) return;
+    sending = true;
+    error = "";
+    try {
+      // Activate FIRST so the user watches the real TUI come up (cold boots
+      // take a beat); the paste lands in the now-visible chat.
+      await activateWorktree(worktree);
+      await sendToCli(worktree, text);
+      draft = "";
+    } catch (e) {
+      // Delivery failed — stay on Home with the draft intact.
+      error = String(e);
+    } finally {
+      sending = false;
+    }
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void submit();
+    }
+  }
 </script>
 
 <div class="composer">
@@ -64,18 +68,29 @@
   {#if error}
     <p class="error-text">{error}</p>
   {/if}
-  <!-- The mask: a fixed-height window (overflow hidden) over a taller live
-       terminal surface. The surface is a flex column justified to the END so
-       the xterm grid's bottom row sits exactly on the window's bottom edge
-       (the sub-row remainder gap lands at the TOP, inside the clipped area —
-       never between the input box and the frame). term-pane/term-host carry
-       the shared terminal chrome (transparent xterm bg, hidden scrollbars,
-       the resize veil); the scoped rules below override only geometry. -->
-  <div class="term-pane composer-crop">
-    <div class="term-host composer-host" bind:this={container}></div>
-    <div class="composer-fade" aria-hidden="true"></div>
-  </div>
-  <p class="composer-hint">↵ submits and opens the chat · full history lives there</p>
+  <InputGroup.Root class="rounded-xl">
+    <InputGroup.Textarea
+      bind:ref={textareaEl}
+      bind:value={draft}
+      rows={2}
+      placeholder="Start a task in {basename(worktree)}… (⇧↩ for a new line)"
+      aria-label="Prompt for Claude"
+      onkeydown={onKeydown}
+    />
+    <InputGroup.Addon align="inline-end">
+      <InputGroup.Button
+        size="icon-xs"
+        variant="default"
+        class="rounded-full"
+        aria-label="Send"
+        disabled={!canSend}
+        onclick={() => void submit()}
+      >
+        <ArrowUp class="size-3.5" />
+      </InputGroup.Button>
+    </InputGroup.Addon>
+  </InputGroup.Root>
+  <p class="composer-hint">↵ sends and opens the chat · full history lives there</p>
 </div>
 
 <style>
@@ -103,46 +118,6 @@
     gap: 5px;
     font-size: var(--text-xs);
     color: var(--app-dim);
-  }
-  /* The visible window: ~the TUI's input box + its hint line at default type
-     sizes; multiline growth extends upward into the fade. Height is a plain
-     tunable — the fade makes any row remainder read as a soft edge, so it
-     doesn't need cell-exact alignment. */
-  .composer-crop {
-    position: relative;
-    display: block; /* neutralize .term-pane's flex column */
-    flex: none;
-    height: 128px;
-    padding: 0;
-    overflow: hidden;
-    background: var(--base-bg);
-    border: 1px solid var(--app-border);
-    border-radius: var(--radius-lg);
-  }
-  /* The live surface: tall enough that the CLI lays out a real screen (the
-     transcript region above the input is simply clipped), bottom-justified so
-     the grid's last row hugs the window's bottom edge. */
-  .composer-host {
-    position: absolute;
-    left: 10px;
-    right: 4px;
-    bottom: 2px;
-    height: 360px;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-  }
-  /* The seam: the top of the window fades to the canvas so a clipped partial
-     transcript row reads as a designed edge, not a glitch. */
-  .composer-fade {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 34px;
-    pointer-events: none;
-    background: linear-gradient(to bottom, var(--base-bg), transparent);
-    z-index: var(--app-z-overlay);
   }
   .composer-hint {
     font-size: var(--text-2xs);
