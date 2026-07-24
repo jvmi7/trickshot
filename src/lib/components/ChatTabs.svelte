@@ -23,7 +23,9 @@
   import { borderGlow } from "../borderGlow";
   import { slidingTabChrome, slidingToggle } from "../slidingHighlight";
   import { claudeTermKey } from "../terminal";
+  import { profileAccent } from "../termProfiles";
   import IconButton from "./IconButton.svelte";
+  import IdentityGlyph from "./IdentityGlyph.svelte";
   import { Button } from "$lib/components/ui/button";
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Tooltip from "$lib/components/ui/tooltip";
@@ -173,6 +175,7 @@
           <span class="chat-tab-glow-arc" data-side="right"></span>
         </div>
         {#each chats as c, i (c.id)}
+          {@const status = $chatStatusByKey[claudeTermKey(wt, c.id)] ?? "stopped"}
           <button
             type="button"
             role="tab"
@@ -182,10 +185,14 @@
             data-active={c.id === focusedId ? "" : undefined}
             onclick={() => focusChat(wt, c.id)}
           >
-            <span
-              class="chat-dot"
-              data-status={$chatStatusByKey[claudeTermKey(wt, c.id)] ?? "stopped"}
-            ></span>
+            {#if status === "busy"}
+              <!-- A running terminal shows the SWATCH (the workspace's 3×3
+                   identity mark) in its loading morph — the same busy signal
+                   as the sidebar row. Idle/stopped keep the quiet dot. -->
+              <IdentityGlyph seed={wt} color={profileAccent(wt)} size={10} loading={true} />
+            {:else}
+              <span class="chat-dot" data-status={status}></span>
+            {/if}
             Chat {i + 1}
             {#if chats.length > 1}
               <span
