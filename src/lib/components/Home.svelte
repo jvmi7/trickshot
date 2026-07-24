@@ -13,6 +13,7 @@
   import Bot from "@lucide/svelte/icons/bot";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import AsciiEyes from "./AsciiEyes.svelte";
   import AuthNotice from "./AuthNotice.svelte";
   import Fleet from "./Fleet.svelte";
   import HomeComposer from "./HomeComposer.svelte";
@@ -81,6 +82,11 @@
 
 <div class="home" class:centered={!hasRepos}>
   <div class="home-hero" class:compact={hasRepos}>
+    <!-- The brand eyes as living ASCII (AsciiEyes) — accent-tinted, sized by
+         the text-2xs utility (the component inherits font-size). -->
+    <div class="hero-eyes text-2xs">
+      <AsciiEyes cols={56} />
+    </div>
     <h1 class="wordmark">trickshot</h1>
     <p class="tagline">parallel coding agents — one per git worktree</p>
 
@@ -172,6 +178,10 @@
   .home-composer {
     flex: none;
     padding: 14px 24px 6px;
+  }
+  .hero-eyes {
+    margin-bottom: 12px;
+    color: var(--app-accent);
   }
   .wordmark {
     font-size: 20px; /* conformance-allowlisted: one-off display size, off the token scale */
