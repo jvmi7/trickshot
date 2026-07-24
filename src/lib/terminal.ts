@@ -342,6 +342,12 @@ export function applyTerminalFontSize(px: number) {
   }
 }
 
+/** Focus a cached xterm (the shell popover's click-to-pin path). No-op when
+ *  the instance doesn't exist yet — attach handles first focus. */
+export function focusTerminal(key: string) {
+  instances.get(key)?.term.focus();
+}
+
 /** Kill ONE PTY and drop its cached xterm. */
 function disposeKey(key: string) {
   clearCliActivity(key);
@@ -387,7 +393,7 @@ export function disposeChatTerminal(worktree: string, chatId: string) {
 export function attachTerminal(
   key: string,
   el: HTMLElement,
-  opts: { onOpen: () => Promise<void>; onError?: (e: unknown) => void },
+  opts: { onOpen: () => Promise<void>; onError?: (e: unknown) => void; focus?: boolean },
 ): () => void {
   const inst = getTerminal(key);
   el.replaceChildren(); // drop a previous worktree's terminal DOM
@@ -406,7 +412,9 @@ export function attachTerminal(
   inst.term.options.allowTransparency = true;
   inst.term.options.theme = themeColors(key);
   inst.term.options.fontSize = get(terminalFontSize);
-  inst.term.focus();
+  // focus: false = a passive reveal (the hover-opened shell popover) — the
+  // chat pane keeps the keyboard; the caller focuses explicitly on intent.
+  if (opts.focus !== false) inst.term.focus();
 
   // Fit AFTER layout settles, coalesced to one rAF per burst. Fitting
   // synchronously inside the ResizeObserver callback mutates layout and
