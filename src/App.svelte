@@ -334,6 +334,9 @@
     <!-- PEEK: with the sidebar closed, grazing the window's left edge slides
          a floating copy of it in (the Linear pattern) — same content via the
          snippet above, gone when the pointer leaves it. -->
+    <!-- Scrim behind the peek: fades with it; pointer-events none — purely
+         visual, the hover choreography stays on the zone/panel. -->
+    <div class="sidebar-peek-scrim" class:open={sidebarPeek}></div>
     <div
       class="sidebar-peek-zone"
       role="presentation"

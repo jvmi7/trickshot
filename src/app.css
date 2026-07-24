@@ -762,6 +762,16 @@ html, body {
    of the sidebar slides in as a card over the content; leaves with the
    pointer. The zone sits under the card (its left edge overlaps), so
    zone → card is one continuous hover. ---- */
+.sidebar-peek-scrim {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklch, black 45%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  z-index: var(--app-z-float);
+  transition: opacity var(--app-duration-slow) var(--ease-out-soft);
+}
+.sidebar-peek-scrim.open { opacity: 1; }
 .sidebar-peek-zone {
   position: fixed;
   top: 35px; /* below the titlebar band */
