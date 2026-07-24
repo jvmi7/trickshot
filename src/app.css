@@ -785,7 +785,7 @@ html, body {
   background: transparent;
   transition: background var(--app-duration-fast) ease;
 }
-.sidebar-resize:hover::after { background: var(--app-accent); }
+.sidebar-resize:hover::after { background: color-mix(in oklch, var(--app-text) 30%, var(--app-border)); }
 /* During a drag: show the resize cursor everywhere and don't select text. */
 .layout.resizing { cursor: col-resize; user-select: none; }
 
