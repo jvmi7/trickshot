@@ -840,8 +840,8 @@ html, body {
   background: linear-gradient(
     to bottom,
     transparent,
-    color-mix(in oklch, var(--app-text) 30%, var(--app-border)) 5%,
-    color-mix(in oklch, var(--app-text) 30%, var(--app-border)) 95%,
+    color-mix(in oklch, var(--app-text) 55%, var(--app-border)) 5%,
+    color-mix(in oklch, var(--app-text) 55%, var(--app-border)) 95%,
     transparent
   );
   transition: opacity var(--app-duration-fast) ease;
@@ -1547,7 +1547,7 @@ html, body {
 /* Press tint: one subtle step past the hover fill (6% text into --app-panel-2),
    not the .workspace-label's stronger 15% — sidebar rows press quietly. */
 .wt-row:active { background: color-mix(in oklch, var(--app-panel-2) 94%, var(--app-text)); }
-.wt-row .wt-home { color: var(--app-dim); flex-shrink: 0; width: 16px; height: 16px; }
+.wt-row .wt-home { color: var(--app-dim); flex-shrink: 0; width: 16px; height: 16px; } /* the 44:16 mark centers in the square slot (preserveAspectRatio default) */
 /* Identity glyphs rest greyed-out; the row's hover / active / busy states
    color them back in on the feedback clock (busy: a background worktree's
    loading morph must play in color, not grey). */

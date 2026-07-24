@@ -43,10 +43,10 @@
   import * as Tooltip from "$lib/components/ui/tooltip";
   import * as ContextMenu from "$lib/components/ui/context-menu";
   import IconButton from "./IconButton.svelte";
+  import TrickshotMark from "./TrickshotMark.svelte";
   import IdentityGlyph from "./IdentityGlyph.svelte";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
-  import House from "@lucide/svelte/icons/house";
   import Plus from "@lucide/svelte/icons/plus";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -325,7 +325,7 @@
           }
         }}
       >
-        <House class="wt-home" />
+        <TrickshotMark class="wt-home" />
         <span class="wt-name">Home</span>
       </div>
     </div>
