@@ -581,6 +581,9 @@
   /* Chat-tab top corners (the connected Chrome-style tabs) — rounder than the
      control ladder, shy of the pane. */
   --app-tab-radius: var(--app-pane-radius); /* tabs share the card curvature */
+  /* The concave FEET where the tab meets the card's top edge — matched to
+     the tabs' top corners so the S-curve is symmetric. */
+  --app-tab-flare: var(--app-tab-radius);
   /* Tab height — the strip band (h + 2), the trail's band reach (h + 3), and
      the arc-glow light anchors all derive from this one token. */
   --app-tab-h: 34px;
@@ -1125,7 +1128,7 @@ html, body {
 .chat-tab-frame {
   position: absolute;
   inset: -1px;
-  bottom: var(--radius-xl);
+  bottom: var(--app-tab-flare);
   border: 1px solid transparent;
   border-bottom: 0;
   border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0;
@@ -1152,7 +1155,7 @@ html, body {
    surface fills the feet — its silhouette includes the concave arcs — so the
    flares just draw the frame line turning the corner. */
 .chat-tab-chrome::before,
-.chat-tab-chrome::after { content: ""; position: absolute; bottom: 0; width: calc(var(--radius-xl) + 1px); height: var(--radius-xl); }
+.chat-tab-chrome::after { content: ""; position: absolute; bottom: 0; width: calc(var(--app-tab-flare) + 1px); height: var(--app-tab-flare); }
 /* The two 1px patch layers pin the arc's tangent ENDS to the strokes it
    meets (tab side above, card border below) — at grazing angles the arc's
    own AA is too faint to close the joint. */
@@ -1171,10 +1174,10 @@ html, body {
    top patch IS the straight 1px border column, i.e. exactly the flush state.
    Without the overhang that last-frames-of-flight window paints no left
    border at all. */
-.chat-tab-chrome::before { left: calc(-1 * var(--flare-l, var(--radius-xl)) - 1px); width: calc(var(--flare-l, var(--radius-xl)) + 2px); background:
-  linear-gradient(var(--chat-frame), var(--chat-frame)) right 1px top 0 / 1px calc(var(--radius-xl) - var(--flare-l, var(--radius-xl)) + 2px) no-repeat,
+.chat-tab-chrome::before { left: calc(-1 * var(--flare-l, var(--app-tab-flare)) - 1px); width: calc(var(--flare-l, var(--app-tab-flare)) + 2px); background:
+  linear-gradient(var(--chat-frame), var(--chat-frame)) right 1px top 0 / 1px calc(var(--app-tab-flare) - var(--flare-l, var(--app-tab-flare)) + 2px) no-repeat,
   linear-gradient(var(--chat-frame), var(--chat-frame)) left 0 bottom 0 / 2px 1px no-repeat,
-  radial-gradient(circle at 1px calc(100% - var(--flare-l, var(--radius-xl))), transparent calc(var(--flare-l, var(--radius-xl)) - 1.25px), var(--chat-frame) calc(var(--flare-l, var(--radius-xl)) - 0.75px), var(--chat-frame) calc(var(--flare-l, var(--radius-xl)) - 0.25px), transparent calc(var(--flare-l, var(--radius-xl)) + 0.25px)); }
+  radial-gradient(circle at 1px calc(100% - var(--flare-l, var(--app-tab-flare))), transparent calc(var(--flare-l, var(--app-tab-flare)) - 1.25px), var(--chat-frame) calc(var(--flare-l, var(--app-tab-flare)) - 0.75px), var(--chat-frame) calc(var(--flare-l, var(--app-tab-flare)) - 0.25px), transparent calc(var(--flare-l, var(--app-tab-flare)) + 0.25px)); }
 /* The tab's share of the cursor glow: a ring overlay at -1px over its OWN
    border (top + sides only — a zero bottom border keeps the ring out of the
    tab's opening), same radial recipe as .content::after, driven by the tab's
@@ -1188,7 +1191,7 @@ html, body {
      side border is interior (covered by the flares); the ARC glow pseudos
      below take over from there. z-index 1 floats the arc glows above the
      flares' own stroke so proximity recolors it. */
-  bottom: var(--radius-xl);
+  bottom: var(--app-tab-flare);
   z-index: 1;
   border: 1px solid transparent;
   border-bottom: 0;
@@ -1221,43 +1224,43 @@ html, body {
 .chat-tab-glow-arc {
   position: absolute;
   bottom: 0;
-  width: calc(var(--radius-xl) + 1px);
-  height: var(--radius-xl);
+  width: calc(var(--app-tab-flare) + 1px);
+  height: var(--app-tab-flare);
   z-index: 1;
   opacity: var(--glow-o, 0);
   transition: opacity var(--app-duration-slow) var(--ease-out-soft);
   pointer-events: none;
 }
 .chat-tab-glow-arc[data-side="left"] {
-  left: calc(-1 * var(--flare-l, var(--radius-xl)) - 1px);
-  width: calc(var(--flare-l, var(--radius-xl)) + 2px);
+  left: calc(-1 * var(--flare-l, var(--app-tab-flare)) - 1px);
+  width: calc(var(--flare-l, var(--app-tab-flare)) + 2px);
   background: radial-gradient(
-      260px circle at calc(var(--glow-x, 0px) + var(--flare-l, var(--radius-xl))) calc(var(--glow-y, 0px) - var(--app-tab-h) + var(--radius-xl)),
+      260px circle at calc(var(--glow-x, 0px) + var(--flare-l, var(--app-tab-flare))) calc(var(--glow-y, 0px) - var(--app-tab-h) + var(--app-tab-flare)),
       var(--app-glow),
       transparent 70%
     );
   -webkit-mask:
-    radial-gradient(circle at 1px calc(100% - var(--flare-l, var(--radius-xl))), transparent calc(var(--flare-l, var(--radius-xl)) - 1.25px), var(--base-text) calc(var(--flare-l, var(--radius-xl)) - 0.75px), var(--base-text) calc(var(--flare-l, var(--radius-xl)) - 0.25px), transparent calc(var(--flare-l, var(--radius-xl)) + 0.25px)),
-    linear-gradient(var(--base-text), var(--base-text)) right 1px top 0 / 1px calc(var(--radius-xl) - var(--flare-l, var(--radius-xl)) + 2px) no-repeat,
+    radial-gradient(circle at 1px calc(100% - var(--flare-l, var(--app-tab-flare))), transparent calc(var(--flare-l, var(--app-tab-flare)) - 1.25px), var(--base-text) calc(var(--flare-l, var(--app-tab-flare)) - 0.75px), var(--base-text) calc(var(--flare-l, var(--app-tab-flare)) - 0.25px), transparent calc(var(--flare-l, var(--app-tab-flare)) + 0.25px)),
+    linear-gradient(var(--base-text), var(--base-text)) right 1px top 0 / 1px calc(var(--app-tab-flare) - var(--flare-l, var(--app-tab-flare)) + 2px) no-repeat,
     linear-gradient(var(--base-text), var(--base-text)) left 0 bottom 0 / 2px 1px no-repeat;
   mask:
-    radial-gradient(circle at 1px calc(100% - var(--flare-l, var(--radius-xl))), transparent calc(var(--flare-l, var(--radius-xl)) - 1.25px), var(--base-text) calc(var(--flare-l, var(--radius-xl)) - 0.75px), var(--base-text) calc(var(--flare-l, var(--radius-xl)) - 0.25px), transparent calc(var(--flare-l, var(--radius-xl)) + 0.25px)),
-    linear-gradient(var(--base-text), var(--base-text)) right 1px top 0 / 1px calc(var(--radius-xl) - var(--flare-l, var(--radius-xl)) + 2px) no-repeat,
+    radial-gradient(circle at 1px calc(100% - var(--flare-l, var(--app-tab-flare))), transparent calc(var(--flare-l, var(--app-tab-flare)) - 1.25px), var(--base-text) calc(var(--flare-l, var(--app-tab-flare)) - 0.75px), var(--base-text) calc(var(--flare-l, var(--app-tab-flare)) - 0.25px), transparent calc(var(--flare-l, var(--app-tab-flare)) + 0.25px)),
+    linear-gradient(var(--base-text), var(--base-text)) right 1px top 0 / 1px calc(var(--app-tab-flare) - var(--flare-l, var(--app-tab-flare)) + 2px) no-repeat,
     linear-gradient(var(--base-text), var(--base-text)) left 0 bottom 0 / 2px 1px no-repeat;
 }
 .chat-tab-glow-arc[data-side="right"] {
-  right: calc(-1 * var(--radius-xl));
+  right: calc(-1 * var(--app-tab-flare));
   background: radial-gradient(
-      260px circle at calc(var(--glow-xr, 0px) + 2px) calc(var(--glow-y, 0px) - var(--app-tab-h) + var(--radius-xl)),
+      260px circle at calc(var(--glow-xr, 0px) + 2px) calc(var(--glow-y, 0px) - var(--app-tab-h) + var(--app-tab-flare)),
       var(--app-glow),
       transparent 70%
     );
   -webkit-mask:
-    radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px)),
+    radial-gradient(circle at 100% 0, transparent calc(var(--app-tab-flare) - 1.25px), var(--base-text) calc(var(--app-tab-flare) - 0.75px), var(--base-text) calc(var(--app-tab-flare) - 0.25px), transparent calc(var(--app-tab-flare) + 0.25px)),
     linear-gradient(var(--base-text), var(--base-text)) left 1px top 0 / 1px 2px no-repeat,
     linear-gradient(var(--base-text), var(--base-text)) right 0 bottom 0 / 2px 1px no-repeat;
   mask:
-    radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.25px), var(--base-text) calc(var(--radius-xl) - 0.75px), var(--base-text) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px)),
+    radial-gradient(circle at 100% 0, transparent calc(var(--app-tab-flare) - 1.25px), var(--base-text) calc(var(--app-tab-flare) - 0.75px), var(--base-text) calc(var(--app-tab-flare) - 0.25px), transparent calc(var(--app-tab-flare) + 0.25px)),
     linear-gradient(var(--base-text), var(--base-text)) left 1px top 0 / 1px 2px no-repeat,
     linear-gradient(var(--base-text), var(--base-text)) right 0 bottom 0 / 2px 1px no-repeat;
 }
@@ -1289,10 +1292,10 @@ html, body {
   -webkit-mask: none;
   mask: none;
 }
-.chat-tab-chrome::after { right: calc(-1 * var(--radius-xl)); background:
+.chat-tab-chrome::after { right: calc(-1 * var(--app-tab-flare)); background:
   linear-gradient(var(--chat-frame), var(--chat-frame)) left 1px top 0 / 1px 2px no-repeat,
   linear-gradient(var(--chat-frame), var(--chat-frame)) right 0 bottom 0 / 2px 1px no-repeat,
-  radial-gradient(circle at 100% 0, transparent calc(var(--radius-xl) - 1.25px), var(--chat-frame) calc(var(--radius-xl) - 0.75px), var(--chat-frame) calc(var(--radius-xl) - 0.25px), transparent calc(var(--radius-xl) + 0.25px)); }
+  radial-gradient(circle at 100% 0, transparent calc(var(--app-tab-flare) - 1.25px), var(--chat-frame) calc(var(--app-tab-flare) - 0.75px), var(--chat-frame) calc(var(--app-tab-flare) - 0.25px), transparent calc(var(--app-tab-flare) + 0.25px)); }
 /* Per-chat status dot in the tab label (mirrors the sidebar's busy signal). */
 .chat-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 999px; background: var(--app-dim); }
 .chat-dot[data-status="busy"] { background: var(--app-accent); }

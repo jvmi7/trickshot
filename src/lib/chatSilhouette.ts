@@ -43,7 +43,7 @@ export function chatSilhouette(host: HTMLElement): { destroy(): void } {
     const y0 = parentR.top + 1 - hostR.top;
     const r = pxVar("--app-pane-radius-inner", 13); // card inner corners
     const t = pxVar("--app-tab-radius", 10); // tab top corners
-    const f = pxVar("--radius-xl", 8); // flare (concave foot) radius
+    const f = pxVar("--app-tab-flare", 14); // flare (concave foot) radius
 
     // GRID layout: the silhouette is the union of the floating cells' inner
     // rounded rects — one subpath each (disjoint rects union under nonzero
