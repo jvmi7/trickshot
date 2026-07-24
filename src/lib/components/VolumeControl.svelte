@@ -134,20 +134,22 @@
     cursor: pointer;
   }
   /* The slider reads as a minimal LINE: a full-radius track at 20% of the
-     current text color, and the FILL plays the knob — flush inside the
-     track at 50%, rounded on the left, FLAT on the right so its leading
-     edge marks the level. :global — the slot elements live inside
-     ui/slider, which never gets hand-edited; the consumer restyles its own
-     instance (the UsageIndicator badge precedent). 999px is the blessed
-     pill radius. */
+     THEME TEXT color, and the FILL plays the knob — flush inside the track
+     at 50%, rounded on the left, FLAT on the right so its leading edge
+     marks the level. Anchored to --app-text, NOT currentColor: the control
+     rests at --app-dim, and 50% of an already-dim gray vanished into the
+     dark canvas — the line must read at rest, not only on hover. :global —
+     the slot elements live inside ui/slider, which never gets hand-edited;
+     the consumer restyles its own instance (the UsageIndicator badge
+     precedent). 999px is the blessed pill radius. */
   .volume :global([data-slot="slider-track"]) {
     height: 4px;
     border-radius: 999px;
-    background: color-mix(in oklch, currentColor 20%, transparent);
+    background: color-mix(in oklch, var(--app-text) 20%, transparent);
   }
   .volume :global([data-slot="slider-range"]) {
     border-radius: 999px 0 0 999px;
-    background: color-mix(in oklch, currentColor 50%, transparent);
+    background: color-mix(in oklch, var(--app-text) 50%, transparent);
   }
   /* No visible knob — the fill's flat edge is the indicator. The thumb stays
      in the DOM for dragging + keyboard control and only surfaces for
