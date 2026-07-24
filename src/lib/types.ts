@@ -109,12 +109,6 @@ export interface PrText {
   body: string;
 }
 
-/** System output volume + mute state (mirrors the Rust `VolumeInfo`). */
-export interface VolumeInfo {
-  volume: number;
-  muted: boolean;
-}
-
 /** One file in the global Claude Code config scan (mirrors the Rust
  *  `ClaudeEntry`). `file` is root-relative and valid as `readClaudeFile`'s
  *  argument. */

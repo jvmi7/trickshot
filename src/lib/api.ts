@@ -14,7 +14,6 @@ import type {
   ScriptsConfig,
   TermEnvelope,
   UsageInfo,
-  VolumeInfo,
   Worktree,
 } from "./types";
 
@@ -262,20 +261,6 @@ export const readClaudeFile = (file: string) => invoke<string>("read_claude_file
  *  settings.json is JSON-validated in Rust before the atomic write). */
 export const writeClaudeFile = (file: string, contents: string) =>
   invoke<void>("write_claude_file", { file, contents });
-
-// ---- System volume (macOS `osascript`; the footer's volume slider) --------
-
-/** The system output volume + mute state. Rejects on platforms without
- *  `osascript` or on output devices with no software volume (AirPlay, some
- *  DACs) — the control hides itself on a failed probe. */
-export const getVolume = () => invoke<VolumeInfo>("get_volume");
-
-/** Set the system output volume (0–100, clamped in Rust). Also unmutes —
- *  matching the OS volume keys' behavior. */
-export const setVolume = (volume: number) => invoke<void>("set_volume", { volume });
-
-/** Mute/unmute the system output. */
-export const setMuted = (muted: boolean) => invoke<void>("set_muted", { muted });
 
 // ---- window state (macOS fullscreen hides the native traffic lights; the
 // floating expand-sidebar button re-anchors off html[data-fullscreen]) ----
