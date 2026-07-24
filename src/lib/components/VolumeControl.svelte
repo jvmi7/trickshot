@@ -7,6 +7,7 @@
   // to one osascript spawn per ~80ms with a trailing set so the final thumb
   // position always lands. External changes (the keyboard volume keys) are
   // re-synced on hover. Feature component (calls api).
+  import { spring } from "svelte/motion";
   import * as api from "../api";
   import { Slider } from "$lib/components/ui/slider";
   import Volume2 from "@lucide/svelte/icons/volume-2";
@@ -22,6 +23,11 @@
   let pendingSet: number | null = null;
 
   const Icon = $derived(muted || volume === 0 ? VolumeX : volume < 50 ? Volume1 : Volume2);
+
+  // Hover grow on a REAL damped spring (svelte/motion — the slidingHighlight
+  // precedent; framer-motion is React-only, this is the platform's own
+  // spring physics). Slight overshoot on the way in reads as the "pop".
+  const scale = spring(1, { stiffness: 0.2, damping: 0.5 });
 
   async function sync() {
     try {
@@ -70,7 +76,12 @@
 {#if available}
   <div
     class="volume"
-    onpointerenter={() => void sync()}
+    style="transform: scale({$scale})"
+    onpointerenter={() => {
+      scale.set(1.12);
+      void sync();
+    }}
+    onpointerleave={() => scale.set(1)}
     title="System output volume"
     role="group"
     aria-label="System volume"
@@ -105,6 +116,9 @@
     gap: 6px;
     color: var(--app-dim);
     transition: color var(--app-duration-fast);
+    /* Grows from its center on the hover spring (transform set inline). */
+    transform-origin: center;
+    will-change: transform;
   }
   .volume:hover {
     color: var(--app-text);
@@ -120,26 +134,27 @@
     cursor: pointer;
   }
   /* The slider reads as a minimal LINE: a full-radius track at 20% of the
-     current text color with a 50% fill inside (both follow the control's
-     dim→hover color). :global — the slot elements live inside ui/slider,
-     which never gets hand-edited; the consumer restyles its own instance
-     (the UsageIndicator badge precedent). 999px is the blessed pill radius. */
+     current text color, and the FILL plays the knob — flush inside the
+     track at 50%, rounded on the left, FLAT on the right so its leading
+     edge marks the level. :global — the slot elements live inside
+     ui/slider, which never gets hand-edited; the consumer restyles its own
+     instance (the UsageIndicator badge precedent). 999px is the blessed
+     pill radius. */
   .volume :global([data-slot="slider-track"]) {
     height: 4px;
     border-radius: 999px;
     background: color-mix(in oklch, currentColor 20%, transparent);
   }
   .volume :global([data-slot="slider-range"]) {
-    border-radius: 999px;
+    border-radius: 999px 0 0 999px;
     background: color-mix(in oklch, currentColor 50%, transparent);
   }
-  /* Resting state is just the line — the thumb fades in when the control is
-     hovered or the thumb itself has keyboard focus. */
+  /* No visible knob — the fill's flat edge is the indicator. The thumb stays
+     in the DOM for dragging + keyboard control and only surfaces for
+     keyboard focus (the ring needs something to anchor to). */
   .volume :global([data-slot="slider-thumb"]) {
     opacity: 0;
-    transition: opacity var(--app-duration-fast);
   }
-  .volume:hover :global([data-slot="slider-thumb"]),
   .volume :global([data-slot="slider-thumb"]:focus-visible) {
     opacity: 1;
   }
