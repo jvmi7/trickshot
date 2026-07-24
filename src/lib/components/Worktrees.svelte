@@ -327,7 +327,7 @@
         }}
       >
         <TrickshotMark class="wt-home" />
-        <span class="wt-name">Home</span>
+        <span class="wt-name">trickshot</span>
       </div>
     </div>
   {/if}
