@@ -86,7 +86,7 @@
          color; sized by the text-2xs utility (the component inherits
          font-size). -->
     <div class="hero-eyes text-2xs">
-      <AsciiEyes cols={56} />
+      <AsciiEyes cols={84} />
     </div>
     <h1 class="wordmark">trickshot</h1>
     <p class="tagline">parallel coding agents — one per git worktree</p>
