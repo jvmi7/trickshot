@@ -16,6 +16,7 @@
     sendToCli,
   } from "../stores";
   import { claudeTermKey } from "../terminal";
+  import { profileAccent } from "../termProfiles";
   import * as InputGroup from "$lib/components/ui/input-group";
 
   let {
@@ -48,6 +49,13 @@
   }
 
   const canSend = $derived(!sending && draft.trim().length > 0);
+  // The button wears the WINDOW's theme — the workspace identity accent (the
+  // swatch/header ❯ color, the same family as the monochrome terminal), with
+  // a dark member of the same hue for the label. Dynamic values, inline.
+  const accent = $derived(profileAccent(worktree));
+  const buttonStyle = $derived(
+    `background-color: ${accent}; color: color-mix(in oklch, ${accent} 22%, black)`,
+  );
   // While THIS chat runs a turn, the send button becomes INTERRUPT (Enter
   // still sends — the TUI queues typed input during a turn).
   const busy = $derived(
@@ -112,7 +120,8 @@
         <InputGroup.Button
           size="xs"
           variant="default"
-          class="rounded-none"
+          class="rounded-none hover:opacity-90"
+          style={buttonStyle}
           title="Stop the running turn (Esc)"
           onclick={interrupt}
         >
@@ -122,7 +131,8 @@
         <InputGroup.Button
           size="xs"
           variant="default"
-          class="rounded-none"
+          class="rounded-none hover:opacity-90"
+          style={buttonStyle}
           disabled={!canSend}
           onclick={() => void submit()}
         >
