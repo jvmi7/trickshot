@@ -1,4 +1,5 @@
 mod agent;
+mod claude_config;
 mod generate;
 mod github;
 mod scripts;
@@ -20,6 +21,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             agent::latest_session_id,
             agent::session_exists,
+            claude_config::claude_config_overview,
+            claude_config::read_claude_file,
+            claude_config::write_claude_file,
             worktree::pick_directory,
             worktree::repo_icon,
             worktree::home_dir,

@@ -109,6 +109,40 @@ export interface PrText {
   body: string;
 }
 
+/** One file in the global Claude Code config scan (mirrors the Rust
+ *  `ClaudeEntry`). `file` is root-relative and valid as `readClaudeFile`'s
+ *  argument. */
+export interface ClaudeEntry {
+  name: string;
+  file: string;
+  size: number;
+  modified_ms: number | null;
+}
+
+/** One `~/.claude/projects/<encoded>` session dir (mirrors the Rust
+ *  `ClaudeProject`). The dir-name encoding is lossy — display as-is. */
+export interface ClaudeProject {
+  dir: string;
+  sessions: number;
+  modified_ms: number | null;
+}
+
+/** Everything set up in the user's global Claude Code config (mirrors the Rust
+ *  `ClaudeOverview`) — the Settings › Global Claude tab's data. Raw file texts
+ *  are `null` when absent; `mcp_servers` is the pretty-printed `mcpServers`
+ *  object extracted from `~/.claude.json` (`null` = none configured). */
+export interface ClaudeOverview {
+  root: string;
+  settings: string | null;
+  settings_local: string | null;
+  claude_md: string | null;
+  agents: ClaudeEntry[];
+  commands: ClaudeEntry[];
+  skills: ClaudeEntry[];
+  mcp_servers: string | null;
+  projects: ClaudeProject[];
+}
+
 /** Envelope for a worktree-tagged script event on the `script-event` channel
  *  (mirrors the Rust `ScriptEvent` struct in scripts.rs — the scripts sibling
  *  of `AgentEnvelope`). `data` is the script name for `started`, an output line

@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
+  ClaudeOverview,
   GitStatus,
   PrInfo,
   PrText,
@@ -238,6 +239,22 @@ export const latestSessionId = (worktree: string, provider?: string) =>
  *  CLI creates transcripts lazily) → re-create under the same `--session-id`. */
 export const sessionExists = (worktree: string, sessionId: string, provider?: string) =>
   invoke<boolean>("session_exists", { worktree, sessionId, provider: provider ?? null });
+
+// ---- Global Claude config (~/.claude — the Settings › Global Claude tab) ---
+
+/** Everything set up in the user's global Claude Code config: settings texts,
+ *  global CLAUDE.md, agents/commands/skills entries, the user-scope MCP
+ *  servers, and the projects list. One scan; missing pieces are null/empty. */
+export const claudeConfigOverview = () => invoke<ClaudeOverview>("claude_config_overview");
+
+/** Read one whitelisted file under ~/.claude (entry viewers + editors).
+ *  `file` is root-relative — pass a `ClaudeEntry.file` or a top-level name. */
+export const readClaudeFile = (file: string) => invoke<string>("read_claude_file", { file });
+
+/** Write `settings.json` or the global `CLAUDE.md` (the ONLY editable files;
+ *  settings.json is JSON-validated in Rust before the atomic write). */
+export const writeClaudeFile = (file: string, contents: string) =>
+  invoke<void>("write_claude_file", { file, contents });
 
 // ---- window state (macOS fullscreen hides the native traffic lights; the
 // floating expand-sidebar button re-anchors off html[data-fullscreen]) ----
