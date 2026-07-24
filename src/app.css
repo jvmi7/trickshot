@@ -681,7 +681,7 @@ html, body {
 
 /* ---- status footer (Footer.svelte): the slim band under the card — the
    usage chip + ambient items. The header's quiet sibling. ---- */
-.app-footer { flex-shrink: 0; display: flex; align-items: center; gap: 10px; height: 28px; padding: 0 calc(var(--app-pane-gap) + 2px); }
+.app-footer { flex-shrink: 0; display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 calc(var(--app-pane-gap) + 2px) 2px; }
 .footer-spacer { flex: 1; }
 /* The ⌘K affordance: reads as a hint, works as a button. */
 .footer-hint { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; background: transparent; border: 0; border-radius: calc(var(--radius) - 2px); font-size: var(--text-2xs); font-family: var(--app-font-mono); color: var(--app-dim); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
