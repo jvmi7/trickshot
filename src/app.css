@@ -1520,7 +1520,14 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
 .repo-head { display: flex; align-items: center; gap: 6px; padding: 2px; }
 /* Accordion toggle: chevron + repo name, clickable to fold/unfold the worktrees. */
 .repo-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: 0; cursor: pointer; text-align: left; }
-.repo-chevron { display: inline-flex; flex-shrink: 0; color: var(--app-dim); transition: transform var(--app-duration-fast) ease; }
+.repo-chevron { display: inline-flex; flex-shrink: 0; color: var(--app-dim); transition: transform var(--app-duration-fast) ease, color var(--app-duration-fast) ease; }
+/* Hovering the accordion trigger brightens the whole header as one unit —
+   chevron, favicon, and label (the label's .section-label color is dim, so
+   both pieces transition to text). */
+.repo-toggle .repo-name { transition: color var(--app-duration-fast) ease; }
+.repo-toggle:hover .repo-name,
+.repo-toggle:hover .repo-chevron,
+.repo-toggle:hover .repo-favicon { color: var(--app-text); }
 .repo-chevron.collapsed { transform: rotate(-90deg); }
 /* Repo favicon (repo_icon data: URI) or its Lucide placeholder — `color` only
    tints the fallback glyph; a real favicon paints itself. */
