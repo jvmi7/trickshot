@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { GLYPH_PALETTES, paletteFor } from "./identityGlyph";
-import { mixHex, monoAnsi, profileAccent, profileFor, TERM_PROFILES } from "./termProfiles";
+import {
+  mixHex,
+  monoAnsi,
+  monoExtended,
+  profileAccent,
+  profileFor,
+  TERM_PROFILES,
+} from "./termProfiles";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -81,6 +88,27 @@ describe("terminal profiles (monochrome)", () => {
   test("monoAnsi is pure over its accent", () => {
     expect(monoAnsi("#ff007a")).toEqual(monoAnsi("#ff007a"));
     expect(monoAnsi("#ff007a")[4]).toBe("#ff007a");
+  });
+
+  test("monoExtended covers slots 16–255 in-hue with luminance preserved", () => {
+    const accent = "#00d0ff";
+    const ext = monoExtended(accent);
+    expect(ext).toHaveLength(240);
+    for (const c of ext) expect(c).toMatch(HEX);
+    const lum = (hex: string) => {
+      const [r, g, b] = rgb(hex);
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    // The grayscale ramp (slots 232–255 → indices 216–239) stays monotonic —
+    // the standard entries' lightness ordering survives the hue swap.
+    for (let i = 217; i < 240; i++) {
+      expect(lum(ext[i] as string)).toBeGreaterThanOrEqual(lum(ext[i - 1] as string));
+    }
+    // Cube black (slot 16) maps near-black; cube white (slot 231) near-white.
+    expect(lum(ext[0] as string)).toBeLessThan(24);
+    expect(lum(ext[231 - 16] as string)).toBeGreaterThan(232);
+    // Cached per accent (same array identity on the second call).
+    expect(monoExtended(accent)).toBe(ext);
   });
 
   test("assignment is stable and matches the glyph palette", () => {

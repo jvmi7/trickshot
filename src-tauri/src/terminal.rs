@@ -278,6 +278,15 @@ pub async fn term_open(
                 c.env_remove("CLAUDECODE");
                 c.env_remove("CLAUDE_CODE_CHILD_SESSION");
                 c.env_remove("CLAUDE_CODE_ENTRYPOINT");
+                // Cap the CLI at 256-color output (no COLORTERM = no
+                // truecolor advertisement; FORCE_COLOR could re-force it).
+                // Truecolor SGR bypasses xterm's palette entirely, which
+                // would defeat the per-workspace MONOCHROME profile — at 256
+                // colors every code the TUI emits routes through the theme's
+                // extendedAnsi ramp (terminal.ts › themeColors). Claude-slot
+                // only: the plain shell keeps the user's full color env.
+                c.env_remove("COLORTERM");
+                c.env_remove("FORCE_COLOR");
                 c
             }
             None => {

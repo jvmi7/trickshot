@@ -28,7 +28,7 @@ import {
   setChatStatus,
   terminalFontSize,
 } from "./stores";
-import { profileAccent, profileFor } from "./termProfiles";
+import { monoExtended, profileAccent, profileFor } from "./termProfiles";
 import type { TermEnvelope } from "./types";
 
 /** PTY slot suffix for the dedicated Claude CLI terminals (the chat pane).
@@ -106,6 +106,8 @@ export function themeColors(key?: string) {
     foreground: v("--base-text"),
     selectionBackground: v("--base-selection"),
   };
+  // Slots 16–255 (string[] — typed apart from the flat color record).
+  let extended: string[] | undefined;
   const probe = document.createElement("span");
   probe.style.display = "none";
   document.body.appendChild(probe);
@@ -114,10 +116,13 @@ export function themeColors(key?: string) {
     return getComputedStyle(probe).color || undefined;
   };
   if (key) {
-    // Per-workspace terminal PROFILE (termProfiles.ts): its own ANSI palette,
-    // with the workspace's identity accent as BOTH the main text color and the
-    // cursor — the EXACT color of its sidebar chip. Background stays the APP
-    // THEME's for every workspace (uniform canvas; the accent differentiates).
+    // Per-workspace terminal PROFILE (termProfiles.ts): its own MONOCHROME
+    // ANSI palette, with the workspace's identity accent as BOTH the main
+    // text color and the cursor — the EXACT color of its sidebar chip.
+    // Background stays the APP THEME's for every workspace (uniform canvas;
+    // the accent differentiates). extendedAnsi covers slots 16–255 so the
+    // TUI's 256-color syntax highlighting stays in the hue too (the CLI is
+    // capped below truecolor — terminal.rs strips COLORTERM).
     const wt = keyWorktree(key);
     const p = profileFor(wt);
     theme.background = "rgba(0, 0, 0, 0)"; // transparent — the backdrop div paints it
@@ -127,6 +132,7 @@ export function themeColors(key?: string) {
     ANSI_SLOTS.forEach((slot, i) => {
       theme[slot] = p.ansi[i];
     });
+    extended = monoExtended(accent);
   } else {
     // No workspace context: the app theme's terminal colors.
     theme.background = "rgba(0, 0, 0, 0)"; // transparent — the backdrop div paints it
@@ -137,7 +143,7 @@ export function themeColors(key?: string) {
     });
   }
   probe.remove();
-  return theme;
+  return extended ? { ...theme, extendedAnsi: extended } : theme;
 }
 
 /** Get (or lazily create) the persistent xterm instance for a PTY key (a

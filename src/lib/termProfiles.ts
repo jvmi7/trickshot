@@ -109,6 +109,48 @@ function luminance(hex: string): number {
   return 0.2126 * ((n >> 16) & 0xff) + 0.7152 * ((n >> 8) & 0xff) + 0.0722 * (n & 0xff);
 }
 
+/** Standard xterm-256 RGB for an extended slot (16–255): the 6×6×6 color
+ *  cube then the 24-step grayscale ramp — the values every emitter assumes. */
+function xterm256Rgb(i: number): [number, number, number] {
+  if (i >= 232) {
+    const v = 8 + (i - 232) * 10;
+    return [v, v, v];
+  }
+  const n = i - 16;
+  const LEVELS = [0, 95, 135, 175, 215, 255] as const;
+  return [
+    LEVELS[Math.floor(n / 36) % 6] as number,
+    LEVELS[Math.floor(n / 6) % 6] as number,
+    LEVELS[n % 6] as number,
+  ];
+}
+
+const extendedCache = new Map<string, string[]>();
+
+/** The extended-palette half of the monochrome scheme: 240 entries for xterm
+ *  slots 16–255, each the accent shaded/tinted to MATCH THE LUMINANCE of the
+ *  standard entry it replaces. The TUI's 256-color syntax highlighting (the
+ *  CLI is capped below truecolor — terminal.rs strips COLORTERM from claude
+ *  PTYs) then renders with its intended lightness structure, in one hue.
+ *  Cached per accent (five palettes → five arrays); exported for tests. */
+export function monoExtended(accent: string): string[] {
+  const hit = extendedCache.get(accent);
+  if (hit) return hit;
+  const la = luminance(accent) / 255;
+  const out: string[] = [];
+  for (let i = 16; i < 256; i++) {
+    const [r, g, b] = xterm256Rgb(i);
+    const l = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    out.push(
+      l <= la
+        ? mixHex(accent, "#000000", la > 0 ? 1 - l / la : 0)
+        : mixHex(accent, "#ffffff", la < 1 ? (l - la) / (1 - la) : 1),
+    );
+  }
+  extendedCache.set(accent, out);
+  return out;
+}
+
 /** THE identity color: the terminal's MAIN TEXT + cursor, the sidebar glyph,
  *  the header ❯, and the fleet icon — one exact color, everywhere. It is the
  *  LIGHTEST color of the workspace's glyph palette (best contrast on the dark
