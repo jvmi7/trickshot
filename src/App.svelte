@@ -1,7 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import { onScriptEvent, onTermEvent, listWorktrees, worktreeStatus, homeDir } from "./lib/api";
+  import {
+    onScriptEvent,
+    onTermEvent,
+    listWorktrees,
+    worktreeStatus,
+    homeDir,
+    onWindowResized,
+    windowIsFullscreen,
+  } from "./lib/api";
   import { borderGlow } from "./lib/borderGlow";
   import { chatSilhouette } from "./lib/chatSilhouette";
   import { cursorTrail } from "./lib/cursorTrail";
@@ -228,6 +236,21 @@
   onMount(() => {
     let cancelled = false;
 
+    // Track macOS fullscreen (the traffic lights hide there — the floating
+    // expand-sidebar button re-anchors via html[data-fullscreen]).
+    const syncFullscreen = () =>
+      void windowIsFullscreen()
+        .then((fs) => {
+          if (fs) document.documentElement.dataset.fullscreen = "";
+          else delete document.documentElement.dataset.fullscreen;
+        })
+        .catch(() => {});
+    syncFullscreen();
+    let unlistenResize: (() => void) | undefined;
+    onWindowResized(syncFullscreen)
+      .then((u) => (unlistenResize = u))
+      .catch(() => {});
+
     // Populate the subscription-usage chip on launch (throttled thereafter).
     refreshUsage();
     // Probe the provider login for the sign-in notice (local read, silent).
@@ -281,6 +304,7 @@
       cancelled = true;
       unlistenScripts?.();
       unlistenTerm?.();
+      unlistenResize?.();
     };
   });
 </script>

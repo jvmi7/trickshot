@@ -4,6 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   GitStatus,
   PrInfo,
@@ -237,3 +238,9 @@ export const latestSessionId = (worktree: string, provider?: string) =>
  *  CLI creates transcripts lazily) → re-create under the same `--session-id`. */
 export const sessionExists = (worktree: string, sessionId: string, provider?: string) =>
   invoke<boolean>("session_exists", { worktree, sessionId, provider: provider ?? null });
+
+// ---- window state (macOS fullscreen hides the native traffic lights; the
+// floating expand-sidebar button re-anchors off html[data-fullscreen]) ----
+export const windowIsFullscreen = () => getCurrentWindow().isFullscreen();
+/** Fires on any window resize (incl. fullscreen transitions); returns unlisten. */
+export const onWindowResized = (cb: () => void) => getCurrentWindow().onResized(cb);
