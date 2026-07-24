@@ -8,9 +8,17 @@
   // input's own interactivity (slash menu, @-completion, ↑-history) doesn't
   // apply while typing HERE — text arrives on submit. Feature component.
   import { tick } from "svelte";
-  import { sendToCli } from "../stores";
+  import {
+    chatStatusByKey,
+    DEFAULT_CHAT_ID,
+    focusedChatByWorktree,
+    interruptChat,
+    sendToCli,
+  } from "../stores";
+  import { claudeTermKey } from "../terminal";
   import * as InputGroup from "$lib/components/ui/input-group";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import Square from "@lucide/svelte/icons/square";
 
   let {
     worktree,
@@ -42,6 +50,17 @@
   }
 
   const canSend = $derived(!sending && draft.trim().length > 0);
+  // While THIS chat runs a turn, the send button becomes INTERRUPT (Enter
+  // still sends — the TUI queues typed input during a turn).
+  const busy = $derived(
+    $chatStatusByKey[
+      claudeTermKey(worktree, chatId ?? $focusedChatByWorktree[worktree] ?? DEFAULT_CHAT_ID)
+    ] === "busy",
+  );
+
+  function interrupt() {
+    interruptChat(worktree, chatId).catch((e) => (error = String(e)));
+  }
 
   $effect(() => {
     if (autofocus) void tick().then(() => textareaEl?.focus());
@@ -89,16 +108,29 @@
       onkeydown={onKeydown}
     />
     <InputGroup.Addon align="inline-end">
-      <InputGroup.Button
-        size="icon-xs"
-        variant="default"
-        class="rounded-full"
-        aria-label="Send"
-        disabled={!canSend}
-        onclick={() => void submit()}
-      >
-        <ArrowUp class="size-3.5" />
-      </InputGroup.Button>
+      {#if busy}
+        <InputGroup.Button
+          size="icon-xs"
+          variant="default"
+          class="rounded-full"
+          aria-label="Interrupt"
+          title="Stop the running turn (Esc)"
+          onclick={interrupt}
+        >
+          <Square class="size-3 fill-current" />
+        </InputGroup.Button>
+      {:else}
+        <InputGroup.Button
+          size="icon-xs"
+          variant="default"
+          class="rounded-full"
+          aria-label="Send"
+          disabled={!canSend}
+          onclick={() => void submit()}
+        >
+          <ArrowUp class="size-3.5" />
+        </InputGroup.Button>
+      {/if}
     </InputGroup.Addon>
   </InputGroup.Root>
 </div>

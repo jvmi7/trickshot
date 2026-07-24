@@ -197,6 +197,18 @@ export async function sendToCli(
   await api.termWrite(key, `\x1b[200~${text}\x1b[201~${submit ? "\r" : ""}`);
 }
 
+/** Interrupt a chat's RUNNING turn: Escape to its PTY — exactly the
+ *  keystroke the TUI maps to "stop here" (the composer's stop button).
+ *  Registered as input so the interrupt's own repaint can't read as a new
+ *  turn starting. Targets like sendToCli: an explicit chat, else the
+ *  focused one. */
+export async function interruptChat(worktree: string, chatId?: string): Promise<void> {
+  const id = chatId ?? get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID;
+  const key = claudeTermKey(worktree, id);
+  noteCliInput(key);
+  await api.termWrite(key, "\u001b"); // ESC — the TUI's interrupt key
+}
+
 /** Submit a prompt to the chat via keystroke-injection into the CLI. The one
  *  entry point for features that hand text to the agent from outside the chat
  *  pane (git-panel review comments, "fix failing checks"). Closes the loop:

@@ -965,6 +965,7 @@ export {
   closeChat,
   ensureClaudeOpen,
   handleCliExit,
+  interruptChat,
   openRepository,
   restoreWorkspace,
   sendToCli,
