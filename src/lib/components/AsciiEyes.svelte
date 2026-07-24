@@ -1,11 +1,13 @@
 <script lang="ts">
   // ASCII rendition of the trickshot "eyes" brand mark — the TrickshotMark
   // paths rasterized to a character grid, shimmering with random glyphs from
-  // the brand charset. Prop-driven primitive (no stores/api): the parent owns
-  // color (currentColor) and type size (font-size: inherit — set a text-*
-  // utility on the wrapper). The mask is sampled ONCE per geometry from an
-  // offscreen canvas (the real SVG paths via Path2D, supersampled so the
-  // wedge edges land cleanly); only the character roll runs per tick.
+  // the brand charset, EACH CELL in its own random hex color (random hue at
+  // vivid saturation/lightness — a fully random RGB goes muddy on the dark
+  // canvas). Prop-driven primitive (no stores/api): the parent owns type size
+  // (font-size: inherit — set a text-* utility on the wrapper). The mask is
+  // sampled ONCE per geometry from an offscreen canvas (the real SVG paths
+  // via Path2D, supersampled so the wedge edges land cleanly); only the
+  // character/color roll runs per tick.
   let {
     cols = 56,
     charset = "%#!&TRCKSHOT",
@@ -40,7 +42,13 @@
   /** A cell is inked when at least this share of its supersamples hit path. */
   const COVERAGE = 0.35;
 
-  let lines = $state<string[]>([]);
+  /** One inked cell: its glyph + its own random color ("" = uninked space). */
+  interface Cell {
+    ch: string;
+    color: string;
+  }
+
+  let grid = $state<Cell[][]>([]);
   let mask: boolean[][] = [];
 
   /** Rasterize the mark: fill the real paths on a supersampled canvas, then
@@ -78,41 +86,87 @@
     return charset[Math.floor(Math.random() * charset.length)] ?? "#";
   }
 
-  /** One frame: inked cells keep their glyph or re-roll; the rest is space. */
-  function roll(prev: string[] | null): string[] {
+  /** A random VIVID hex color: random hue, high saturation, mid-high
+   *  lightness — every roll reads on the dark canvas. */
+  function randColor(): string {
+    const h = Math.random() * 360;
+    const s = 0.75 + Math.random() * 0.25;
+    const l = 0.55 + Math.random() * 0.15;
+    // hsl → hex (standard conversion, c/x/m form)
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = l - c / 2;
+    const [r, g, b] =
+      h < 60
+        ? [c, x, 0]
+        : h < 120
+          ? [x, c, 0]
+          : h < 180
+            ? [0, c, x]
+            : h < 240
+              ? [0, x, c]
+              : h < 300
+                ? [x, 0, c]
+                : [c, 0, x];
+    const hex = (v: number) =>
+      Math.round((v + m) * 255)
+        .toString(16)
+        .padStart(2, "0");
+    return `#${hex(r)}${hex(g)}${hex(b)}`;
+  }
+
+  const SPACE: Cell = { ch: " ", color: "" };
+
+  /** One frame: inked cells keep their glyph+color or re-roll both. */
+  function roll(prev: Cell[][] | null): Cell[][] {
     return mask.map((row, y) =>
-      row
-        .map((on, x) => {
-          if (!on) return " ";
-          const kept = prev?.[y]?.[x];
-          return kept && kept !== " " && Math.random() >= RE_ROLL ? kept : randChar();
-        })
-        .join(""),
+      row.map((on, x) => {
+        if (!on) return SPACE;
+        const kept = prev?.[y]?.[x];
+        return kept && kept.ch !== " " && Math.random() >= RE_ROLL
+          ? kept
+          : { ch: randChar(), color: randColor() };
+      }),
     );
   }
 
   $effect(() => {
     mask = buildMask(cols, rowCount);
-    lines = roll(null);
+    grid = roll(null);
     const timer = setInterval(() => {
-      lines = roll(lines);
+      grid = roll(grid);
     }, tickMs);
     return () => clearInterval(timer);
   });
 </script>
 
-<pre class="ascii-eyes {className ?? ''}" aria-hidden="true">{lines.join("\n")}</pre>
+<div class="ascii-eyes {className ?? ''}" aria-hidden="true">
+  {#each grid as row, y (y)}
+    <div class="ascii-row">
+      {#each row as cell, x (x)}
+        {#if cell.ch === " "}
+          <span> </span>
+        {:else}
+          <!-- dynamic runtime colors — not source literals; the design-system
+               color rule targets authored values -->
+          <span style="color: {cell.color}">{cell.ch}</span>
+        {/if}
+      {/each}
+    </div>
+  {/each}
+</div>
 
 <style>
-  /* Type geometry only — color and size come from the parent (currentColor
-     + an inherited font-size). line-height 1 keeps the sampled aspect true. */
+  /* Type geometry only — size comes from the parent (inherited font-size).
+     line-height 1 keeps the sampled aspect true. */
   .ascii-eyes {
-    margin: 0;
     font-family: var(--font-mono);
     font-size: inherit;
     line-height: 1;
     letter-spacing: 0;
     user-select: none;
+  }
+  .ascii-row {
     white-space: pre;
   }
 </style>

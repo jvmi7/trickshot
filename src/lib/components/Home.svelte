@@ -82,8 +82,9 @@
 
 <div class="home" class:centered={!hasRepos}>
   <div class="home-hero" class:compact={hasRepos}>
-    <!-- The brand eyes as living ASCII (AsciiEyes) — accent-tinted, sized by
-         the text-2xs utility (the component inherits font-size). -->
+    <!-- The brand eyes as living ASCII (AsciiEyes) — each cell rolls its own
+         color; sized by the text-2xs utility (the component inherits
+         font-size). -->
     <div class="hero-eyes text-2xs">
       <AsciiEyes cols={56} />
     </div>
@@ -182,12 +183,12 @@
   .hero-eyes {
     /* A 1:1 stage for the wide mark: the square's own height IS the
        generous air above and below — the eyes sit centered in it. Width
-       comes from the pre's intrinsic size (cols × ch). */
+       comes from the grid's intrinsic size (cols × ch); the cells color
+       themselves. */
     aspect-ratio: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--app-accent);
   }
   .wordmark {
     font-size: 20px; /* conformance-allowlisted: one-off display size, off the token scale */
