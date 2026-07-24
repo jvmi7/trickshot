@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { slide } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import { tick } from "svelte";
   import {
     repos,
@@ -393,6 +395,9 @@
       </ContextMenu.Root>
 
       {#if !collapsed[repo.path]}
+        <!-- transition:slide = the smooth accordion height (JS-driven, so no
+             fixed-height CSS hacks; params exempt from the CSS duration scan). -->
+        <div transition:slide={{ duration: 220, easing: cubicOut }}>
         {#if creatingFor === repo.path}
           <!-- No blur-to-cancel: a stray click (or the OS dialog stealing focus)
                must not discard a half-typed name. Esc cancels; Enter creates. -->
@@ -497,6 +502,7 @@
             {/if}
           </ContextMenu.Root>
           {/each}
+        </div>
         </div>
       {/if}
     </div>
