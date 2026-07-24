@@ -599,8 +599,8 @@
   /* Git-diff green/red: the state hues BOOSTED (brighter + more saturated,
      relative-color over the palette) so ± counts and diff lines read at a
      glance — still theme-derived, retinting with every palette. */
-  --app-diff-add: oklch(from var(--base-success) calc(l * 1.12) calc(c * 1.6) h); /* conformance-allowlisted: palette-derived relative color, no literal */
-  --app-diff-del: oklch(from var(--base-danger) calc(l * 1.1) calc(c * 1.5) h); /* conformance-allowlisted: palette-derived relative color, no literal */
+  --app-diff-add: oklch(from var(--base-success) calc(l * 1.25) calc(c * 2) h); /* conformance-allowlisted: palette-derived relative color, no literal */
+  --app-diff-del: oklch(from var(--base-danger) calc(l * 1.22) calc(c * 1.9) h); /* conformance-allowlisted: palette-derived relative color, no literal */
   /* Text-selection colors — theme-driven, derived from the base palette (no raw hex).
      Selected text recolors to the brand accent; the highlight fill is the per-theme
      `selection` tone rendered at 20%. */
