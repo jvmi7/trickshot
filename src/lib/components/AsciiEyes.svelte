@@ -63,7 +63,10 @@
   let mask: boolean[][] = [];
 
   /** Rasterize the mark: fill the real paths on a supersampled canvas, then
-   *  bucket coverage per character cell. */
+   *  bucket coverage per character cell. The result is PADDED by the maximum
+   *  gaze shift on every side — the mark fills its sampled box nearly
+   *  edge-to-edge, so an unpadded grid would clip any lean/drop (eyes "cut
+   *  off"); the margin gives every shift headroom. */
   function buildMask(c: number, r: number): boolean[][] {
     if (typeof document === "undefined") return [];
     const SS = 4;
@@ -76,8 +79,9 @@
     for (const d of EYE_PATHS) ctx.fill(new Path2D(d));
     const img = ctx.getImageData(0, 0, c * SS, r * SS).data;
     const out: boolean[][] = [];
+    const blank = (n: number) => Array.from({ length: n }, () => false);
     for (let y = 0; y < r; y++) {
-      const row: boolean[] = [];
+      const row: boolean[] = blank(GAZE_MAX_DX);
       for (let x = 0; x < c; x++) {
         let hits = 0;
         for (let sy = 0; sy < SS; sy++) {
@@ -88,9 +92,15 @@
         }
         row.push(hits / (SS * SS) >= COVERAGE);
       }
+      row.push(...blank(GAZE_MAX_DX));
       out.push(row);
     }
-    return out;
+    const padRow = () => blank(c + 2 * GAZE_MAX_DX);
+    return [
+      ...Array.from({ length: GAZE_MAX_DY }, padRow),
+      ...out,
+      ...Array.from({ length: GAZE_MAX_DY }, padRow),
+    ];
   }
 
   function randChar(): string {
@@ -295,22 +305,27 @@
     );
   }
 
-  /** Apply each eye's gaze to its half of the grid (the mark's gap sits on
-   *  the center column, so a straight split separates the eyes cleanly). */
+  /** Apply each eye's gaze: each eye is ISOLATED by masking the other half
+   *  (the mark's gap sits on the center column) but transformed on the
+   *  FULL-width canvas — so a convergent lean crosses the center seam and
+   *  overlaps instead of clipping at the half boundary. Left wins overlaps. */
   function applyGaze(g: Cell[][], l: Gaze, r: Gaze): Cell[][] {
     const width = g[0]?.length ?? 0;
     const mid = Math.round(width / 2);
-    const transform = (half: Cell[][], gz: Gaze) =>
-      shiftGrid(gz.sv < 1 ? squashGrid(half, gz.sv) : half, gz.dx, gz.dy);
-    const left = transform(
-      g.map((row) => row.slice(0, mid)),
-      l,
+    const isolate = (keepLeft: boolean) =>
+      g.map((row) => row.map((cell, x) => (x < mid === keepLeft ? cell : SPACE)));
+    const transform = (eye: Cell[][], gz: Gaze) =>
+      shiftGrid(gz.sv < 1 ? squashGrid(eye, gz.sv) : eye, gz.dx, gz.dy);
+    const left = transform(isolate(true), l);
+    const right = transform(isolate(false), r);
+    return g.map((row, y) =>
+      row.map((_, x) => {
+        const lc = left[y]?.[x];
+        if (lc && lc.ch !== " ") return lc;
+        const rc = right[y]?.[x];
+        return rc && rc.ch !== " " ? rc : SPACE;
+      }),
     );
-    const right = transform(
-      g.map((row) => row.slice(mid)),
-      r,
-    );
-    return g.map((_, y) => [...(left[y] ?? []), ...(right[y] ?? [])]);
   }
 
   /** What actually renders: base grid → per-eye gaze → the blink frame. */
