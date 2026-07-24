@@ -141,18 +141,15 @@
 </script>
 
 <div class="ascii-eyes {className ?? ''}" aria-hidden="true">
+  <!-- Each row's cells MUST be one unbroken template line: Svelte keeps a
+       single space around inline elements split across source lines, and
+       under white-space: pre those phantom spaces widen every cell and
+       garble the sampled shape. (Biome doesn't format .svelte — the long
+       line survives.) Colors are dynamic runtime values, not source
+       literals. -->
   {#each grid as row, y (y)}
-    <div class="ascii-row">
-      {#each row as cell, x (x)}
-        {#if cell.ch === " "}
-          <span> </span>
-        {:else}
-          <!-- dynamic runtime colors — not source literals; the design-system
-               color rule targets authored values -->
-          <span style="color: {cell.color}">{cell.ch}</span>
-        {/if}
-      {/each}
-    </div>
+    <!-- prettier-ignore -->
+    <div class="ascii-row">{#each row as cell, x (x)}{#if cell.ch === " "}<span> </span>{:else}<span style="color: {cell.color}">{cell.ch}</span>{/if}{/each}</div>
   {/each}
 </div>
 
