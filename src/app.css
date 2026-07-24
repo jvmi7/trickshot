@@ -622,6 +622,7 @@
      their own rhythm, not interaction feedback. */
   --app-duration-fast: 120ms;
   --app-duration-slow: 300ms;
+  --app-duration-lazy: 600ms; /* ambient shifts (grid focus dim) — felt, not watched */
   /* Shadows. Black-based so the value works over light-valued theme palettes
      too; if a theme ever needs a custom shadow, promote this to a ThemePalette
      key via PALETTE_VARS (themes.ts) instead of forking it per-site. */
@@ -1316,7 +1317,7 @@ html, body {
    — fr tracks at the mosaic's cut lines; each cell spans its rect's range,
    swallowing interior gaps). */
 .chat-grid { flex: 1; min-width: 0; min-height: 0; display: grid; gap: var(--app-pane-gap); background: transparent; }
-.chat-grid-cell { position: relative; display: flex; min-width: 0; min-height: 0; background: transparent; border: 1px solid var(--chat-frame); border-radius: var(--app-pane-radius); transition: border-color var(--app-duration-slow) var(--ease-out-soft), opacity var(--app-duration-slow) var(--ease-out-soft); }
+.chat-grid-cell { position: relative; display: flex; min-width: 0; min-height: 0; background: transparent; border: 1px solid var(--chat-frame); border-radius: var(--app-pane-radius); transition: border-color var(--app-duration-slow) var(--ease-out-soft), opacity var(--app-duration-lazy) var(--ease-out-soft); }
 /* Mount fade-in: cells develop onto the band as the card frame fades out. */
 @starting-style {
   .chat-grid-cell { opacity: 0; }
@@ -1338,7 +1339,7 @@ html, body {
    lit). Hovering a dimmed cell wakes it, so reaching for its controls or
    text never feels like grabbing through fog. Rides the cell's existing
    opacity transition. */
-.chat-grid:has(.xterm.focus) .chat-grid-cell:not(:has(.xterm.focus)):not(:hover) { opacity: 0.5; }
+.chat-grid:has(.xterm.focus) .chat-grid-cell:not(:has(.xterm.focus)):not(:hover) { opacity: 0.3; }
 /* Per-cell cursor-glow ring: the .content::after recipe verbatim (radial
    light at the cell's own use:borderGlow vars, xor-masked to the 1px border
    row at -1px) — no --frame-clip analogue, cells have no tab opening. */
