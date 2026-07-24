@@ -10,6 +10,7 @@
     chatLayout,
     chatSessionsByWorktree,
     chatSplitByWorktree,
+    chatStatusByKey,
     DEFAULT_CHAT_ID,
     focusChat,
     focusedChatByWorktree,
@@ -22,8 +23,10 @@
   import { borderGlow } from "../borderGlow";
   import { heal, type SplitWhere, treeToGrid } from "../splitTree";
   import { claudeTermKey, getTerminal } from "../terminal";
+  import { profileAccent } from "../termProfiles";
   import ClaudeTerminalCell from "./ClaudeTerminalCell.svelte";
   import IconButton from "./IconButton.svelte";
+  import IdentityGlyph from "./IdentityGlyph.svelte";
   import * as ContextMenu from "$lib/components/ui/context-menu";
   import GripVertical from "@lucide/svelte/icons/grip-vertical";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
@@ -199,6 +202,7 @@
         <ContextMenu.Root>
           <ContextMenu.Trigger>
             {#snippet child({ props })}
+              {@const busy = $chatStatusByKey[claudeTermKey(wt, cell.chat)] === "busy"}
               <div
                 {...props}
                 class="chat-grid-cell"
@@ -210,7 +214,15 @@
                 onfocusin={() => focusChat(wt, cell.chat)}
               >
                 <ClaudeTerminalCell worktree={wt} chatId={cell.chat} />
-                <div class="chat-cell-controls">
+                <!-- data-busy keeps the pill surfaced while the chat runs —
+                     the SWATCH's loading morph is the cell's busy signal
+                     (the tab/sidebar twin), so it can't be hover-gated. -->
+                <div class="chat-cell-controls" data-busy={busy ? "" : undefined}>
+                  {#if busy}
+                    <span class="chat-cell-swatch" aria-label="Working…">
+                      <IdentityGlyph seed={wt} color={profileAccent(wt)} size={10} loading={true} />
+                    </span>
+                  {/if}
                   <span
                     class="chat-drag"
                     role="button"

@@ -1439,7 +1439,11 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
 /* A raised translucent chip behind the grip/✕ so they read over busy TUIs. */
 .chat-cell-controls { position: absolute; top: 6px; right: 8px; z-index: 1; display: flex; align-items: center; gap: 4px; padding: 2px 4px; border-radius: 999px; background: var(--app-panel-2); opacity: 0; pointer-events: none; transition: opacity var(--app-duration-fast) ease; }
 .chat-grid-cell:hover .chat-cell-controls,
-.chat-cell-controls:focus-within { opacity: 1; pointer-events: auto; }
+.chat-cell-controls:focus-within,
+.chat-cell-controls[data-busy] { opacity: 1; pointer-events: auto; } /* a running chat keeps its pill (the swatch is its busy signal) */
+/* The swatch slot in the pill — the grip/IconButton footprint, so the row
+   doesn't shift when the loading state appears. */
+.chat-cell-swatch { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; }
 /* The rearrange grip (the cell's draggable — never the cell itself, which
    would fight terminal text selection). */
 .chat-drag { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; color: var(--app-dim); cursor: grab; transition: color var(--app-duration-fast) ease; } /* square, matching the IconButton footprint */
