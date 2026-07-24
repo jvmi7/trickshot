@@ -740,7 +740,10 @@ html, body {
 .icon-chrome-btn:hover { background: var(--app-panel-2); color: var(--app-text); }
 .icon-chrome-btn svg { display: block; width: 13px; height: 13px; }
 /* Header chrome buttons add absolute positioning over the overlay titlebar. */
-.header-icon-btn { position: absolute; top: 4px; left: 74px; z-index: var(--app-z-chrome); }
+/* One step ABOVE the fixed .app-header (same chrome tier, later in DOM):
+   the full-width drag-region header would otherwise paint over this button
+   and swallow its clicks as window drags. */
+.header-icon-btn { position: absolute; top: 4px; left: 74px; z-index: calc(var(--app-z-chrome) + 1); }
 
 /* ---- sidebar column: full-height, right border is the sole divider ---- */
 .sidebar {
