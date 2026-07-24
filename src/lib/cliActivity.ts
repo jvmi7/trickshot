@@ -82,6 +82,13 @@ export class CliActivityTracker {
     return announced && events >= MIN_TURN_EVENTS && duration >= MIN_TURN_MS ? "turn" : "blip";
   }
 
+  /** Whether an ANNOUNCED busy burst is currently in flight — the live "is
+   *  this CLI working?" read for callers that must not stomp the status (an
+   *  idempotent re-open while a turn streams must keep it busy). */
+  get isBusy(): boolean {
+    return this.announced;
+  }
+
   /** Hard reset (PTY exited/disposed mid-burst). Input/mute clocks survive —
    *  they describe the outside world, not the burst. */
   reset(): void {

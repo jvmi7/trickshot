@@ -263,6 +263,16 @@ export function muteCliActivity(key: string, ms: number) {
   cliEntry(key).tracker.muteUntil(Date.now() + ms);
 }
 
+/** Whether this claude PTY has an announced turn in flight RIGHT NOW — the
+ *  tracker is the per-instance source of truth. Status writers consult this
+ *  instead of assuming a state (ensureClaudeOpen's idempotent re-open used to
+ *  stomp a streaming turn's busy → ready, freezing the sidebar glyph for the
+ *  rest of the turn — the once-per-burst announce can't re-fire). No entry =
+ *  no tracked activity = not busy. */
+export function cliBusy(key: string): boolean {
+  return cliActivity.get(key)?.tracker.isBusy ?? false;
+}
+
 function noteCliActivity(key: string) {
   const entry = cliEntry(key);
   const wt = keyWorktree(key);

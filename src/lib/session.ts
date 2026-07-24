@@ -33,6 +33,7 @@ import {
 // access is a call-time function invocation (all hoisted declarations).
 import {
   claudeTermKey,
+  cliBusy,
   disposeChatTerminal,
   getTerminal,
   muteCliActivity,
@@ -166,7 +167,12 @@ export async function ensureClaudeOpen(worktree: string, chatId?: string): Promi
     await api.termResize(key, rows, cols).catch(() => {});
   }
   inst.open = true;
-  setChatStatus(worktree, key, "ready");
+  // Infer, don't assume: an idempotent re-open (worktree switch, pane
+  // re-attach, layout change) can land mid-turn — the tracker knows whether
+  // output is streaming RIGHT NOW. Writing a blind "ready" here used to
+  // freeze the sidebar's busy glyph for the rest of the turn (the tracker
+  // announces busy once per burst and won't re-fire).
+  setChatStatus(worktree, key, cliBusy(key) ? "busy" : "ready");
 }
 
 /** Inject a prompt into the worktree's CLI chat as keystrokes: bracketed paste
