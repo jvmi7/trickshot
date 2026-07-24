@@ -5,8 +5,14 @@
   // layout, all of them in grid), so this is the grid-ready unit: adding a
   // cell is just rendering another instance. Feature component (stores +
   // session orchestration).
-  import { chatStatusByKey, ensureClaudeOpen } from "../stores";
+  import {
+    chatStatusByKey,
+    ensureClaudeOpen,
+    focusedChatByWorktree,
+    selectedWorktree,
+  } from "../stores";
   import { attachTerminal, claudeTermKey } from "../terminal";
+  import ChatComposer from "./ChatComposer.svelte";
   import { Button } from "$lib/components/ui/button";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
 
@@ -19,6 +25,11 @@
   // The CLI died (/exit, crash) — the dim in-terminal note scrolls away, so
   // give the state a persistent affordance. Type-to-revive still works too.
   const stopped = $derived($chatStatusByKey[key] === "stopped");
+  // The composer is the PRIMARY typing surface; only the focused chat of the
+  // selected worktree grabs the keyboard (grid mounts several cells at once).
+  const composerFocus = $derived(
+    $selectedWorktree === worktree && $focusedChatByWorktree[worktree] === chatId,
+  );
 
   function restart() {
     error = "";
@@ -31,9 +42,12 @@
     const el = container;
     if (!el) return;
     error = "";
+    // focus: false — the composer below owns first focus; clicking the
+    // terminal still focuses xterm for TUI dialogs/menus/shortcuts.
     return attachTerminal(claudeTermKey(wt, id), el, {
       onOpen: () => ensureClaudeOpen(wt, id),
       onError: (e) => (error = String(e)),
+      focus: false,
     });
   });
 </script>
@@ -54,6 +68,11 @@
        the shared chat-trail surface behind it (App.svelte) shows through
        between the glyphs. Grid cells get their fill from .chat-grid-cell. -->
   <div class="term-host" bind:this={container}></div>
+  <!-- The custom input for normal CLI use — injects into THIS chat. The TUI
+       above stays fully interactive (click it for dialogs/menus). -->
+  <div class="cell-composer">
+    <ChatComposer {worktree} {chatId} autofocus={composerFocus} />
+  </div>
 </div>
 
 <style>
@@ -63,5 +82,12 @@
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
+  }
+  /* The composer bar: docked under the terminal inside the cell's flex
+     column (the host flexes; this doesn't). Right inset mirrors the pane's
+     left gutter so the row sits symmetric in the card. */
+  .cell-composer {
+    flex: none;
+    padding: 8px 14px 2px 0;
   }
 </style>

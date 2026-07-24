@@ -179,13 +179,18 @@ export async function ensureClaudeOpen(worktree: string, chatId?: string): Promi
  *  (so multi-line text doesn't submit per line — the TUI treats it as one
  *  pasted block), followed by Enter when `submit` (default). `submit: false`
  *  just inserts into the TUI's input for further editing — the compose
- *  popup's "Insert" action. */
-export async function sendToCli(worktree: string, text: string, submit = true): Promise<void> {
-  // Injected turns land in the FOCUSED chat — same target in both layouts
-  // (tabs: the visible one; grid: the cell owning the keyboard).
-  const chatId = get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID;
-  await ensureClaudeOpen(worktree, chatId);
-  const key = claudeTermKey(worktree, chatId);
+ *  popup's "Insert" action. `chatId` targets a SPECIFIC chat (the per-cell
+ *  ChatComposer); omitted, it lands in the FOCUSED chat — same target in
+ *  both layouts (tabs: the visible one; grid: the cell owning the keyboard). */
+export async function sendToCli(
+  worktree: string,
+  text: string,
+  submit = true,
+  chatId?: string,
+): Promise<void> {
+  const id = chatId ?? get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID;
+  await ensureClaudeOpen(worktree, id);
+  const key = claudeTermKey(worktree, id);
   // Injected keystrokes are user input too — their echo must not read as a
   // turn starting (the real turn's output keeps flowing past the echo window).
   noteCliInput(key);
