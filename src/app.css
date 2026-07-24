@@ -1513,7 +1513,7 @@ html, body {
 .wt-section { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 2px; margin: 2px 0 6px; }
 .wt-empty { font-size: var(--text-sm); color: var(--app-dim); padding: 4px 2px; }
 /* The Home row block sits above the Repositories section header. */
-.home-rows { margin-bottom: 10px; }
+.home-rows { margin-bottom: 20px; }
 .repo-group { margin-bottom: 12px; }
 .repo-head { display: flex; align-items: center; gap: 6px; padding: 2px; }
 /* Accordion toggle: chevron + repo name, clickable to fold/unfold the worktrees. */
