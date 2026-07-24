@@ -180,9 +180,13 @@
     padding: 14px 24px 6px;
   }
   .hero-eyes {
-    /* Generous air around the mark — it's the hero's centerpiece, and the
-       shimmer needs quiet space to read. */
-    margin: 48px 0 40px;
+    /* A 1:1 stage for the wide mark: the square's own height IS the
+       generous air above and below — the eyes sit centered in it. Width
+       comes from the pre's intrinsic size (cols × ch). */
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     color: var(--app-accent);
   }
   .wordmark {
