@@ -134,7 +134,9 @@
   }
   .fleet-card:hover {
     background: var(--app-panel-2);
-    border-color: color-mix(in oklch, var(--app-accent) 45%, var(--app-border));
+    /* The focus-tint recipe (text-mix, not accent): an accent-mixed border
+       reads as a broken/random hue under themes with a loud accent. */
+    border-color: color-mix(in oklch, var(--app-text) 30%, var(--app-border));
   }
   .fleet-card-head {
     display: flex;
