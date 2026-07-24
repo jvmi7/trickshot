@@ -1351,7 +1351,7 @@ html, body {
    mouse. Hovering a dimmed cell wakes it. */
 .chat-grid-cell > .term-pane {
   --cell-wipe: 125%;
-  transition: --cell-wipe var(--app-duration-lazy) linear;
+  transition: --cell-wipe var(--app-duration-slow) linear;
   -webkit-mask: linear-gradient(
     var(--cell-wake-dir, to right),
     var(--base-text) calc(var(--cell-wipe) - 25%),
