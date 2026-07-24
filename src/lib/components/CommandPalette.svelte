@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ⌘K command palette: fuzzy-jump to any workspace + the core actions (new
+  // ⌘P command palette: fuzzy-jump to any workspace + the core actions (new
   // worktree, views, run scripts, settings). Feature component — App owns the
   // shortcut; this renders the shadcn Command dialog over the stores.
   import {

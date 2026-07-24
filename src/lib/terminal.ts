@@ -368,6 +368,24 @@ export function focusTerminal(key: string) {
   instances.get(key)?.term.focus();
 }
 
+/** Clear the scrollback of whichever cached terminal owns keyboard focus
+ *  (⌘K — terminal muscle memory). Resolved by DOM containment: xterm parks
+ *  focus on its hidden helper textarea inside the instance's element, so the
+ *  focused instance is the one whose element contains document.activeElement.
+ *  Returns whether a terminal was cleared (no focused terminal = no-op, so
+ *  the chord is safe to fire from anywhere). */
+export function clearFocusedTerminal(): boolean {
+  const active = document.activeElement;
+  if (!active) return false;
+  for (const inst of instances.values()) {
+    if (inst.term.element?.contains(active)) {
+      inst.term.clear();
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Kill ONE PTY and drop its cached xterm. */
 function disposeKey(key: string) {
   clearCliActivity(key);

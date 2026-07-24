@@ -50,7 +50,6 @@
   import IdentityGlyph from "./IdentityGlyph.svelte";
   import TrickshotMark from "./TrickshotMark.svelte";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
-  import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
   import Plus from "@lucide/svelte/icons/plus";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -423,7 +422,11 @@
                 {#if $repoIconByRepo[repo.path]}
                   <img class="repo-favicon" src={$repoIconByRepo[repo.path]} alt="" />
                 {:else}
-                  <FolderGit2 class="repo-favicon" />
+                  <!-- No favicon: a letter medallion (the repo's initial) —
+                       reads as an identity mark, not a generic folder. -->
+                  <span class="repo-favicon repo-letter" aria-hidden="true">
+                    {repo.name.charAt(0).toUpperCase()}
+                  </span>
                 {/if}
                 <span class="repo-name section-label">{repo.name}</span>
               </button>

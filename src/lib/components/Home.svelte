@@ -89,7 +89,7 @@
       <AsciiEyes cols={84} />
     </div>
     <h1 class="wordmark">trickshot</h1>
-    <p class="tagline">parallel coding agents — one per git worktree</p>
+    <p class="tagline">the extensible harness for coding agents</p>
 
     {#if !hasRepos}
       <Button class="mt-7 gap-2" bind:ref={ctaEl} disabled={picking} onclick={open}>
@@ -171,10 +171,12 @@
     /* optical center: the pane's true middle reads low under the 48px header */
     margin-top: -6vh;
   }
-  /* Repos exist: the hero is a quiet masthead above the fleet grid. */
+  /* Repos exist: the hero is a quiet masthead above the fleet grid — the
+     generous bottom air keeps it reading as its own block, visually
+     disconnected from the repositories below. */
   .home-hero.compact {
     flex: none;
-    padding: 28px 24px 4px;
+    padding: 28px 24px 24px;
   }
   .home-composer {
     flex: none;

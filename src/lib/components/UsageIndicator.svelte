@@ -57,7 +57,7 @@
         </span>
       {/snippet}
     </Tooltip.Trigger>
-    <Tooltip.Content class="items-stretch p-2.5">
+    <Tooltip.Content align="end" class="items-stretch p-2.5">
       <div class="usage-detail">
         <div class="section-label">Subscription usage</div>
         {#each windows as w (w.label)}

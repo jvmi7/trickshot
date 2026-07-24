@@ -7,7 +7,8 @@
   import * as Dialog from "$lib/components/ui/dialog";
 
   const SHORTCUTS: { keys: string[]; what: string }[] = [
-    { keys: ["⌘K"], what: "Command palette" },
+    { keys: ["⌘P"], what: "Command palette" },
+    { keys: ["⌘K"], what: "Clear the focused terminal" },
     { keys: ["⌘⇧N"], what: "New worktree" },
     { keys: ["⌘⇧D", "⌘⇧P"], what: "Changes & pull request" },
     { keys: ["⌘E"], what: "Compose a long prompt" },

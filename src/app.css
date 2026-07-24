@@ -689,7 +689,7 @@ html, body {
    usage chip + ambient items. The header's quiet sibling. ---- */
 .app-footer { flex-shrink: 0; display: flex; align-items: center; gap: 10px; height: 34px; padding: 2px calc(var(--app-pane-gap) + 2px) 4px; }
 .footer-spacer { flex: 1; }
-/* The ⌘K affordance: reads as a hint, works as a button. */
+/* The ⌘P affordance: reads as a hint, works as a button. */
 .footer-hint { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; background: transparent; border: 0; border-radius: calc(var(--radius) - 2px); font-size: var(--text-2xs); font-family: var(--app-font-mono); color: var(--app-dim); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
 .footer-hint:hover { color: var(--app-text); background: var(--app-panel); }
 .footer-hint svg { width: 10px; height: 10px; }
@@ -1551,6 +1551,9 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
 /* Repo favicon (repo_icon data: URI) or its Lucide placeholder — `color` only
    tints the fallback glyph; a real favicon paints itself. */
 .repo-favicon { width: 14px; height: 14px; flex-shrink: 0; border-radius: var(--radius-2xs); color: var(--app-dim); }
+/* No-favicon fallback: a letter medallion — the repo's initial in a small
+   filled circle (an identity mark, not a generic folder glyph). */
+.repo-letter { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; /* pill — genuinely round */ background: var(--app-panel-2); font-size: var(--text-2xs); font-weight: 600; line-height: 1; }
 /* Typography comes from the composed .section-label (see Worktrees markup). */
 .repo-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Hovering a group reveals a faint card behind its rows (radius matches the

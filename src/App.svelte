@@ -13,7 +13,7 @@
   import { borderGlow } from "./lib/borderGlow";
   import { chatSilhouette } from "./lib/chatSilhouette";
   import { cursorTrail } from "./lib/cursorTrail";
-  import { handleTermEvent } from "./lib/terminal";
+  import { clearFocusedTerminal, handleTermEvent } from "./lib/terminal";
   import {
     repos,
     worktreesByRepo,
@@ -81,11 +81,12 @@
     if (get(authState) === "missing") void refreshAuth();
   }
 
-  // Global shortcuts (Conductor parity): ⌘K palette, ⌘⇧N new worktree,
-  // ⌘⇧D changes/diff view, ⌘⇧P the PR block (same Changes panel), ⌘, settings,
-  // ⌘1–9 jump to the Nth worktree (sidebar order). Esc leaves Settings. All
-  // ⌘-chords guard on meta/ctrl so typing stays unaffected (macOS ⌘-chords
-  // never reach the PTY through xterm, so nothing is stolen from the TUI).
+  // Global shortcuts (Conductor parity): ⌘P palette, ⌘K clear the focused
+  // terminal, ⌘⇧N new worktree, ⌘⇧D changes/diff view, ⌘⇧P the PR block (same
+  // Changes panel), ⌘, settings, ⌘1–9 jump to the Nth worktree (sidebar
+  // order). Esc leaves Settings. All ⌘-chords guard on meta/ctrl so typing
+  // stays unaffected (macOS ⌘-chords never reach the PTY through xterm, so
+  // nothing is stolen from the TUI).
   function onKeydown(e: KeyboardEvent) {
     // Esc: leave Settings — unless something else (a dialog, the palette)
     // already handled it (bits-ui prevents default when it consumes Esc).
@@ -109,9 +110,12 @@
     } else if (!e.shiftKey && k === ",") {
       e.preventDefault();
       setCenterView("settings");
-    } else if (!e.shiftKey && k === "k") {
+    } else if (!e.shiftKey && k === "p") {
       e.preventDefault();
       toggleCommandPalette();
+    } else if (!e.shiftKey && k === "k") {
+      // Terminal muscle memory: clear whichever terminal owns the keyboard.
+      if (clearFocusedTerminal()) e.preventDefault();
     } else if (e.shiftKey && k === "n") {
       e.preventDefault();
       requestNewWorktree();

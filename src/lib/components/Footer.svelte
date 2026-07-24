@@ -12,8 +12,8 @@
 {#if $repos.length > 0}
   <footer class="app-footer">
     <button type="button" class="footer-hint" onclick={toggleCommandPalette}>
-      <Command /> K
-      <span class="footer-hint-label">commands</span>
+      <Command /> P
+      <span class="footer-hint-label">shortcuts</span>
     </button>
     <span class="footer-spacer"></span>
     <VolumeControl />

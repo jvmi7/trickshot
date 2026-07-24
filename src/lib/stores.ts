@@ -199,7 +199,7 @@ export function bumpGitRefresh() {
   gitRefreshNonce.update((n) => n + 1);
 }
 
-/** Whether the ⌘K command palette is open. Ephemeral, global (App owns the
+/** Whether the ⌘P command palette is open. Ephemeral, global (App owns the
  *  shortcut, CommandPalette renders). */
 export const commandPaletteOpen = writable<boolean>(false);
 export function toggleCommandPalette() {
