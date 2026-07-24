@@ -285,7 +285,10 @@
   const LEAN_SHEAR = 2.5;
   /** Looking down hoods to 1-HOOD; looking up opens to 1+OPEN. */
   const HOOD = 0.3;
-  const OPEN = 0.12;
+  // OPEN matches HOOD in visual weight: at 0.12 the up-gaze read as no
+  // change at all next to the 0.3 hood — eyes now visibly WIDEN when the
+  // cursor is above them.
+  const OPEN = 0.28;
   /** Position reach in PIXELS: the pair's shared shift is a continuous
    *  transform on the mover wrapper (svelte/motion spring — the platform's
    *  framer-motion), NOT a grid offset — cell-stepped position read as
@@ -295,7 +298,7 @@
   /** Mask padding so no pose clips: max lean columns + the translate shift;
    *  open-stretch rows + the translate row. */
   const PAD_X = 6;
-  const PAD_Y = 3;
+  const PAD_Y = 5; /* headroom for the full OPEN stretch (markRows × 0.28) */
   let wrapEl = $state<HTMLDivElement | null>(null);
   let gazeL = $state<Gaze>(NEUTRAL);
   let gazeR = $state<Gaze>(NEUTRAL);
