@@ -787,7 +787,7 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
 }
 .sidebar-peek {
   position: fixed;
-  top: 42px;
+  top: 34px;
   bottom: 8px;
   left: 8px;
   /* Wider than the docked sidebar — the floating card breathes. */
