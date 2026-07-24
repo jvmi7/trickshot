@@ -239,13 +239,16 @@ export async function ensureOpen(worktree: string) {
 // flowing = busy; a real burst ending = a turn finished.
 const cliActivity = new Map<
   string,
-  { tracker: CliActivityTracker; timer: ReturnType<typeof setTimeout> | null }
+  { tracker: CliActivityTracker; timer: ReturnType<typeof setTimeout> | null; wt: string }
 >();
 
 function cliEntry(key: string) {
   let entry = cliActivity.get(key);
   if (!entry) {
-    entry = { tracker: new CliActivityTracker(), timer: null };
+    // `wt` is a pure function of `key` and the entry is keyed by `key`, so cache
+    // it once at creation — `noteCliActivity` runs per PTY chunk and must not
+    // re-run keyWorktree's substring slice on the hot path (see PERFORMANCE).
+    entry = { tracker: new CliActivityTracker(), timer: null, wt: keyWorktree(key) };
     cliActivity.set(key, entry);
   }
   return entry;
@@ -275,7 +278,7 @@ export function cliBusy(key: string): boolean {
 
 function noteCliActivity(key: string) {
   const entry = cliEntry(key);
-  const wt = keyWorktree(key);
+  const wt = entry.wt;
   if (entry.tracker.onData(Date.now()) === "busy") setChatStatus(wt, key, "busy");
   if (entry.timer) clearTimeout(entry.timer);
   entry.timer = setTimeout(() => {

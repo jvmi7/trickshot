@@ -250,7 +250,10 @@
     syncFullscreen();
     let unlistenResize: (() => void) | undefined;
     onWindowResized(syncFullscreen)
-      .then((u) => (unlistenResize = u))
+      .then((u) => {
+        if (cancelled) u();
+        else unlistenResize = u;
+      })
       .catch(() => {});
 
     // Populate the subscription-usage chip on launch (throttled thereafter).
