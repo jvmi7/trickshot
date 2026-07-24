@@ -36,6 +36,11 @@
   let error = $state("");
   let textareaEl = $state<HTMLTextAreaElement | null>(null);
 
+  /** Give the composer the keyboard (the cell's click-anywhere target). */
+  export function focusInput() {
+    textareaEl?.focus();
+  }
+
   const canSend = $derived(!sending && draft.trim().length > 0);
 
   $effect(() => {

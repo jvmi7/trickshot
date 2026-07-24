@@ -12,7 +12,7 @@
     selectedWorktree,
     terminalFontSize,
   } from "../stores";
-  import { attachTerminal, claudeTermKey } from "../terminal";
+  import { attachTerminal, claudeTermKey, getTerminal } from "../terminal";
   import ChatComposer from "./ChatComposer.svelte";
   import { Button } from "$lib/components/ui/button";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
@@ -21,6 +21,16 @@
 
   let container = $state<HTMLDivElement | null>(null);
   let error = $state("");
+  let composer = $state<{ focusInput: () => void } | null>(null);
+
+  /** Click anywhere in the terminal window → the composer takes the
+   *  keyboard. EXCEPT when the click ended a drag-to-select (copying
+   *  transcript text) — stealing focus there would feel broken. The click
+   *  itself still reaches the TUI first (mouse reporting is untouched). */
+  function onTermClick() {
+    if (getTerminal(claudeTermKey(worktree, chatId)).term.hasSelection()) return;
+    composer?.focusInput();
+  }
 
   const key = $derived(claudeTermKey(worktree, chatId));
   // The CLI died (/exit, crash) — the dim in-terminal note scrolls away, so
@@ -112,13 +122,18 @@
   <!-- .term-crop is the visible WINDOW; the term-host attach surface inside
        is CROP_ROWS taller, pushing the TUI's own input box below the clip
        (the host keeps its class — the resize veil selectors key off it). -->
-  <div class="term-crop" style="--crop: {cropPx}px">
+  <!-- A convenience click-through only (keyboard users are ALREADY in the
+       composer via autofocus/Tab); the terminal keeps its own real focus
+       path through xterm's textarea. -->
+  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+  <div class="term-crop" style="--crop: {cropPx}px" onclick={onTermClick}>
     <div class="term-host term-crop-host" bind:this={container}></div>
   </div>
   <!-- The custom input for normal CLI use — injects into THIS chat. The TUI
-       above stays fully interactive (click it for dialogs/menus). -->
+       above stays interactive for mouse reporting; a plain click hands the
+       keyboard back to the composer (onTermClick). -->
   <div class="cell-composer">
-    <ChatComposer {worktree} {chatId} autofocus={composerFocus} />
+    <ChatComposer bind:this={composer} {worktree} {chatId} autofocus={composerFocus} />
   </div>
 </div>
 
