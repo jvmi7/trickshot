@@ -99,16 +99,24 @@ export function defaultTree(ids: readonly string[], dir: "row" | "column" = "row
 
 /** Reconcile a (possibly stale/absent) persisted tree with the live chat
  *  list: prune dead leaves, append chats the tree doesn't know by splitting
- *  the LAST leaf rightward. The one entry point renders should use. */
-export function heal(tree: SplitNode | undefined, ids: readonly string[]): SplitNode | null {
+ *  the LAST leaf toward `appendWhere` — the caller picks the axis from the
+ *  window's aspect (tall window → "down" stacks, wide window → "right" sits
+ *  side-by-side). The one entry point renders should use. */
+export function heal(
+  tree: SplitNode | undefined,
+  ids: readonly string[],
+  appendWhere: SplitWhere = "right",
+): SplitNode | null {
   if (ids.length === 0) return null;
   const keep = new Set(ids);
   let t = tree && isSplitNode(tree) ? prune(tree, keep) : null;
-  if (!t) return defaultTree(ids);
+  if (!t) {
+    return defaultTree(ids, appendWhere === "down" || appendWhere === "up" ? "column" : "row");
+  }
   for (const id of ids) {
     if (!leavesOf(t).includes(id)) {
       const last = leavesOf(t).at(-1);
-      t = last ? splitLeaf(t, last, "right", id) : { chat: id };
+      t = last ? splitLeaf(t, last, appendWhere, id) : { chat: id };
     }
   }
   return t;

@@ -45,13 +45,30 @@
     return chats.some((c) => c.id === f) ? (f as string) : (chats[0]?.id ?? DEFAULT_CHAT_ID);
   });
   const grid = $derived($chatLayout === "grid" && chats.length > 1);
+  // The window's aspect decides the DEFAULT split axis: a tall (portrait)
+  // window stacks new cells vertically, a short/wide one places them
+  // side-by-side. Explicit splits (context menu, drag) still say their own
+  // direction; this only steers where APPENDED chats land.
+  let portrait = $state(
+    typeof window !== "undefined" ? window.innerHeight > window.innerWidth : false,
+  );
+  $effect(() => {
+    const onResize = () => (portrait = window.innerHeight > window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  });
   // The mosaic: the persisted split tree healed against the live chat list
-  // (dead leaves pruned, appended chats placed), flattened to ONE flat CSS
-  // grid — cells stay direct children of .chat-grid so the trail silhouette's
-  // observers and union query work unchanged.
+  // (dead leaves pruned, appended chats placed by the aspect-picked axis),
+  // flattened to ONE flat CSS grid — cells stay direct children of
+  // .chat-grid so the trail silhouette's observers and union query work
+  // unchanged.
   const layout = $derived.by(() => {
     if (!grid) return null;
-    const tree = heal(wt ? $chatSplitByWorktree[wt] : undefined, chats.map((c) => c.id));
+    const tree = heal(
+      wt ? $chatSplitByWorktree[wt] : undefined,
+      chats.map((c) => c.id),
+      portrait ? "down" : "right",
+    );
     return tree ? treeToGrid(tree) : null;
   });
 

@@ -118,6 +118,19 @@ describe("defaultTree / heal", () => {
     const out = heal(bad, ["a", "b"]);
     expect(out && leavesOf(out)).toEqual(["a", "b"]); // fell back to defaultTree
   });
+
+  test("heal's appendWhere picks the axis (tall window → stacked)", () => {
+    // Appending to an existing tree: "down" splits as a column…
+    const t: SplitNode = { chat: "a" };
+    const down = heal(t, ["a", "new"], "down");
+    expect(down).toEqual({ dir: "column", a: { chat: "a" }, b: { chat: "new" } });
+    // …the default stays the rightward row split.
+    const right = heal(t, ["a", "new"]);
+    expect(right).toEqual({ dir: "row", a: { chat: "a" }, b: { chat: "new" } });
+    // No tree at all: the default mosaic leads with the same axis.
+    const fresh = heal(undefined, ["a", "b"], "down");
+    expect(fresh).toEqual({ dir: "column", a: { chat: "a" }, b: { chat: "b" } });
+  });
 });
 
 describe("treeToGrid", () => {
