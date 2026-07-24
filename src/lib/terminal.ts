@@ -28,7 +28,7 @@ import {
   setChatStatus,
   terminalFontSize,
 } from "./stores";
-import { profileAccent, profileFor } from "./termProfiles";
+import { monoExtended, profileAccent, profileFor } from "./termProfiles";
 import type { TermEnvelope } from "./types";
 
 /** PTY slot suffix for the dedicated Claude CLI terminals (the chat pane).
@@ -106,6 +106,8 @@ export function themeColors(key?: string) {
     foreground: v("--base-text"),
     selectionBackground: v("--base-selection"),
   };
+  // Slots 16–255 (string[] — typed apart from the flat color record).
+  let extended: string[] | undefined;
   const probe = document.createElement("span");
   probe.style.display = "none";
   document.body.appendChild(probe);
@@ -114,10 +116,13 @@ export function themeColors(key?: string) {
     return getComputedStyle(probe).color || undefined;
   };
   if (key) {
-    // Per-workspace terminal PROFILE (termProfiles.ts): its own ANSI palette,
-    // with the workspace's identity accent as BOTH the main text color and the
-    // cursor — the EXACT color of its sidebar chip. Background stays the APP
-    // THEME's for every workspace (uniform canvas; the accent differentiates).
+    // Per-workspace terminal PROFILE (termProfiles.ts): its own MONOCHROME
+    // ANSI palette, with the workspace's identity accent as BOTH the main
+    // text color and the cursor — the EXACT color of its sidebar chip.
+    // Background stays the APP THEME's for every workspace (uniform canvas;
+    // the accent differentiates). extendedAnsi covers slots 16–255 so the
+    // TUI's 256-color syntax highlighting stays in the hue too (the CLI is
+    // capped below truecolor — terminal.rs strips COLORTERM).
     const wt = keyWorktree(key);
     const p = profileFor(wt);
     theme.background = "rgba(0, 0, 0, 0)"; // transparent — the backdrop div paints it
@@ -127,6 +132,7 @@ export function themeColors(key?: string) {
     ANSI_SLOTS.forEach((slot, i) => {
       theme[slot] = p.ansi[i];
     });
+    extended = monoExtended(accent);
   } else {
     // No workspace context: the app theme's terminal colors.
     theme.background = "rgba(0, 0, 0, 0)"; // transparent — the backdrop div paints it
@@ -137,7 +143,7 @@ export function themeColors(key?: string) {
     });
   }
   probe.remove();
-  return theme;
+  return extended ? { ...theme, extendedAnsi: extended } : theme;
 }
 
 /** Get (or lazily create) the persistent xterm instance for a PTY key (a
@@ -257,6 +263,16 @@ export function muteCliActivity(key: string, ms: number) {
   cliEntry(key).tracker.muteUntil(Date.now() + ms);
 }
 
+/** Whether this claude PTY has an announced turn in flight RIGHT NOW — the
+ *  tracker is the per-instance source of truth. Status writers consult this
+ *  instead of assuming a state (ensureClaudeOpen's idempotent re-open used to
+ *  stomp a streaming turn's busy → ready, freezing the sidebar glyph for the
+ *  rest of the turn — the once-per-burst announce can't re-fire). No entry =
+ *  no tracked activity = not busy. */
+export function cliBusy(key: string): boolean {
+  return cliActivity.get(key)?.tracker.isBusy ?? false;
+}
+
 function noteCliActivity(key: string) {
   const entry = cliEntry(key);
   const wt = keyWorktree(key);
@@ -305,7 +321,11 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
         // The CLI ended (/exit, crash, or our own termClose): session.ts marks
         // the session stopped (type-to-revive). Call-time import per the
         // CIRCULAR-IMPORT CONTRACT.
-        inst.term.write("\r\n\x1b[2m[claude exited — type here to restart it]\x1b[0m\r\n");
+        // The chat cell blocks direct typing (composer-only input) — point at
+        // the surfaces that actually revive it.
+        inst.term.write(
+          "\r\n\x1b[2m[claude exited — send a message or use Restart to start it again]\x1b[0m\r\n",
+        );
         handleCliExit(keyWorktree(key), key);
       } else {
         // Typing revives it (the onData reconnect path) — say so.
@@ -340,6 +360,12 @@ export function applyTerminalFontSize(px: number) {
       api.termResize(key, rows, cols).catch(() => {});
     }
   }
+}
+
+/** Focus a cached xterm (the shell popover's click-to-pin path). No-op when
+ *  the instance doesn't exist yet — attach handles first focus. */
+export function focusTerminal(key: string) {
+  instances.get(key)?.term.focus();
 }
 
 /** Kill ONE PTY and drop its cached xterm. */
@@ -387,7 +413,17 @@ export function disposeChatTerminal(worktree: string, chatId: string) {
 export function attachTerminal(
   key: string,
   el: HTMLElement,
-  opts: { onOpen: () => Promise<void>; onError?: (e: unknown) => void },
+  opts: {
+    onOpen: () => Promise<void>;
+    onError?: (e: unknown) => void;
+    focus?: boolean;
+    /** Swallow EVERY keyboard event the terminal would handle and call this
+     *  instead (per keydown) — the chat cells' composer-only input policy:
+     *  a focused xterm must not accept blind typing into the TUI's cropped
+     *  input box; keystrokes bounce focus to the composer. Mouse reporting
+     *  and text selection are untouched. Omit = normal typing (the shell). */
+    blockKeys?: () => void;
+  },
 ): () => void {
   const inst = getTerminal(key);
   el.replaceChildren(); // drop a previous worktree's terminal DOM
@@ -406,7 +442,22 @@ export function attachTerminal(
   inst.term.options.allowTransparency = true;
   inst.term.options.theme = themeColors(key);
   inst.term.options.fontSize = get(terminalFontSize);
-  inst.term.focus();
+  // focus: false = a passive reveal (the hover-opened shell popover) — the
+  // chat pane keeps the keyboard; the caller focuses explicitly on intent.
+  if (opts.focus !== false) inst.term.focus();
+  // Keyboard policy per attach (ONE handler per xterm — the latest attach
+  // owns it): blockKeys swallows everything and bounces to the composer;
+  // otherwise restore normal typing (a cached instance may carry a stale
+  // handler from a previous surface).
+  if (opts.blockKeys) {
+    const bounce = opts.blockKeys;
+    inst.term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type === "keydown") bounce();
+      return false;
+    });
+  } else {
+    inst.term.attachCustomKeyEventHandler(() => true);
+  }
 
   // Fit AFTER layout settles, coalesced to one rAF per burst. Fitting
   // synchronously inside the ResizeObserver callback mutates layout and

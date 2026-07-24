@@ -6,12 +6,17 @@
   // PTY + scrollback persist across open/close via the instance cache.
   // ClaudeTerminalPane is its claude-slot twin (the CLI chat mode).
   import { selectedWorktree } from "../stores";
-  import { attachTerminal, ensureOpen } from "../terminal";
+  import { attachTerminal, ensureOpen, focusTerminal } from "../terminal";
+
+  // autofocus: false while the popover is only hover-revealed — the chat pane
+  // keeps the keyboard; flipping true (click-to-pin) focuses the shell.
+  let { autofocus = true }: { autofocus?: boolean } = $props();
 
   let container = $state<HTMLDivElement | null>(null);
   let error = $state("");
 
-  // (Re)attach when the worktree or container changes.
+  // (Re)attach when the worktree or container changes. Focus is owned by the
+  // autofocus effect below — attach itself never steals it.
   $effect(() => {
     const wt = $selectedWorktree;
     const el = container;
@@ -20,7 +25,14 @@
     return attachTerminal(wt, el, {
       onOpen: () => ensureOpen(wt),
       onError: (e) => (error = String(e)),
+      focus: false,
     });
+  });
+
+  // Focus on intent: mount-with-autofocus (click-opened) or a later pin flip.
+  $effect(() => {
+    const wt = $selectedWorktree;
+    if (autofocus && wt && container) focusTerminal(wt);
   });
 </script>
 

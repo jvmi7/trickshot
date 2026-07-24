@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
+  ClaudeOverview,
   GitStatus,
   PrInfo,
   PrText,
@@ -13,6 +14,7 @@ import type {
   ScriptsConfig,
   TermEnvelope,
   UsageInfo,
+  VolumeInfo,
   Worktree,
 } from "./types";
 
@@ -238,6 +240,36 @@ export const latestSessionId = (worktree: string, provider?: string) =>
  *  CLI creates transcripts lazily) → re-create under the same `--session-id`. */
 export const sessionExists = (worktree: string, sessionId: string, provider?: string) =>
   invoke<boolean>("session_exists", { worktree, sessionId, provider: provider ?? null });
+
+// ---- Global Claude config (~/.claude — the Settings › Global Claude tab) ---
+
+/** Everything set up in the user's global Claude Code config: settings texts,
+ *  global CLAUDE.md, agents/commands/skills entries, the user-scope MCP
+ *  servers, and the projects list. One scan; missing pieces are null/empty. */
+export const claudeConfigOverview = () => invoke<ClaudeOverview>("claude_config_overview");
+
+/** Read one whitelisted file under ~/.claude (entry viewers + editors).
+ *  `file` is root-relative — pass a `ClaudeEntry.file` or a top-level name. */
+export const readClaudeFile = (file: string) => invoke<string>("read_claude_file", { file });
+
+/** Write `settings.json` or the global `CLAUDE.md` (the ONLY editable files;
+ *  settings.json is JSON-validated in Rust before the atomic write). */
+export const writeClaudeFile = (file: string, contents: string) =>
+  invoke<void>("write_claude_file", { file, contents });
+
+// ---- System volume (macOS `osascript`; the footer's volume slider) --------
+
+/** The system output volume + mute state. Rejects on platforms without
+ *  `osascript` or on output devices with no software volume (AirPlay, some
+ *  DACs) — the control hides itself on a failed probe. */
+export const getVolume = () => invoke<VolumeInfo>("get_volume");
+
+/** Set the system output volume (0–100, clamped in Rust). Also unmutes —
+ *  matching the OS volume keys' behavior. */
+export const setVolume = (volume: number) => invoke<void>("set_volume", { volume });
+
+/** Mute/unmute the system output. */
+export const setMuted = (muted: boolean) => invoke<void>("set_muted", { muted });
 
 // ---- window state (macOS fullscreen hides the native traffic lights; the
 // floating expand-sidebar button re-anchors off html[data-fullscreen]) ----

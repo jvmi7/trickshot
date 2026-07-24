@@ -48,6 +48,7 @@
     toggleCompose,
     toggleShortcutsHelp,
     requestNewWorktree,
+    cursorTrailEnabled,
   } from "./lib/stores";
   import { handleScriptEvent } from "./lib/scriptEvents";
   import ClaudeTerminalPane from "./lib/components/ClaudeTerminalPane.svelte";
@@ -57,12 +58,12 @@
   import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
   import ViewToggle from "./lib/components/ViewToggle.svelte";
   import RunScripts from "./lib/components/RunScripts.svelte";
+  import SessionTicker from "./lib/components/SessionTicker.svelte";
   import RunOutput from "./lib/components/RunOutput.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import ArchivedSection from "./lib/components/ArchivedSection.svelte";
-  import Fleet from "./lib/components/Fleet.svelte";
+  import Home from "./lib/components/Home.svelte";
   import Settings from "./lib/components/Settings.svelte";
-  import Welcome from "./lib/components/Welcome.svelte";
   import ComposeDialog from "./lib/components/ComposeDialog.svelte";
   import ShortcutsHelp from "./lib/components/ShortcutsHelp.svelte";
   import Footer from "./lib/components/Footer.svelte";
@@ -329,8 +330,8 @@
     <!-- Archived workspaces: pinned BELOW the scrolling list (its own footer
          band) so a long repo list can't push it off screen. -->
     <ArchivedSection />
-    <!-- Opens the full Settings page (appearance + global connectors) in the
-         center pane, in place of the chat. -->
+    <!-- Opens the full Settings page in the center pane, in place of the
+         chat. -->
     <div class="sidebar-foot">
       <Button
         variant="ghost"
@@ -395,6 +396,7 @@
         <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
              nothing to act on there. -->
         {#if $centerView !== "settings" && $repos.length > 0}
+          <SessionTicker />
           <RunScripts />
           <ViewToggle />
         {/if}
@@ -419,7 +421,7 @@
           onpointerdown={startResize}
         ></div>
       {/if}
-      {#if $centerView !== "settings" && $repos.length > 0 && $mainView !== "run" && $selectedWorktree}
+      {#if $cursorTrailEnabled && $centerView !== "settings" && $repos.length > 0 && $mainView !== "run" && $selectedWorktree}
         <!-- ONE shared background for the whole chat surface: a single trail
              canvas clipped to the card∪tab silhouette (chatSilhouette). The
              tab and the terminal panes above are transparent — the chrome is
@@ -430,17 +432,18 @@
       {#if $centerView === "settings"}
         <Settings />
       {:else if $repos.length === 0}
-        <!-- First-run (or removed-last-repo) welcome: replaces the whole center
-             pane, composer included. Gated on repo count — state, not a flag —
-             so it reappears exactly when it's true again. -->
-        <Welcome />
+        <!-- First-run (or removed-last-repo): the homepage in its onboarding
+             state replaces the whole center pane, composer included. Gated on
+             repo count — state, not a flag — so it reappears exactly when
+             it's true again. -->
+        <Home />
       {:else if $mainView === "run"}
         <RunOutput />
       {:else if !$selectedWorktree}
-        <!-- No selection + repos exist: the fleet overview (mission control),
-             not a dead-end hint. The palette's "Fleet overview" deselects to
-             land here. -->
-        <Fleet />
+        <!-- No selection + repos exist: the homepage with the fleet grid
+             (mission control), not a dead-end hint. The palette's "Home"
+             deselects to land here. -->
+        <Home />
       {:else}
         <!-- The chat: the REAL Claude Code TUI on the worktree's claude PTY. -->
         <ClaudeTerminalPane />

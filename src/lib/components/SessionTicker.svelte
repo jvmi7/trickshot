@@ -1,0 +1,134 @@
+<script lang="ts">
+  // Header running-sessions indicator: ONE morphing swatch per busy chat —
+  // each running instance shows its workspace's identity mark in the loading
+  // morph (the sidebar/tab/grid signal, stacked). The stack anchors RIGHT
+  // (it leads the right-aligned header actions cluster) and grows LEFTWARD
+  // as instances start; the count digit rides its fixed right edge. Hovering
+  // the cluster lists every running instance, one line each. Hidden at zero.
+  // Feature component (reads stores).
+  import { chatSessionsByWorktree, chatStatusByKey, DEFAULT_CHAT_ID } from "../stores";
+  import { keyWorktree } from "../terminal";
+  import { profileAccent } from "../termProfiles";
+  import { basename } from "$lib/utils";
+  import * as Tooltip from "$lib/components/ui/tooltip";
+  import IdentityGlyph from "./IdentityGlyph.svelte";
+
+  // One entry per busy chat KEY (a worktree can run several chats — each
+  // gets its own swatch, all in that workspace's palette). The chat label
+  // resolves the key's chat id to its list position ("chat 2"), shown only
+  // when the worktree runs more than one.
+  const CHAT_MARKER = "\u0000claude:"; // claudeTermKey's non-default suffix
+  const busy = $derived.by(() => {
+    const chatsBy = $chatSessionsByWorktree;
+    return Object.entries($chatStatusByKey)
+      .filter(([, s]) => s === "busy")
+      .map(([key]) => {
+        const wt = keyWorktree(key);
+        const i = key.indexOf(CHAT_MARKER);
+        const chatId = i >= 0 ? key.slice(i + CHAT_MARKER.length) : DEFAULT_CHAT_ID;
+        const chats = chatsBy[wt] ?? [];
+        const idx = chats.findIndex((c) => c.id === chatId);
+        const chatLabel = chats.length > 1 && idx >= 0 ? `chat ${idx + 1}` : "";
+        return { key, wt, chatLabel };
+      });
+  });
+</script>
+
+{#if busy.length > 0}
+  <Tooltip.Root>
+    <Tooltip.Trigger>
+      {#snippet child({ props })}
+        <div
+          {...props}
+          class="session-stack"
+          role="status"
+          aria-label="{busy.length} running session{busy.length === 1 ? '' : 's'}"
+        >
+          {#each busy as b (b.key)}
+            <span class="stack-swatch">
+              <IdentityGlyph seed={b.wt} color={profileAccent(b.wt)} size={12} loading={true} />
+            </span>
+          {/each}
+          <!-- The count rides the stack's fixed RIGHT edge; the digit rolls on
+               change (the swatches grow away leftward, the number stays put). -->
+          {#key busy.length}
+            <span class="stack-count">{busy.length}</span>
+          {/key}
+        </div>
+      {/snippet}
+    </Tooltip.Trigger>
+    <Tooltip.Content align="end" class="items-stretch p-2.5">
+      <div class="stack-list">
+        {#each busy as b (b.key)}
+          <div class="stack-line">
+            <IdentityGlyph seed={b.wt} color={profileAccent(b.wt)} size={10} loading={true} />
+            <span class="stack-line-name">{basename(b.wt)}</span>
+            {#if b.chatLabel}
+              <span class="stack-line-meta">{b.chatLabel}</span>
+            {/if}
+            <span class="stack-line-meta stack-line-status">working…</span>
+          </div>
+        {/each}
+      </div>
+    </Tooltip.Content>
+  </Tooltip.Root>
+{/if}
+
+<style>
+  /* A row of live swatches; the cluster sits at the header's right edge, so
+     added swatches extend the row leftward. FLUSH placement (no gap, no
+     overlap) is deliberate: each glyph's shapes inset 0.7 viewBox-units from
+     its own edge, so adjacent SVGs already read with the SAME 1.4-unit gap
+     the 3×3 grid keeps between its shapes — the stack looks like one
+     continuous grid. */
+  .session-stack {
+    display: inline-flex;
+    align-items: center;
+  }
+  .stack-swatch {
+    display: inline-flex;
+    align-items: center;
+  }
+  .stack-count {
+    margin-left: 6px;
+    min-width: 1ch;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--app-dim);
+    animation: count-roll 220ms var(--ease-out-soft);
+  }
+  @keyframes count-roll {
+    from {
+      transform: translateY(0.55em);
+      opacity: 0;
+    }
+  }
+  /* The hover list: one instance per line — swatch, workspace, status. */
+  .stack-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 150px;
+  }
+  .stack-line {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: var(--text-sm);
+  }
+  .stack-line-name {
+    color: var(--base-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .stack-line-meta {
+    flex-shrink: 0;
+    font-size: var(--text-xs);
+    color: var(--app-dim);
+  }
+  .stack-line-status {
+    margin-left: auto;
+  }
+</style>

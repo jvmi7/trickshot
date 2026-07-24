@@ -1,9 +1,11 @@
 mod agent;
+mod claude_config;
 mod generate;
 mod github;
 mod scripts;
 mod terminal;
 mod usage;
+mod volume;
 mod worktree;
 mod worktree_map;
 
@@ -20,6 +22,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             agent::latest_session_id,
             agent::session_exists,
+            claude_config::claude_config_overview,
+            claude_config::read_claude_file,
+            claude_config::write_claude_file,
             worktree::pick_directory,
             worktree::repo_icon,
             worktree::home_dir,
@@ -52,6 +57,9 @@ pub fn run() {
             terminal::term_close,
             usage::get_usage,
             usage::check_auth,
+            volume::get_volume,
+            volume::set_volume,
+            volume::set_muted,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

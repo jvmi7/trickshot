@@ -6,6 +6,7 @@
     repos,
     addRepo,
     removeRepo,
+    moveRepoTo,
     worktreesByRepo,
     openRepository,
     addWorktree,
@@ -17,6 +18,7 @@
     activateWorktree,
     newWorktreeRequest,
     removeScriptRun,
+    centerView,
     setCenterView,
     setMainView,
     unreadByWorktree,
@@ -45,8 +47,8 @@
   import * as Tooltip from "$lib/components/ui/tooltip";
   import * as ContextMenu from "$lib/components/ui/context-menu";
   import IconButton from "./IconButton.svelte";
-  import TrickshotMark from "./TrickshotMark.svelte";
   import IdentityGlyph from "./IdentityGlyph.svelte";
+  import TrickshotMark from "./TrickshotMark.svelte";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
   import Plus from "@lucide/svelte/icons/plus";
@@ -99,22 +101,67 @@
     }
   }
 
-  // The Home row: a workspace rooted at ~ (outside any repo/worktree). The
-  // shared activateWorktree path works on any directory under CLI-first chat.
-  async function selectHome() {
-    const home = $homePath;
-    if (!home) return;
-    try {
-      await activateWorktree(home);
-    } catch (e) {
-      error = String(e);
-    }
+  // The Home row: lands on the HOME SCREEN (hero + composer + fleet) — the
+  // exact state closing a worktree leaves you in (deselected), so "Home"
+  // means ONE place. (It previously opened a chat rooted at ~; the Home
+  // screen replaced that meaning when it became a real destination.)
+  function selectHome() {
+    selectWorktree(null);
+    setCenterView("chat");
+    setMainView("chat"); // the run view outranks no-selection in the cascade
   }
 
   // Repo favicons: probe each repo once per app run (idempotent in the store).
   $effect(() => {
     for (const r of $repos) loadRepoIcon(r.path);
   });
+
+  // ---- Drag-to-reorder repos ----
+  // Threshold-started pointer drag on the repo HEADER (5px of travel begins
+  // the drag, so plain clicks still fold/unfold and hit the + button). While
+  // dragging, the pointer's y picks a drop slot between groups (an accent
+  // line marks it); release commits via moveRepoTo. Window listeners, no
+  // pointer capture — capture would retarget the header's child clicks.
+  let wtEl = $state<HTMLDivElement | null>(null);
+  let dragRepo = $state<string | null>(null);
+  let dropAt = $state<number | null>(null);
+  let dragPending: { path: string; x: number; y: number } | null = null;
+
+  function repoDragDown(e: PointerEvent, path: string) {
+    if (e.button !== 0) return;
+    dragPending = { path, x: e.clientX, y: e.clientY };
+    window.addEventListener("pointermove", repoDragMove);
+    window.addEventListener("pointerup", repoDragUp);
+  }
+  function repoDragMove(e: PointerEvent) {
+    const pending = dragPending;
+    if (!pending) return;
+    if (!dragRepo) {
+      if (Math.hypot(e.clientX - pending.x, e.clientY - pending.y) < 5) return;
+      dragRepo = pending.path;
+      document.documentElement.dataset.grabbing = ""; // the grid drag's global cursor
+    }
+    const groups = wtEl?.querySelectorAll<HTMLElement>("[data-repo]");
+    if (!groups) return;
+    let at = groups.length;
+    for (let i = 0; i < groups.length; i++) {
+      const rect = groups.item(i).getBoundingClientRect();
+      if (e.clientY < rect.top + rect.height / 2) {
+        at = i;
+        break;
+      }
+    }
+    dropAt = at;
+  }
+  function repoDragUp() {
+    if (dragRepo && dropAt != null) moveRepoTo(dragRepo, dropAt);
+    dragPending = null;
+    dragRepo = null;
+    dropAt = null;
+    delete document.documentElement.dataset.grabbing;
+    window.removeEventListener("pointermove", repoDragMove);
+    window.removeEventListener("pointerup", repoDragUp);
+  }
 
   // ⌘⇧N / the palette / the fleet ask for a new worktree via this nonce:
   // instantly create one (auto-named) for the selected worktree's repo (or the
@@ -307,15 +354,15 @@
 <!-- slidingRowHighlight is applied PER .wt-rows block (not once on the root)
      so the hover/active fill only slides between rows of the SAME repository —
      crossing into another group fades out/in instead of gliding over headers. -->
-<div class="wt">
-  <!-- Home: a workspace rooted at ~ — outside any repo/worktree, so no glyph,
-       no ± stat, no archive/remove, no context menu. Renders once the home
-       path resolves (App.svelte's launch flow). -->
+<div class="wt" bind:this={wtEl}>
+  <!-- Home: THE Home screen (hero + composer + fleet) — the same place
+       closing a worktree lands (deselected). Active whenever nothing is
+       selected and the center pane isn't Settings. -->
   {#if $homePath}
     <div class="wt-rows home-rows" use:slidingRowHighlight>
       <div
         class="wt-row"
-        class:active={$selectedWorktree === $homePath}
+        class:active={$selectedWorktree === null && $centerView !== "settings"}
         role="button"
         tabindex="0"
         onclick={selectHome}
@@ -328,7 +375,7 @@
         }}
       >
         <TrickshotMark class="wt-home" />
-        <span class="wt-name">Home</span>
+        <span class="wt-name">trickshot</span>
       </div>
     </div>
   {/if}
@@ -347,12 +394,25 @@
     </Tooltip.Root>
   </div>
 
-  {#each $repos as repo (repo.path)}
-    <div class="repo-group group/repo">
+  {#each $repos as repo, ri (repo.path)}
+    <div
+      class="repo-group group/repo"
+      data-repo={repo.path}
+      data-dragging={dragRepo === repo.path ? "" : undefined}
+      data-drop={dropAt === ri
+        ? "before"
+        : dropAt === $repos.length && ri === $repos.length - 1
+          ? "after"
+          : undefined}
+    >
       <ContextMenu.Root>
         <ContextMenu.Trigger>
           {#snippet child({ props })}
-            <div {...props} class="repo-head">
+            <div
+              {...props}
+              class="repo-head"
+              onpointerdown={(e: PointerEvent) => repoDragDown(e, repo.path)}
+            >
               <button
                 class="repo-toggle"
                 title={repo.path}
@@ -418,6 +478,7 @@
           <!-- busy also drives the row class: a greyed glyph must color back in
                while its session's loading morph plays (see app.css). -->
           {@const busy = $sessionStatus[wt.path] === "busy"}
+          {@const unread = ($unreadByWorktree[wt.path] ?? 0) > 0 && $selectedWorktree !== wt.path}
           <ContextMenu.Root>
             <ContextMenu.Trigger>
               {#snippet child({ props })}
@@ -439,7 +500,14 @@
                     }
                   }}
                 >
-                  <IdentityGlyph seed={wt.path} color={profileAccent(wt.path)} loading={busy} />
+                  <!-- The notification REPLACES the swatch: a fully-round
+                       count in the identity slot — the row's leading mark IS
+                       its state (busy morph > unread count > idle glyph). -->
+                  {#if unread}
+                    <span class="wt-unread" title="Finished while in background">{$unreadByWorktree[wt.path]}</span>
+                  {:else}
+                    <IdentityGlyph seed={wt.path} color={profileAccent(wt.path)} loading={busy} />
+                  {/if}
                   <span class="wt-name">{wt.branch ?? "(detached)"}</span>
                   {#if ($gitStatByWorktree[wt.path]?.changed ?? 0) > 0}
                     {@const gs = $gitStatByWorktree[wt.path]}
@@ -448,9 +516,6 @@
                       {#if gs?.deletions}<span class="diff-del">−{gs.deletions}</span>{/if}
                       {#if !gs?.insertions && !gs?.deletions}<span class="diff-add">●</span>{/if}
                     </span>
-                  {/if}
-                  {#if ($unreadByWorktree[wt.path] ?? 0) > 0 && $selectedWorktree !== wt.path}
-                    <span class="wt-unread" title="Finished while in background">{$unreadByWorktree[wt.path]}</span>
                   {/if}
                   <!-- Archive is the ONE verb on a live workspace (delete lives on
                        the Archived list). The trash fallback exists only for a

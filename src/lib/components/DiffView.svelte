@@ -247,19 +247,19 @@
      `color` here would override it and flatten every token to one hue). Plain,
      untokenised text falls back to the inherited diff foreground. */
   .add {
-    background: color-mix(in oklch, var(--base-success) 16%, transparent);
+    background: color-mix(in oklch, var(--app-diff-add) 18%, transparent);
   }
   .del {
-    background: color-mix(in oklch, var(--app-danger) 16%, transparent);
+    background: color-mix(in oklch, var(--app-diff-del) 18%, transparent);
   }
   /* Intraline mark: the changed segment of a paired -/+ row, a stronger tint
      over the row's own wash (`:global` — the span arrives via {@html}). */
   .add :global(.ln-seg) {
-    background: color-mix(in oklch, var(--base-success) 38%, transparent);
+    background: color-mix(in oklch, var(--app-diff-add) 42%, transparent);
     border-radius: var(--radius-2xs);
   }
   .del :global(.ln-seg) {
-    background: color-mix(in oklch, var(--app-danger) 38%, transparent);
+    background: color-mix(in oklch, var(--app-diff-del) 42%, transparent);
     border-radius: var(--radius-2xs);
   }
   .hunk {

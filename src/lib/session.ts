@@ -33,6 +33,7 @@ import {
 // access is a call-time function invocation (all hoisted declarations).
 import {
   claudeTermKey,
+  cliBusy,
   disposeChatTerminal,
   getTerminal,
   muteCliActivity,
@@ -44,7 +45,7 @@ import { basename } from "./utils";
 /** Pick a folder and open it as a repo: validate it's a git repo FIRST (so a
  *  bad pick never persists a junk entry), then add it, cache its worktrees, and
  *  activate the main worktree so the user lands in a live chat. The ONE add-repo
- *  path — the Welcome CTA and the sidebar's FolderPlus both route through here.
+ *  path — the Home CTA and the sidebar's FolderPlus both route through here.
  *  Returns false when the picker is cancelled; throws on failure so callers
  *  surface it in their local error state. */
 export async function openRepository(): Promise<boolean> {
@@ -166,24 +167,46 @@ export async function ensureClaudeOpen(worktree: string, chatId?: string): Promi
     await api.termResize(key, rows, cols).catch(() => {});
   }
   inst.open = true;
-  setChatStatus(worktree, key, "ready");
+  // Infer, don't assume: an idempotent re-open (worktree switch, pane
+  // re-attach, layout change) can land mid-turn — the tracker knows whether
+  // output is streaming RIGHT NOW. Writing a blind "ready" here used to
+  // freeze the sidebar's busy glyph for the rest of the turn (the tracker
+  // announces busy once per burst and won't re-fire).
+  setChatStatus(worktree, key, cliBusy(key) ? "busy" : "ready");
 }
 
 /** Inject a prompt into the worktree's CLI chat as keystrokes: bracketed paste
  *  (so multi-line text doesn't submit per line — the TUI treats it as one
  *  pasted block), followed by Enter when `submit` (default). `submit: false`
  *  just inserts into the TUI's input for further editing — the compose
- *  popup's "Insert" action. */
-export async function sendToCli(worktree: string, text: string, submit = true): Promise<void> {
-  // Injected turns land in the FOCUSED chat — same target in both layouts
-  // (tabs: the visible one; grid: the cell owning the keyboard).
-  const chatId = get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID;
-  await ensureClaudeOpen(worktree, chatId);
-  const key = claudeTermKey(worktree, chatId);
+ *  popup's "Insert" action. `chatId` targets a SPECIFIC chat (the per-cell
+ *  ChatComposer); omitted, it lands in the FOCUSED chat — same target in
+ *  both layouts (tabs: the visible one; grid: the cell owning the keyboard). */
+export async function sendToCli(
+  worktree: string,
+  text: string,
+  submit = true,
+  chatId?: string,
+): Promise<void> {
+  const id = chatId ?? get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID;
+  await ensureClaudeOpen(worktree, id);
+  const key = claudeTermKey(worktree, id);
   // Injected keystrokes are user input too — their echo must not read as a
   // turn starting (the real turn's output keeps flowing past the echo window).
   noteCliInput(key);
   await api.termWrite(key, `\x1b[200~${text}\x1b[201~${submit ? "\r" : ""}`);
+}
+
+/** Interrupt a chat's RUNNING turn: Escape to its PTY — exactly the
+ *  keystroke the TUI maps to "stop here" (the composer's stop button).
+ *  Registered as input so the interrupt's own repaint can't read as a new
+ *  turn starting. Targets like sendToCli: an explicit chat, else the
+ *  focused one. */
+export async function interruptChat(worktree: string, chatId?: string): Promise<void> {
+  const id = chatId ?? get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID;
+  const key = claudeTermKey(worktree, id);
+  noteCliInput(key);
+  await api.termWrite(key, "\u001b"); // ESC — the TUI's interrupt key
 }
 
 /** Submit a prompt to the chat via keystroke-injection into the CLI. The one

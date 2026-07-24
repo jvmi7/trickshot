@@ -10,6 +10,7 @@
     chatLayout,
     chatSessionsByWorktree,
     chatSplitByWorktree,
+    chatStatusByKey,
     DEFAULT_CHAT_ID,
     focusChat,
     focusedChatByWorktree,
@@ -22,8 +23,10 @@
   import { borderGlow } from "../borderGlow";
   import { heal, type SplitWhere, treeToGrid } from "../splitTree";
   import { claudeTermKey, getTerminal } from "../terminal";
+  import { profileAccent } from "../termProfiles";
   import ClaudeTerminalCell from "./ClaudeTerminalCell.svelte";
   import IconButton from "./IconButton.svelte";
+  import IdentityGlyph from "./IdentityGlyph.svelte";
   import * as ContextMenu from "$lib/components/ui/context-menu";
   import GripVertical from "@lucide/svelte/icons/grip-vertical";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
@@ -42,13 +45,30 @@
     return chats.some((c) => c.id === f) ? (f as string) : (chats[0]?.id ?? DEFAULT_CHAT_ID);
   });
   const grid = $derived($chatLayout === "grid" && chats.length > 1);
+  // The window's aspect decides the DEFAULT split axis: a tall (portrait)
+  // window stacks new cells vertically, a short/wide one places them
+  // side-by-side. Explicit splits (context menu, drag) still say their own
+  // direction; this only steers where APPENDED chats land.
+  let portrait = $state(
+    typeof window !== "undefined" ? window.innerHeight > window.innerWidth : false,
+  );
+  $effect(() => {
+    const onResize = () => (portrait = window.innerHeight > window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  });
   // The mosaic: the persisted split tree healed against the live chat list
-  // (dead leaves pruned, appended chats placed), flattened to ONE flat CSS
-  // grid — cells stay direct children of .chat-grid so the trail silhouette's
-  // observers and union query work unchanged.
+  // (dead leaves pruned, appended chats placed by the aspect-picked axis),
+  // flattened to ONE flat CSS grid — cells stay direct children of
+  // .chat-grid so the trail silhouette's observers and union query work
+  // unchanged.
   const layout = $derived.by(() => {
     if (!grid) return null;
-    const tree = heal(wt ? $chatSplitByWorktree[wt] : undefined, chats.map((c) => c.id));
+    const tree = heal(
+      wt ? $chatSplitByWorktree[wt] : undefined,
+      chats.map((c) => c.id),
+      portrait ? "down" : "right",
+    );
     return tree ? treeToGrid(tree) : null;
   });
 
@@ -199,6 +219,7 @@
         <ContextMenu.Root>
           <ContextMenu.Trigger>
             {#snippet child({ props })}
+              {@const busy = $chatStatusByKey[claudeTermKey(wt, cell.chat)] === "busy"}
               <div
                 {...props}
                 class="chat-grid-cell"
@@ -209,8 +230,23 @@
                 use:borderGlow
                 onfocusin={() => focusChat(wt, cell.chat)}
               >
-                <ClaudeTerminalCell worktree={wt} chatId={cell.chat} />
-                <div class="chat-cell-controls">
+                <!-- Grid shows ONE composer — the focused cell's. Clicking an
+                     unfocused cell's terminal focuses xterm → focusin →
+                     focusChat → its composer mounts (already autofocused). -->
+                <ClaudeTerminalCell
+                  worktree={wt}
+                  chatId={cell.chat}
+                  showComposer={cell.chat === focusedId}
+                />
+                <!-- data-busy keeps the pill surfaced while the chat runs —
+                     the SWATCH's loading morph is the cell's busy signal
+                     (the tab/sidebar twin), so it can't be hover-gated. -->
+                <div class="chat-cell-controls" data-busy={busy ? "" : undefined}>
+                  {#if busy}
+                    <span class="chat-cell-swatch" aria-label="Working…">
+                      <IdentityGlyph seed={wt} color={profileAccent(wt)} size={10} loading={true} />
+                    </span>
+                  {/if}
                   <span
                     class="chat-drag"
                     role="button"

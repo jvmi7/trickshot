@@ -111,4 +111,33 @@ describe("CliActivityTracker", () => {
     expect(t.onData(61_000)).toBeNull();
     expect(burst(t, 61_150, BUSY_MIN_EVENTS)).toBe("busy");
   });
+
+  test("isBusy tracks the announced burst — the mid-turn re-open read", () => {
+    const t = new CliActivityTracker();
+    expect(t.isBusy).toBe(false);
+    // Pre-threshold output: not busy yet (a status writer reading now must
+    // see ready — the burst hasn't proven itself).
+    t.onData(0);
+    expect(t.isBusy).toBe(false);
+    // Announced: stays true for the WHOLE burst, however long it streams —
+    // this is what an idempotent ensureClaudeOpen consults mid-turn.
+    burst(t, 150, BUSY_MIN_EVENTS);
+    expect(t.isBusy).toBe(true);
+    t.onData(30_000);
+    expect(t.isBusy).toBe(true);
+    // The idle edge ends it.
+    t.onIdle(30_000 + CLI_IDLE_MS);
+    expect(t.isBusy).toBe(false);
+  });
+
+  test("isBusy stays false through muted and reactive bursts", () => {
+    const t = new CliActivityTracker();
+    t.muteUntil(5_000);
+    burst(t, 0, MIN_TURN_EVENTS, 200);
+    expect(t.isBusy).toBe(false); // the resume boot replay must not read busy
+    t.onIdle(10_000);
+    t.onInput(20_000);
+    t.onData(20_100); // echo
+    expect(t.isBusy).toBe(false);
+  });
 });

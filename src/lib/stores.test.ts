@@ -145,3 +145,37 @@ describe("script-run store", () => {
     expect(run?.output).toEqual(["hello"]);
   });
 });
+
+import { moveRepoTo, repos } from "./stores";
+
+describe("moveRepoTo", () => {
+  const seed = () => {
+    repos.set([
+      { path: "/a", name: "a" },
+      { path: "/b", name: "b" },
+      { path: "/c", name: "c" },
+    ]);
+  };
+  const order = () => get(repos).map((r) => r.path);
+
+  test("moves a repo to the drop slot (current-list semantics)", () => {
+    seed();
+    moveRepoTo("/a", 3); // drop after the last
+    expect(order()).toEqual(["/b", "/c", "/a"]);
+    moveRepoTo("/a", 0); // back to the front
+    expect(order()).toEqual(["/a", "/b", "/c"]);
+    moveRepoTo("/c", 1); // between a and b
+    expect(order()).toEqual(["/a", "/c", "/b"]);
+  });
+
+  test("no-op moves preserve list identity (the same-map guard rule)", () => {
+    seed();
+    const before = get(repos);
+    moveRepoTo("/b", 1); // dropping onto its own slot
+    expect(get(repos)).toBe(before);
+    moveRepoTo("/b", 2); // the slot just below itself is ALSO its own position
+    expect(get(repos)).toBe(before);
+    moveRepoTo("/missing", 0); // unknown path
+    expect(get(repos)).toBe(before);
+  });
+});

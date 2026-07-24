@@ -192,7 +192,7 @@ describe("no raw Tauri IPC in .svelte files", () => {
 // only stay THE system if raw literals can't creep back in. These read the
 // bespoke style surfaces (app.css + non-ui component <style>/markup) as text.
 // A line ending in `/* conformance-allowlisted */` is exempt (deliberate,
-// commented one-offs like Welcome's 20px wordmark).
+// commented one-offs like Home's 20px wordmark).
 describe("design-system scales are the only source of style literals", () => {
   const all = svelteFiles(join(ROOT, "src", "lib", "components"));
   const isUi = (f: string) => f.includes(`${join("components", "ui")}${sep}`);

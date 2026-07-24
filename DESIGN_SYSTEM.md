@@ -74,6 +74,7 @@ shadcn overlays own `z-50` — stay below it. Local stacking *inside* one compon
 | `--app-duration-slow` | 300ms | structural: panel slides, fades, reveals |
 | `--ease-out-soft` | cubic-bezier(0.22, 1, 0.36, 1) | deceleration reveals (scroll indicator) |
 | `--ease-slide` | cubic-bezier(0.4, 0, 0.2, 1) | structural slides (sidebar collapse) |
+| `--ease-spring` | cubic-bezier(0.34, 1.56, 0.64, 1) | overshoot pop for grabbable affordances (the volume thumb) — CSS-side; real damped springs use `svelte/motion` (slidingHighlight) |
 
 Literal `transition` durations fail CI. Keyframe `animation` choreography
 (spinners, pulses) keeps literal durations by design — those are rhythms, not
@@ -144,6 +145,21 @@ files there. Established adoptions to reuse, not re-invent:
   one into the other.
 - `ui/separator` is vendored but only consumed via Select's internals — prefer it
   over a hand-rolled divider if one is ever needed.
+
+### The control set (which primitive, and the house idiom)
+
+The six everyday controls, all vendored in `ui/` and all theme-wired for free
+(their shadcn tokens resolve from `--base-*`; see THEMING.md). Restyling any of
+them means **token/variant work, never a hand-edit of the `ui/*` file**.
+
+| Control | Primitive | House idiom |
+|---|---|---|
+| Buttons | `ui/button` | `ghost` and `outline` carry the app (passive chrome / bordered actions); `secondary` for filled-but-quiet, `destructive` for irreversible. Sizes `sm`/`icon-sm` in the header band, default elsewhere. The press-down nudge is globally cancelled (see Interaction states). Floating titlebar icons are `HeaderIconButton`, sidebar/inline icon squares are `IconButton` (`.icon-chrome-btn`). |
+| Modals | `ui/dialog` | The one modal surface (compose, shortcuts help, confirms). `rounded-xl` + `ring-foreground/10`; the scrim reads `--base-overlay` via the `[data-slot="dialog-overlay"]` rule in app.css. Keep open/close animations — they hinge on the `data-open`/`data-closed` custom variants (app.css), the first thing to check when a dialog won't animate. |
+| Switches | `ui/switch` | Boolean settings rows (the SettingsAppearance template: label + dim caption left, Switch right, `checked` + `onCheckedChange` wired to a named store mutator). Has a local `size="sm"\|"default"` prop. |
+| Checkboxes | `ui/checkbox` | Vendored for multi-select lists (a Switch is for a setting that applies immediately; a Checkbox is for selection that a later action consumes). `checked` + `indeterminate` are bindable. |
+| Dropdowns | `ui/select` for value pickers (chromed trigger, `align="end"` in settings rows); `ui/dropdown-menu` for action menus (RunScripts); `ui/context-menu` for right-click (worktree rows, chat tabs). Don't express one as another. | All three get the sliding active-pill via Select's `slidingHighlight` adoption or their own hover styling — no bespoke menu chrome. |
+| Icons | `@lucide/svelte`, per-icon imports | `size-3.5` is the workhorse inline size (rows, buttons); `size-4`/`size-4.5` in the header band where glyphs sit alone. Icons inherit `currentColor` — color the *parent*, never the icon. No other icon lib, no inline `<svg>` (CLAUDE.md hard rule). |
 
 ## Interaction states
 

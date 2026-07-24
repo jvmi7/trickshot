@@ -29,10 +29,11 @@
   // hover tint (the chip isn't a button) and owns the data-severity colors.
   const usageChipClass = cn(badgeVariants({ variant: "ghost" }), "usage-chip");
 
-  /** Color the chip by how close the primary window is to the cap. */
-  const severity = $derived(
-    primaryPct == null ? "normal" : primaryPct >= 90 ? "danger" : primaryPct >= 70 ? "warn" : "normal",
-  );
+  /** Severity band for a utilization percent (chip + per-row meter colors). */
+  function severityOf(p: number | null): "normal" | "warn" | "danger" {
+    return p == null ? "normal" : p >= 90 ? "danger" : p >= 70 ? "warn" : "normal";
+  }
+  const severity = $derived(severityOf(primaryPct));
 
   /** Human "resets in 2h 5m" from an ISO timestamp (coarse; refreshed per turn). */
   function resetsIn(iso: string | null | undefined): string {
@@ -56,12 +57,22 @@
         </span>
       {/snippet}
     </Tooltip.Trigger>
-    <Tooltip.Content>
+    <Tooltip.Content class="items-stretch p-2.5">
       <div class="usage-detail">
-        <div><strong>Subscription usage</strong></div>
+        <div class="section-label">Subscription usage</div>
         {#each windows as w (w.label)}
-          {#if pct(w) != null}
-            <div>{w.label}: {pct(w)}% · {resetsIn(w.resets_at)}</div>
+          {@const p = pct(w)}
+          {#if p != null}
+            <div class="usage-window" data-severity={severityOf(p)}>
+              <div class="usage-row">
+                <span class="usage-row-label">{w.label}</span>
+                <span class="usage-row-pct">{p}%</span>
+              </div>
+              <div class="usage-meter" role="presentation">
+                <div class="usage-meter-fill" style="width: {Math.min(p, 100)}%"></div>
+              </div>
+              <div class="usage-row-reset">{resetsIn(w.resets_at)}</div>
+            </div>
           {/if}
         {/each}
         {#if $usageError}
@@ -93,12 +104,60 @@
   .usage-detail {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 8px;
+    min-width: 180px;
     font-size: var(--text-sm);
     line-height: 1.4;
   }
+  .usage-window {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .usage-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .usage-row-label {
+    color: var(--base-text);
+  }
+  .usage-row-pct {
+    font-variant-numeric: tabular-nums;
+    color: var(--base-text);
+  }
+  .usage-row-reset {
+    font-size: var(--text-xs);
+    color: var(--app-dim);
+  }
+  /* Utilization meter: a thin track filled to the window's percent, colored by
+     the same severity bands as the chip. */
+  .usage-meter {
+    height: 3px;
+    border-radius: 999px; /* pill — genuinely round */
+    background: var(--app-border);
+    overflow: hidden;
+  }
+  .usage-meter-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--base-accent);
+  }
+  .usage-window[data-severity="warn"] .usage-meter-fill {
+    background: var(--base-warning);
+  }
+  .usage-window[data-severity="warn"] .usage-row-pct {
+    color: var(--base-warning);
+  }
+  .usage-window[data-severity="danger"] .usage-meter-fill {
+    background: var(--app-danger);
+  }
+  .usage-window[data-severity="danger"] .usage-row-pct {
+    color: var(--app-danger);
+  }
   .usage-note {
-    margin-top: 4px;
-    opacity: 0.7;
+    color: var(--app-dim);
+    font-size: var(--text-xs);
   }
 </style>
