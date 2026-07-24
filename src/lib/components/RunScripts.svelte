@@ -13,6 +13,7 @@
   } from "../stores";
   import * as api from "../api";
   import { toastError } from "../toast";
+  import AnsiText from "./AnsiText.svelte";
   import { Button } from "$lib/components/ui/button";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
   import * as Tooltip from "$lib/components/ui/tooltip";
@@ -25,6 +26,10 @@
   const wt = $derived($selectedWorktree);
   const running = $derived($activeScriptRun?.status === "running");
   const runScripts = $derived($activeScripts?.run ?? []);
+  // The hover preview's live tail: the run's last few output lines — enough
+  // to read the app's state (compiling, listening on :3000, crashing) at a
+  // glance without opening the Run tab.
+  const tail = $derived(($activeScriptRun?.output ?? []).slice(-6));
 
   // (Re-)read the owning repo's scripts config whenever the repo under the
   // selection changes, so the menu reflects the file without a manual refresh.
@@ -80,7 +85,23 @@
           </Button>
         {/snippet}
       </Tooltip.Trigger>
-      <Tooltip.Content>Stop “{$activeScriptRun?.name}”</Tooltip.Content>
+      <!-- The state preview: what the running app is DOING right now (live
+           output tail), not just its name — click stops it. -->
+      <Tooltip.Content align="end" class="items-stretch p-2.5">
+        <div class="run-state">
+          <div class="section-label">{$activeScriptRun?.name} — running</div>
+          {#if tail.length > 0}
+            <div class="run-state-tail">
+              {#each tail as line, i (i)}
+                <div class="run-state-line"><AnsiText text={line} /></div>
+              {/each}
+            </div>
+          {:else}
+            <div class="run-state-empty">no output yet</div>
+          {/if}
+          <div class="run-state-hint">click to stop · Run tab has the full log</div>
+        </div>
+      </Tooltip.Content>
     </Tooltip.Root>
   {:else if runScripts.length === 1 && runScripts[0]}
     <Tooltip.Root>
@@ -134,3 +155,34 @@
     <span class="error-text whitespace-nowrap" title={error}>script failed to start</span>
   {/if}
 {/if}
+
+<style>
+  /* The running-state hover card (tooltip content) — the UsageIndicator
+     .usage-detail precedent: one-component tooltip content stays scoped. */
+  .run-state {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 220px;
+    max-width: 380px;
+  }
+  .run-state-tail {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-family: var(--app-font-mono);
+    font-size: var(--text-2xs);
+    line-height: 1.5;
+    color: var(--app-text);
+  }
+  .run-state-line {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: pre;
+  }
+  .run-state-empty,
+  .run-state-hint {
+    font-size: var(--text-2xs);
+    color: var(--app-dim);
+  }
+</style>
