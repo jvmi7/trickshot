@@ -56,7 +56,7 @@
   import Welcome from "./lib/components/Welcome.svelte";
   import ComposeDialog from "./lib/components/ComposeDialog.svelte";
   import ShortcutsHelp from "./lib/components/ShortcutsHelp.svelte";
-  import UsageIndicator from "./lib/components/UsageIndicator.svelte";
+  import Footer from "./lib/components/Footer.svelte";
   import { Button } from "./lib/components/ui/button";
   import { Toaster } from "./lib/components/ui/sonner";
   import * as Tooltip from "./lib/components/ui/tooltip";
@@ -340,7 +340,6 @@
         <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
              nothing to act on there. -->
         {#if $centerView !== "settings" && $repos.length > 0}
-          <UsageIndicator />
           <RunScripts />
           <ViewToggle />
         {/if}
@@ -381,6 +380,9 @@
       {/if}
       </div>
     </div>
+    <!-- Status footer: usage + ambient items live UNDER the work, not in the
+         header. -->
+    <Footer />
   </main>
 </div>
 </Tooltip.Provider>
