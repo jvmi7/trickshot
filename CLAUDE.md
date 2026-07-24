@@ -56,7 +56,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Provider DISPLAY registry (per-provider copy: sign-in banner, usage footnote, auth-error matcher) — the only webview module that may name a provider | `src/lib/providers.ts` |
 | CLI busy/idle detection (PTY output flow → busy dot / unread) | `src/lib/cliActivity.ts` (pure tracker + tests) wired in `terminal.ts › noteCliActivity` |
 | Integrated terminal (PTYs per worktree: shell + claude slots) | `src-tauri/src/terminal.rs` (portable-pty commands, `launch` whitelist) + `src/lib/terminal.ts` (xterm cache + `term-event` router + `attachTerminal` + `claudeTermKey`) + `TerminalPane.svelte`/`ClaudeTerminalPane.svelte` |
-| The chat pane (the real Claude Code TUI) | `ClaudeTerminalPane.svelte` + `session.ts › ensureClaudeOpen/sendToCli/submitTurnToChat/handleCliExit` + `agent.rs › latest_session_id` |
+| The chat pane (the real Claude Code TUI; MULTIPLE concurrent chats per worktree, rendered as tabs or an n-up grid) | `ChatTabs.svelte` (the strip, on the shell band OUTSIDE the card — App.svelte mounts it) + `ClaudeTerminalPane.svelte` (the in-card surface: focused cell / grid) + `ClaudeTerminalCell.svelte` (one chat's terminal) + `stores.ts › chatSessionsByWorktree/focusedChatByWorktree/chatLayout/chatStatusByKey` + `session.ts › ensureClaudeOpen/sendToCli/submitTurnToChat/handleCliExit` + `agent.rs › latest_session_id` |
 | Compose popup (⌘E long-prompt editor → bracketed-paste into the CLI) | `ComposeDialog.svelte` + `stores.ts › composeOpen/composeDraft` |
 | Theme definitions (the `--base-*` palettes behind `[data-theme]`) | `src/lib/themes.ts` (injected via `app.css`/`stores.ts`, see THEMING.md) |
 | Syntax highlighting (DiffView) | `src/lib/highlight.ts` |

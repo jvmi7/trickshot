@@ -36,11 +36,19 @@ fn newest_session_in(dir: &std::path::Path) -> Option<String> {
     newest.map(|(_, id)| id)
 }
 
-/// The most recent Claude Code session id for a worktree — the resume target
-/// when (re)opening its CLI chat. Resuming FORKS a new session id, so any
-/// remembered id goes stale the moment the CLI runs; the newest `.jsonl` in
-/// the project's session dir is the live thread. Provider-gated like
-/// `get_usage`/`check_auth`: the session store layout is Claude-specific.
+/// A worktree's Claude Code session dir (`~/.claude/projects/<encoded path>`).
+fn project_session_dir(worktree: &str) -> Result<std::path::PathBuf, String> {
+    let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+    Ok(std::path::PathBuf::from(home)
+        .join(".claude")
+        .join("projects")
+        .join(encode_claude_project_dir(worktree)))
+}
+
+/// The most recent Claude Code session id for a worktree — the DEFAULT chat's
+/// first-open resume target (the migration path from before per-chat ids were
+/// stored). Provider-gated like `get_usage`/`check_auth`: the session store
+/// layout is Claude-specific.
 #[tauri::command]
 pub async fn latest_session_id(
     worktree: String,
@@ -48,12 +56,39 @@ pub async fn latest_session_id(
 ) -> Result<Option<String>, String> {
     crate::usage::ensure_known_provider(provider.as_deref())?;
     tauri::async_runtime::spawn_blocking(move || {
-        let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
-        let dir = std::path::PathBuf::from(home)
-            .join(".claude")
-            .join("projects")
-            .join(encode_claude_project_dir(&worktree));
-        Ok(newest_session_in(&dir))
+        Ok(newest_session_in(&project_session_dir(&worktree)?))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Whether a session's transcript exists in the worktree's session store. The
+/// multi-chat open decision: an EXISTING session is resumed (`--resume`); a
+/// stored-but-never-written one (the CLI creates transcripts lazily on the
+/// first message) is re-created under the SAME id (`--session-id`) — resuming
+/// a transcript-less id would error. Provider-gated like `latest_session_id`.
+#[tauri::command]
+pub async fn session_exists(
+    worktree: String,
+    session_id: String,
+    provider: Option<String>,
+) -> Result<bool, String> {
+    crate::usage::ensure_known_provider(provider.as_deref())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        // The id lands in a filename — hold it to the same validation as the
+        // PTY spawn (terminal.rs) so a crafted id can't traverse paths.
+        if session_id.is_empty()
+            || session_id.starts_with('-')
+            || !session_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            || session_id.contains("..")
+        {
+            return Err("invalid session id".to_string());
+        }
+        Ok(project_session_dir(&worktree)?
+            .join(format!("{session_id}.jsonl"))
+            .is_file())
     })
     .await
     .map_err(|e| e.to_string())?

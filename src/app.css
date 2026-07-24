@@ -370,6 +370,11 @@
   --base-surface: #161616;        /* panels: header, sidebar, cards, popovers */
   --base-surface-raised: #1f1f1f; /* hover / secondary / muted / accent surfaces */
   --base-border: #2e2e2e;         /* dividers, inputs */
+  /* DERIVED (not a palette key — themes override --base-border and flow
+     through): the globally SOFTENED border tint every border token maps to.
+     Turn intensity up/down here, one knob for the whole app. The full-
+     strength --base-border remains for non-border uses (ANSI black). */
+  --base-border-soft: color-mix(in oklch, var(--base-border) 35%, var(--base-bg));
   --base-text: #e7e7e7;           /* primary text (plain light gray, like the TUI) */
   --base-text-muted: #8f8f8f;     /* dim / secondary text */
   --base-accent: #d97757;         /* the TUI's coral cursor / Claude brand */
@@ -428,8 +433,8 @@
   --accent: var(--base-surface-raised);
   --accent-foreground: var(--base-text);
   --destructive: var(--base-danger);
-  --border: var(--base-border);
-  --input: var(--base-border);
+  --border: var(--base-border-soft);
+  --input: var(--base-border-soft);
   --ring: var(--base-accent);
   --chart-1: var(--base-accent);
   --chart-2: var(--base-success);
@@ -442,7 +447,7 @@
   --sidebar-primary-foreground: var(--base-on-accent);
   --sidebar-accent: var(--base-surface-raised);
   --sidebar-accent-foreground: var(--base-text);
-  --sidebar-border: var(--base-border);
+  --sidebar-border: var(--base-border-soft);
   --sidebar-ring: var(--base-accent);
 }
 
@@ -549,6 +554,15 @@
   /* Bespoke-layout tokens — now derive from the same base palette as the
      shadcn tokens, so a theme restyles the header/sidebar/chat too. */
   --app-bg: var(--base-bg);
+  /* The terminal surface's vertical gradient (the chat-trail backdrop): a
+     whisper lighter than the bg at the top, sinking toward black at the
+     bottom — "lit from above". Derived from the base palette (the --app-shell
+     black-mix precedent) so themes keep the effect for free. */
+  /* The cursor-proximity border glow's light color — ONE knob for every
+     masked ring (card frame, grid cells, tab chrome + arcs). */
+  --app-glow: color-mix(in oklch, var(--base-text) 30%, transparent);
+  --app-term-bg-top: color-mix(in oklch, var(--base-bg) 99%, var(--base-text));
+  --app-term-bg-bottom: color-mix(in oklch, var(--base-bg) 78%, black);
   /* The SHELL: the chrome around the content card (layout, sidebar, header) —
      one step darker than the terminal/card bg so the card reads as raised.
      Derived (not a palette key) so every theme gets it for free. */
@@ -559,11 +573,24 @@
      card runs DELIBERATELY rounder (a chosen departure, not an oversight).
      The eye stops comparing curvatures once the gap is this wide. */
   --app-window-radius: 10px;
-  --app-pane-gap: 12px;
+  --app-pane-gap: 8px;
   --app-pane-radius: 14px;
+  /* The concentric inner radius for rings drawn 1px inside the pane frame
+     (the .content::after glow) — outer radius minus the 1px border. */
+  --app-pane-radius-inner: calc(var(--app-pane-radius) - 1px);
+  /* Chat-tab top corners (the connected Chrome-style tabs) — rounder than the
+     control ladder, shy of the pane. */
+  --app-tab-radius: var(--app-pane-radius); /* tabs share the card curvature */
+  /* The concave FEET where the tab meets the card's top edge — matched to
+     the tabs' top corners so the S-curve is symmetric. */
+  --app-tab-flare: var(--app-tab-radius);
+  /* Tab height — the strip band (h + 2), the trail's band reach (h + 3), and
+     the arc-glow light anchors all derive from this one token. */
+  --app-tab-h: 34px;
+
   --app-panel: var(--base-surface);
   --app-panel-2: var(--base-surface-raised);
-  --app-border: var(--base-border);
+  --app-border: var(--base-border-soft);
   --app-text: var(--base-text);
   --app-dim: var(--base-text-muted);
   --app-accent: var(--base-accent);
@@ -595,6 +622,7 @@
      their own rhythm, not interaction feedback. */
   --app-duration-fast: 120ms;
   --app-duration-slow: 300ms;
+  --app-duration-lazy: 600ms; /* ambient shifts (grid focus dim) — felt, not watched */
   /* Shadows. Black-based so the value works over light-valued theme palettes
      too; if a theme ever needs a custom shadow, promote this to a ThemePalette
      key via PALETTE_VARS (themes.ts) instead of forking it per-site. */
@@ -650,6 +678,16 @@ html, body {
   overflow: hidden;
   background: var(--app-shell);
 }
+
+/* ---- status footer (Footer.svelte): the slim band under the card — the
+   usage chip + ambient items. The header's quiet sibling. ---- */
+.app-footer { flex-shrink: 0; display: flex; align-items: center; gap: 10px; height: 28px; padding: 0 calc(var(--app-pane-gap) + 2px); }
+.footer-spacer { flex: 1; }
+/* The ⌘K affordance: reads as a hint, works as a button. */
+.footer-hint { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; background: transparent; border: 0; border-radius: calc(var(--radius) - 2px); font-size: var(--text-2xs); font-family: var(--app-font-mono); color: var(--app-dim); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
+.footer-hint:hover { color: var(--app-text); background: var(--app-panel); }
+.footer-hint svg { width: 10px; height: 10px; }
+.footer-hint-label { font-family: var(--app-font); }
 
 /* ---- content-column top bar (Header.svelte) ---- */
 .app-header {
@@ -723,15 +761,18 @@ html, body {
 .sidebar-head { height: 35px; flex-shrink: 0; } /* stays in step with .app-header */
 .sidebar-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 4px 16px 16px; /* slim right gutter — content runs close to the resize line */ }
 .sidebar-foot { flex-shrink: 0; padding: 8px; }
-/* Drag handle straddling the sidebar's right border: a wide (6px) invisible grab
-   target, but the hover highlight is just a thin accent line over the border (not
-   the full grab width). */
+/* Sidebar drag handle, anchored to the CONTENT CARD (App.svelte mounts it
+   inside .content): a wide invisible grab target whose thin hover line sits
+   exactly ON the card's left border, spanning only the straight edge — the
+   pane-radius insets stop it where the corners start curving. */
 .sidebar-resize {
   position: absolute;
-  top: 35px; /* clear the header band (stays in step with .sidebar-head/.app-header) */
-  bottom: 0;
-  right: -6px;
-  width: 12px;
+  top: var(--app-pane-radius);
+  bottom: var(--app-pane-radius);
+  /* Grab zone reaches from 6px right of the border back past the line at
+     -8px (with 6px of slack beyond it) — the line sits mid-zone again. */
+  left: -14px;
+  width: 20px;
   cursor: col-resize;
   z-index: var(--app-z-chrome);
 }
@@ -741,13 +782,22 @@ html, body {
   top: 0;
   bottom: 0;
   left: 50%;
-  transform: translateX(-50%);
-  width: 2px;
-  background: transparent;
-  transition: background var(--app-duration-fast) ease;
+  /* 2px left of the card border — a hairline of air between line and frame. */
+  transform: translateX(calc(-50% - 4px));
+  width: 1px;
+  opacity: 0;
+  /* The line itself: neutral tint, TAPERING to transparent at both ends
+     (only opacity animates — the gradient is the line's shape). */
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in oklch, var(--app-text) 30%, var(--app-border)) 5%,
+    color-mix(in oklch, var(--app-text) 30%, var(--app-border)) 95%,
+    transparent
+  );
+  transition: opacity var(--app-duration-fast) ease;
 }
-.sidebar-resize:hover::after { background: var(--app-accent); }
-.sidebar.collapsed .sidebar-resize { display: none; } /* nothing to grab when hidden */
+.sidebar-resize:hover::after { opacity: 1; }
 /* During a drag: show the resize cursor everywhere and don't select text. */
 .layout.resizing { cursor: col-resize; user-select: none; }
 
@@ -765,33 +815,63 @@ html, body {
   min-height: 0;
   /* Top gap is its own value (deliberately smaller than the side/bottom
      inset — the header band above already provides some separation). */
-  margin: 6px var(--app-pane-gap) var(--app-pane-gap);
+  margin: 6px var(--app-pane-gap) 0; /* bottom air comes from the footer band */
   background: var(--app-bg);
-  /* A real border (outline corners render unevenly at radius) + a 1px inner
-     padding so flush terminal rows can't smear onto the frame's pixel row at
-     fractional device scaling — the padding is the operative guard. */
-  padding: 1px;
+  /* A real border (outline corners render unevenly at radius). The old 1px
+     smear-guard padding moved INTO .content-clip (below) so the trail canvas
+     can reach the border's inner edge — no unpaintable dark ring. */
+  padding: 0;
   border: 1px solid var(--app-border);
   border-radius: var(--app-pane-radius);
-  overflow: hidden;
+  /* NO overflow:hidden here — clipping lives on .content-clip below, so the
+     ::after glow ring can sit at -1px, exactly ON the border line (a recolor
+     of the same pixel row, never a second ring beside it). */
+  /* The terminal-focus ring (below): an OUTLINE, not a pseudo — overflow:hidden
+     would clip a child ring, and outline both escapes the clip and follows the
+     corner radius. Always present (transparent at rest) so only the color
+     animates; it fades on the SLOW clock + soft ease, the same curve as the
+     glow ring's fade below, so the frame effects breathe as one family. */
+  outline: 1px solid transparent;
+  outline-offset: 4px;
+  transition: outline-color var(--app-duration-slow) var(--ease-out-soft);
 }
+/* Terminal-focused frame: while the chat terminal owns the keyboard (xterm
+   stamps `.focus` on its root), a neutral ring floats 4px OUTSIDE the card's
+   border — a quiet "keystrokes go here" signal that leaves the border itself
+   untouched. Scoped to the xterm focus class (NOT :focus-within) so
+   Settings/Fleet focus doesn't light it. */
+.content:has(.xterm.focus) {
+  outline-color: color-mix(in oklch, var(--app-text) 30%, var(--app-border));
+}
+/* The card's clipping box: children clip to the rounded PADDING box here
+   (not on .content itself) so the glow ring above can overlay the border.
+   The 1px padding is the smear guard (panes' own painting starts 1px inside
+   the frame at fractional device scaling). */
+.content-clip { flex: 1; display: flex; min-width: 0; min-height: 0; overflow: hidden; padding: 1px; border-radius: var(--app-pane-radius-inner); }
+/* THE shared chat background: one trail canvas behind the whole surface,
+   clipped to card∪tab by chatSilhouette (a live-measured path). Extends up
+   over the strip band (--app-tab-h + 2px strip padding + 1px border row) so
+   active tab's bump is part of the same sheet; its own bg fills the bump
+   (the tab button is transparent). Everything above — panes, tab label,
+   borders — is the mask's chrome. */
+.chat-trail { position: absolute; left: 0; right: 0; bottom: 0; top: calc(-3px - var(--app-tab-h)); background: linear-gradient(var(--app-term-bg-top), var(--app-term-bg-bottom)); pointer-events: none; }
+.chat-trail canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 /* Cursor-proximity border highlight (borderGlow.ts writes --glow-x/y/o): a
-   radial light centered on the pointer, masked to ONLY a 1px ring — the border
-   lightens near the cursor and falls off with distance. The mask trick: paint
-   the whole box, then punch out the padding-box so just the ring survives.
-   The ring sits at inset: 0 — .content's overflow:hidden clips to its PADDING
-   box, so a ring over the real border (-1px) would be clipped; hugging the
-   border's inner edge is visually identical at 1px. Purely decorative
-   (pointer-events: none); fades on window enter/leave. */
+   radial light centered on the pointer, masked to ONLY a 1px ring sitting at
+   -1px — EXACTLY over the real border, so proximity is a pure RECOLOR of the
+   border line (never a second ring beside it, which read as thickening). The
+   mask trick: paint the whole box, then punch out the padding-box so just
+   the ring survives. Purely decorative (pointer-events: none); fades on
+   window enter/leave. */
 .content::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: -1px;
   border: 1px solid transparent;
   border-radius: var(--app-pane-radius);
   background: radial-gradient(
       260px circle at var(--glow-x, 50%) var(--glow-y, 50%),
-      color-mix(in oklch, var(--base-text) 45%, transparent),
+      var(--app-glow),
       transparent 70%
     )
     border-box;
@@ -806,8 +886,12 @@ html, body {
     linear-gradient(var(--base-text) 0 0) border-box;
   mask-composite: exclude;
   opacity: var(--glow-o, 0);
-  transition: opacity var(--app-duration-slow) var(--ease-out-soft);
   pointer-events: none;
+  /* chatSilhouette notches the ring out across the active tab's opening —
+     the ring paints above the (transparent) tab and would underline it. The
+     clip morphs with the chrome slide (same tempo). */
+  clip-path: var(--frame-clip, none);
+  transition: opacity var(--app-duration-slow) var(--ease-out-soft);
 }
 
 /* ---- settings page (swaps in for the chat in the center pane) ---- */
@@ -892,28 +976,6 @@ html, body {
 .term-host.term-resize-rtl.term-resizing .xterm {
   mask-position: 0% 0%;
 }
-/* Terminal backdrop (ClaudeTerminalPane): the bg layer under the transparent
-   xterm. cursorTrail.ts appends a canvas here and paints the trailing cursor
-   effect on it — a grid of squares lighting up in the theme's neutral
-   foreground gray as the trail passes (--base-text, resolved in the action).
-   Decorative: pointer-events none. */
-.term-bg {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: var(--base-bg);
-  overflow: hidden;
-  pointer-events: none;
-}
-.term-bg canvas {
-  position: absolute;
-  inset: 0;
-  /* Pin the CSS size to the pane: the bitmap is DEVICE pixels (node × dpr),
-     and a replaced element ignores inset for sizing — without this the canvas
-     renders at intrinsic (dpr×) size and the grid lands off-cursor. */
-  width: 100%;
-  height: 100%;
-}
 /* Per-theme glyph glow (--base-term-glow, a full text-shadow; a theme sets `none`
    to disable). Works because xterm runs its DOM renderer (real text in spans) —
    currentColor resolves PER SPAN, so each ANSI color glows in its own hue. If a
@@ -969,6 +1031,430 @@ html, body {
 }
 /* Text styling is the shared .error-text; this just pads it off the pane edges. */
 .term-error { padding: 6px 12px; }
+
+/* ---- multi-chat: Chrome-style tab strip CONNECTED to the card ---- */
+/* The strip lives OUTSIDE the content card, on the shell band (App.svelte).
+   The ACTIVE tab merges with the card below: card-bg fill, top-rounded, its
+   own 1px border CONTINUING the card's (the frame), a 1px overlap that
+   swallows the card's top border along its interior width, and concave
+   flares whose gradient carries the border STROKE around the curve — the
+   card border flows into the tab's sides without a break. Tabs start past
+   the card's rounded top-left corner so the merge lands on a straight edge. */
+/* The band PERSISTS in both layouts (it hosts the always-visible + and the
+   tabs⇄grid toggle); in GRID mode only the TABS + their chrome disappear —
+   a fade in place while their width slot closes. NOTHING moves vertically
+   between the two layouts. */
+.chat-tabs { position: relative; z-index: 1; flex-shrink: 0; display: flex; align-items: flex-end; gap: 2px; height: calc(var(--app-tab-h) + 2px); padding: 2px var(--app-pane-gap) 0; }
+/* The band bottom-aligns (the tabs' feet must sit ON the card edge), which
+   drops the 24px icon buttons below the tabs' visual center — center THEM.
+   Their corners match the tabs' radius (the band's shared curvature). The
+   +'s extra berth off the last tab is INLINE (ChatTabs › PLUS_GAP) so the
+   tab-width math shares the constant. */
+.chat-tabs > .icon-chrome-btn { align-self: flex-start; border-radius: var(--app-tab-radius); }
+/* GRID mode hides the + (splits are the add path there); opacity, not
+   unmount, so it keeps its slot and fades with the tabs. */
+.chat-tabs[data-collapsed] .chat-add-btn { opacity: 0; pointer-events: none; }
+/* The tabs⇄grid slider (ChatTabs, right end of the band): two icon segments
+   above slidingToggle's gliding pill. Items keep no hover fill of their own
+   (the pill IS the fill); the active icon brightens. */
+.chat-layout-toggle { display: inline-flex; align-items: center; gap: 2px; position: relative; align-self: flex-start; }
+.chat-layout-toggle .icon-chrome-btn { position: relative; z-index: 1; border-radius: var(--app-tab-radius); }
+.chat-layout-toggle .icon-chrome-btn:hover { background: transparent; }
+.chat-layout-toggle .icon-chrome-btn[data-active] { color: var(--app-text); }
+/* The sink clip is its OWN attribute (not part of data-collapsed): the
+   sliding chrome deliberately dips 1px below the strip into the card's border
+   row, so clipping can't be unconditional. ChatTabs sets data-clip with the
+   collapse and releases it only when the EXPAND's translate transition ends. */
+.chat-tabs[data-clip] { overflow: clip; }
+/* GRID mode: the tabs (chrome included — inner opacity multiplies the
+   chrome's inline opacity) FADE IN PLACE. No translate: nothing may shift
+   vertically between the two layouts. */
+.chat-tabs[data-collapsed] .chat-tabs-rail-inner { opacity: 0; pointer-events: none; }
+/* The tabs' width slot: 1fr → 0fr in grid mode releases the sunk tabs'
+   LAYOUT width on the same clock, so the + glides to the band's left edge
+   instead of hanging after an invisible row. */
+.chat-tabs-rail { display: grid; grid-template-columns: 1fr; min-width: 0; transition: grid-template-columns var(--app-duration-slow) var(--ease-out-soft); }
+.chat-tabs[data-collapsed] .chat-tabs-rail { grid-template-columns: 0fr; }
+/* The chrome's offset parent + the tabs' flex row. overflow-x clips the
+   shrinking slot ONLY under data-clip (overflow-y stays visible — the
+   chrome's 1px dip into the card border row must survive tabs mode; `clip`
+   never makes a scroll container, so the axis split is honored). */
+.chat-tabs-rail-inner { position: relative; display: flex; align-items: flex-end; gap: 2px; min-width: 0; transition: opacity var(--app-duration-slow) var(--ease-out-soft); }
+.chat-tabs[data-clip] .chat-tabs-rail-inner { overflow-x: clip; }
+/* ONE frame color feeds the card border, the active tab's border, and the
+   flare strokes — and carries the terminal-focus tint: the detached focus
+   ring would cross the connected tabs, so WITH tabs the frame tint IS the
+   focus signal (the ring stays for tab-less views). */
+.main { --chat-frame: var(--app-border); }
+/* :not(:has(.chat-grid)) — in GRID mode every cell tints its OWN border on
+   focus instead (one shared frame var would light all of them at once). */
+.main:has(.chat-tabs + .content .xterm.focus):not(:has(.chat-grid)) { --chat-frame: color-mix(in oklch, var(--app-text) 30%, var(--app-border)); }
+/* The card follows flush — the strip owns the vertical gap, and the active
+   tab's 1px overlap lands exactly ON the card's top border row (the band
+   persists in GRID mode too, so the gap never changes). background-color
+   joins the transition list so the card's chrome fades out under the
+   floating cells when grid engages. */
+.chat-tabs + .content { margin-top: 0; outline: none; border-color: var(--chat-frame); transition: border-color var(--app-duration-slow) var(--ease-out-soft), background-color var(--app-duration-slow) var(--ease-out-soft); }
+/* GRID mode, keyed purely off the grid's presence: the card dissolves — its
+   bg/border fade to transparent (border-color, NOT border: 0 — removing the
+   1px box would shift layout and break chatSilhouette's inner-edge math) and
+   the cells become the floating cards. The trail canvas behind stays ONE
+   surface; chatSilhouette clips it to the union of the cell rects. */
+.content:has(.chat-grid) { background: transparent; border-color: transparent; outline: none; }
+/* Card ring off — each cell carries its own (below). */
+.content:has(.chat-grid)::after { display: none; }
+/* The clip box steps aside: corner cells' -1px glow rings and full-radius
+   corners must not be shaved by the card's inner radius. Nothing can actually
+   overflow — the grid is flex:1 with minmax(0,1fr) tracks. */
+.content:has(.chat-grid) > .content-clip { padding: 0; border-radius: 0; overflow: visible; }
+/* Fixed height (not text-metric padding): the -1px overlap below must land on
+   an integer row or the card border ghosts through at fractional layouts. */
+.chat-tab { position: relative; flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: var(--app-tab-h); padding: 0 12px; font-size: var(--text-sm); color: var(--app-dim); background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: var(--app-tab-radius); cursor: pointer; transition: color var(--app-duration-fast) ease, background var(--app-duration-fast) ease; }
+/* Inactive hover: just the text brightening — no chip fill. */
+.chat-tab:not([data-active]):hover { color: var(--app-text); }
+/* -1px overlap: the tab's bottom row lands exactly ON the card's top border
+   row, swallowing it for the tab's width — no deeper, or the side borders
+   overshoot visibly below the frame line. (The cursor-glow ring sits ON the
+   border row too — .content::after at -1px — so one row covers both.) */
+/* z-index 0 makes the tab its own stacking context, so the trail canvas's
+   z:-1 slots between the tab's background and its label instead of escaping
+   behind the button entirely. */
+/* The active BUTTON is a pure label now — the visible chrome (frame stroke,
+   flares, glow) lives on ONE .chat-tab-chrome overlay that slidingTabChrome
+   glides between tabs. The button's transparent border stays (layout). */
+.chat-tab[data-active] { color: var(--app-text); background: transparent; border-color: transparent; }
+/* The sliding chrome: sized/positioned over the active tab by a DAMPED
+   SPRING (slidingTabChrome › svelte/motion) writing left/width/top/height
+   per frame — no CSS transition; the same border scheme as a button so
+   every child layer's padding-box anchoring carries over verbatim. The
+   silhouette bump + ring notch re-derive from this element's live rect each
+   frame (chatSilhouette), so they spring together. */
+.chat-tab-chrome {
+  position: absolute;
+  pointer-events: none;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0;
+  opacity: 0;
+  transition: opacity var(--app-duration-fast) ease;
+}
+.chat-tab-frame {
+  position: absolute;
+  inset: -1px;
+  bottom: var(--app-tab-flare);
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0;
+  background: var(--chat-frame);
+  -webkit-mask:
+    linear-gradient(var(--base-text) 0 0) padding-box,
+    linear-gradient(var(--base-text) 0 0) border-box;
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(var(--base-text) 0 0) padding-box,
+    linear-gradient(var(--base-text) 0 0) border-box;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* The active tab's slice of the trailing-cursor surface (see ChatTabs +
+   cursorTrail's viewport-aligned grid): a clipped canvas host painted between
+   the tab's fill and its label. */
+/* The concave flares: squares beside the tab's foot. The radial gradient is
+   shell-transparent inside the quarter-circle, a 1px FRAME-colored arc on it
+   (tangent to the card border below and the tab's side border above — the
+   stroke turns the corner), then card-bg out to the tab. */
+/* STROKE-ONLY arcs (the outer stop is transparent): the shared chat-trail
+   surface fills the feet — its silhouette includes the concave arcs — so the
+   flares just draw the frame line turning the corner. */
+.chat-tab-chrome::before,
+.chat-tab-chrome::after { content: ""; position: absolute; bottom: 0; width: calc(var(--app-tab-flare) + 1px); height: var(--app-tab-flare); }
+/* The two 1px patch layers pin the arc's tangent ENDS to the strokes it
+   meets (tab side above, card border below) — at grazing angles the arc's
+   own AA is too faint to close the joint. */
+/* The LEFT side is the one that merges with the card — its flare radius is
+   var(--flare-l) (chatSilhouette, per frame): full radius normally, shrinking
+   to nothing as the chrome docks into the corner. */
+/* The arc circle anchors to the box BOTTOM (not the top): the box height is
+   the full radius but --flare-l shrinks mid-morph, and a top-anchored circle
+   would paint the shrunken arc (8 - fl)px too high — a floating curl with no
+   stroke over the actual foot during the last px of the slide. The top patch
+   stretches to bridge the straight column from the frame ring's end (a fixed
+   radius up) down to the moving tangent (fl up), + the 2px AA overlap. */
+/* The box reaches 1px past the card edge (left -1, width +2 vs the radius):
+   at the fl = 0 limit — the chrome docked but the spring not yet settled, so
+   data-flush hasn't landed — the arc degenerates to nothing and the stretched
+   top patch IS the straight 1px border column, i.e. exactly the flush state.
+   Without the overhang that last-frames-of-flight window paints no left
+   border at all. */
+.chat-tab-chrome::before { left: calc(-1 * var(--flare-l, var(--app-tab-flare)) - 1px); width: calc(var(--flare-l, var(--app-tab-flare)) + 2px); background:
+  linear-gradient(var(--chat-frame), var(--chat-frame)) right 1px top 0 / 1px calc(var(--app-tab-flare) - var(--flare-l, var(--app-tab-flare)) + 2px) no-repeat,
+  linear-gradient(var(--chat-frame), var(--chat-frame)) left 0 bottom 0 / 2px 1px no-repeat,
+  radial-gradient(circle at 1px calc(100% - var(--flare-l, var(--app-tab-flare))), transparent calc(var(--flare-l, var(--app-tab-flare)) - 1.25px), var(--chat-frame) calc(var(--flare-l, var(--app-tab-flare)) - 0.75px), var(--chat-frame) calc(var(--flare-l, var(--app-tab-flare)) - 0.25px), transparent calc(var(--flare-l, var(--app-tab-flare)) + 0.25px)); }
+/* The tab's share of the cursor glow: a ring overlay at -1px over its OWN
+   border (top + sides only — a zero bottom border keeps the ring out of the
+   tab's opening), same radial recipe as .content::after, driven by the tab's
+   own use:borderGlow vars — the light reads as ONE continuous frame across
+   card + tab. The flare arcs stay at the base frame color: an 8px gap the
+   260px-radius light makes imperceptible. */
+.chat-tab-glow {
+  position: absolute;
+  inset: -1px;
+  /* The ring's side columns stop at the flare junction — below it the tab's
+     side border is interior (covered by the flares); the ARC glow pseudos
+     below take over from there. z-index 1 floats the arc glows above the
+     flares' own stroke so proximity recolors it. */
+  bottom: var(--app-tab-flare);
+  z-index: 1;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--app-tab-radius) var(--app-tab-radius) 0 0;
+  background: radial-gradient(
+      260px circle at var(--glow-x, 50%) var(--glow-y, 50%),
+      var(--app-glow),
+      transparent 70%
+    )
+    border-box;
+  -webkit-mask:
+    linear-gradient(var(--base-text) 0 0) padding-box,
+    linear-gradient(var(--base-text) 0 0) border-box;
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(var(--base-text) 0 0) padding-box,
+    linear-gradient(var(--base-text) 0 0) border-box;
+  mask-composite: exclude;
+  opacity: var(--glow-o, 0);
+  transition: opacity var(--app-duration-slow) var(--ease-out-soft);
+  pointer-events: none;
+}
+/* The flares' share of the glow: SIBLING spans congruent with the tab's
+   flare pseudos (same containing block — the button's padding box — so the
+   same offsets land the same boxes), painting the 260px light masked to the
+   arc's stroke band. The frame recolor turns the corner with the cursor.
+   Gradient centers re-anchor the tab-relative --glow-x/y into each box (the
+   right side uses the action's right-anchored --glow-xr; --app-tab-h = the
+   tab's fixed height). z-index 1 floats them above the flares' own stroke. */
+.chat-tab-glow-arc {
+  position: absolute;
+  bottom: 0;
+  width: calc(var(--app-tab-flare) + 1px);
+  height: var(--app-tab-flare);
+  z-index: 1;
+  opacity: var(--glow-o, 0);
+  transition: opacity var(--app-duration-slow) var(--ease-out-soft);
+  pointer-events: none;
+}
+.chat-tab-glow-arc[data-side="left"] {
+  left: calc(-1 * var(--flare-l, var(--app-tab-flare)) - 1px);
+  width: calc(var(--flare-l, var(--app-tab-flare)) + 2px);
+  background: radial-gradient(
+      260px circle at calc(var(--glow-x, 0px) + var(--flare-l, var(--app-tab-flare))) calc(var(--glow-y, 0px) - var(--app-tab-h) + var(--app-tab-flare)),
+      var(--app-glow),
+      transparent 70%
+    );
+  -webkit-mask:
+    radial-gradient(circle at 1px calc(100% - var(--flare-l, var(--app-tab-flare))), transparent calc(var(--flare-l, var(--app-tab-flare)) - 1.25px), var(--base-text) calc(var(--flare-l, var(--app-tab-flare)) - 0.75px), var(--base-text) calc(var(--flare-l, var(--app-tab-flare)) - 0.25px), transparent calc(var(--flare-l, var(--app-tab-flare)) + 0.25px)),
+    linear-gradient(var(--base-text), var(--base-text)) right 1px top 0 / 1px calc(var(--app-tab-flare) - var(--flare-l, var(--app-tab-flare)) + 2px) no-repeat,
+    linear-gradient(var(--base-text), var(--base-text)) left 0 bottom 0 / 2px 1px no-repeat;
+  mask:
+    radial-gradient(circle at 1px calc(100% - var(--flare-l, var(--app-tab-flare))), transparent calc(var(--flare-l, var(--app-tab-flare)) - 1.25px), var(--base-text) calc(var(--flare-l, var(--app-tab-flare)) - 0.75px), var(--base-text) calc(var(--flare-l, var(--app-tab-flare)) - 0.25px), transparent calc(var(--flare-l, var(--app-tab-flare)) + 0.25px)),
+    linear-gradient(var(--base-text), var(--base-text)) right 1px top 0 / 1px calc(var(--app-tab-flare) - var(--flare-l, var(--app-tab-flare)) + 2px) no-repeat,
+    linear-gradient(var(--base-text), var(--base-text)) left 0 bottom 0 / 2px 1px no-repeat;
+}
+.chat-tab-glow-arc[data-side="right"] {
+  right: calc(-1 * var(--app-tab-flare));
+  background: radial-gradient(
+      260px circle at calc(var(--glow-xr, 0px) + 2px) calc(var(--glow-y, 0px) - var(--app-tab-h) + var(--app-tab-flare)),
+      var(--app-glow),
+      transparent 70%
+    );
+  -webkit-mask:
+    radial-gradient(circle at 100% 0, transparent calc(var(--app-tab-flare) - 1.25px), var(--base-text) calc(var(--app-tab-flare) - 0.75px), var(--base-text) calc(var(--app-tab-flare) - 0.25px), transparent calc(var(--app-tab-flare) + 0.25px)),
+    linear-gradient(var(--base-text), var(--base-text)) left 1px top 0 / 1px 2px no-repeat,
+    linear-gradient(var(--base-text), var(--base-text)) right 0 bottom 0 / 2px 1px no-repeat;
+  mask:
+    radial-gradient(circle at 100% 0, transparent calc(var(--app-tab-flare) - 1.25px), var(--base-text) calc(var(--app-tab-flare) - 0.75px), var(--base-text) calc(var(--app-tab-flare) - 0.25px), transparent calc(var(--app-tab-flare) + 0.25px)),
+    linear-gradient(var(--base-text), var(--base-text)) left 1px top 0 / 1px 2px no-repeat,
+    linear-gradient(var(--base-text), var(--base-text)) right 0 bottom 0 / 2px 1px no-repeat;
+}
+/* FIRST tab active: flush-left merge (the Safari/Chrome first-tab). The strip
+   already starts at the card's left edge, so drop the left flare and square
+   the card's top-left corner — its left border runs straight up into the
+   tab's left border, one continuous line. */
+/* The card's top-left corner follows --card-tl (chatSilhouette sets it per
+   frame from the chrome's live distance to the corner) — it shrinks/regrows
+   CONTINUOUSLY as the tab approaches/leaves, in lockstep with the canvas
+   silhouette and the flare morph. */
+.chat-tabs + .content { border-top-left-radius: var(--card-tl, var(--app-pane-radius)); }
+.chat-tabs + .content::after { border-top-left-radius: var(--card-tl, var(--app-pane-radius)); }
+.chat-tab-chrome[data-flush] { border-bottom-left-radius: 0; }
+/* No left flare — its slot becomes the straight 1px border continuation from
+   the frame's end down to the card (a pseudo of the UNMASKED chrome; the
+   masked frame span would clip its own pseudos). */
+.chat-tab-chrome[data-flush]::before { left: -1px; width: 1px; background: var(--chat-frame); }
+/* …and its glow's left share is a straight 1px column (the border's
+   continuation into the card), not an arc. */
+/* Band [1px, 2px] from the right edge — the box overhangs the border column
+   by 1px on the inside (it starts at the button's PADDING box), so the
+   rightmost pixel is interior, and the border column is the one beside it. */
+/* Flush end state: with --flare-l at 0 the box has collapsed — pin the glow
+   to a bare 1px column exactly ON the border (padding-box left -1), unmasked. */
+.chat-tab-chrome[data-flush] .chat-tab-glow-arc[data-side="left"] {
+  left: -1px;
+  width: 1px;
+  -webkit-mask: none;
+  mask: none;
+}
+.chat-tab-chrome::after { right: calc(-1 * var(--app-tab-flare)); background:
+  linear-gradient(var(--chat-frame), var(--chat-frame)) left 1px top 0 / 1px 2px no-repeat,
+  linear-gradient(var(--chat-frame), var(--chat-frame)) right 0 bottom 0 / 2px 1px no-repeat,
+  radial-gradient(circle at 100% 0, transparent calc(var(--app-tab-flare) - 1.25px), var(--chat-frame) calc(var(--app-tab-flare) - 0.75px), var(--chat-frame) calc(var(--app-tab-flare) - 0.25px), transparent calc(var(--app-tab-flare) + 0.25px)); }
+/* Per-chat status dot in the tab label (mirrors the sidebar's busy signal). */
+.chat-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 999px; background: var(--app-dim); }
+.chat-dot[data-status="busy"] { background: var(--app-accent); }
+.chat-dot[data-status="stopped"] { background: transparent; border: 1px solid var(--app-dim); }
+/* Close ✕ inside a tab: quiet until the tab is hovered. */
+/* margin-left auto: with Chrome-style fixed tab widths the ✕ rides the tab's
+   RIGHT edge, not the label's tail. */
+.chat-close { display: inline-flex; align-items: center; margin-left: auto; opacity: 0; color: var(--app-dim); transition: opacity var(--app-duration-fast) ease, color var(--app-duration-fast) ease; }
+.chat-tab:hover .chat-close { opacity: 1; }
+.chat-close:hover { color: var(--app-text); }
+/* n-up grid: every chat visible at once, each cell a FLOATING card — 1px
+   frame, full pane radius, pane-gap gutters showing the band behind (the
+   card's own chrome fades out under them; see .content:has(.chat-grid)).
+   The cells are transparent: the one chat-trail surface behind paints them
+   all (chatSilhouette clips it to the union of the cell rects), so the
+   cursor wake flows continuously across the whole grid. */
+/* Track templates come INLINE from the split tree (splitTree.ts › treeToGrid
+   — fr tracks at the mosaic's cut lines; each cell spans its rect's range,
+   swallowing interior gaps). */
+.chat-grid { flex: 1; min-width: 0; min-height: 0; display: grid; gap: var(--app-pane-gap); background: transparent; }
+.chat-grid-cell { position: relative; display: flex; min-width: 0; min-height: 0; background: transparent; border: 1px solid var(--chat-frame); border-radius: var(--app-pane-radius); transition: border-color var(--app-duration-slow) var(--ease-out-soft), opacity var(--app-duration-lazy) var(--ease-out-soft); }
+/* Mount fade-in: cells develop onto the band as the card frame fades out. */
+@starting-style {
+  .chat-grid-cell { opacity: 0; }
+}
+/* The chat cell paints NO background of its own: in tabs layout the shared
+   chat-trail surface shows through; in grid the SAME surface shows through
+   the transparent cell. (The shell popover's pane keeps the base .term-pane
+   bg.) */
+.term-pane.chat-cell { background: transparent; }
+/* The cell's own clip box (mirrors .content-clip): rounds the xterm to the
+   cell's corners; keep the base .term-pane padding — the TUI inset. z-index 0
+   containerizes xterm's internal stacking so the controls (z 1) float above. */
+.chat-grid-cell > .term-pane { overflow: hidden; border-radius: var(--app-pane-radius-inner); z-index: 0; }
+/* The keyboard-owning cell tints its OWN border — the same recipe as the
+   tabs-mode frame tint, scoped per cell. */
+.chat-grid-cell:has(.xterm.focus) { border-color: color-mix(in oklch, var(--app-text) 30%, var(--app-border)); }
+/* …and the OTHER cells recede: once any cell owns the keyboard, unfocused
+   terminals dim to half (their content — the shared trail wash behind stays
+   lit). Hovering a dimmed cell wakes it, so reaching for its controls or
+   text never feels like grabbing through fog. Rides the cell's existing
+   opacity transition. */
+.chat-grid:has(.xterm.focus) .chat-grid-cell:not(:has(.xterm.focus)):not(:hover) { opacity: 0.3; }
+/* Per-cell cursor-glow ring: the .content::after recipe verbatim (radial
+   light at the cell's own use:borderGlow vars, xor-masked to the 1px border
+   row at -1px) — no --frame-clip analogue, cells have no tab opening. */
+.chat-grid-cell::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border: 1px solid transparent;
+  border-radius: var(--app-pane-radius);
+  background: radial-gradient(
+      260px circle at var(--glow-x, 50%) var(--glow-y, 50%),
+      var(--app-glow),
+      transparent 70%
+    )
+    border-box;
+  -webkit-mask:
+    linear-gradient(var(--base-text) 0 0) padding-box,
+    linear-gradient(var(--base-text) 0 0) border-box;
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(var(--base-text) 0 0) padding-box,
+    linear-gradient(var(--base-text) 0 0) border-box;
+  mask-composite: exclude;
+  opacity: var(--glow-o, 0);
+  pointer-events: none;
+  transition: opacity var(--app-duration-slow) var(--ease-out-soft);
+}
+/* The tabs-layout single cell's contextmenu host (right-click → split works
+   from tabs too) — pure layout passthrough in .content-clip's flex row. */
+.chat-solo { flex: 1; display: flex; min-width: 0; min-height: 0; }
+/* Hover-fade per-cell controls (status dot + ✕, top-right) — the strip is
+   collapsed in grid mode, so this is the cell's whole chrome. */
+.chat-cell-controls { position: absolute; top: 6px; right: 8px; z-index: 1; display: flex; align-items: center; gap: 4px; opacity: 0; pointer-events: none; transition: opacity var(--app-duration-fast) ease; }
+.chat-grid-cell:hover .chat-cell-controls,
+.chat-cell-controls:focus-within { opacity: 1; pointer-events: auto; }
+/* The rearrange grip (the cell's draggable — never the cell itself, which
+   would fight terminal text selection). */
+.chat-drag { display: inline-flex; align-items: center; color: var(--app-dim); cursor: grab; transition: color var(--app-duration-fast) ease; }
+.chat-drag:hover { color: var(--app-text); }
+.chat-drag:active { cursor: grabbing; }
+/* Drag feedback: the lifted cell dims; the hovered target shows a DASHED
+   PREVIEW over the half the dragged terminal would land in (data-drop
+   carries the zone — up/down/left/right — from the pointer hit-test). The
+   ::before slot is free (the glow ring is ::after). */
+.chat-grid-cell[data-dragging] { opacity: 0.5; }
+.chat-grid-cell[data-drop]::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  border: 1px dashed color-mix(in oklch, var(--app-text) 40%, var(--app-border));
+  border-radius: var(--radius-xl);
+  background: color-mix(in oklch, var(--app-text) 6%, transparent);
+  pointer-events: none;
+}
+.chat-grid-cell[data-drop="up"]::before { inset: 4px 4px 50% 4px; }
+.chat-grid-cell[data-drop="down"]::before { inset: 50% 4px 4px 4px; }
+.chat-grid-cell[data-drop="left"]::before { inset: 4px 50% 4px 4px; }
+.chat-grid-cell[data-drop="right"]::before { inset: 4px 4px 4px 50%; }
+/* The drag ghost: a miniature floating pane riding the cursor while a cell
+   is being carried (positioned per pointermove from ClaudeTerminalPane).
+   pointer-events: none keeps elementFromPoint hit-testing seeing through it. */
+.chat-drag-ghost {
+  position: fixed;
+  z-index: var(--app-z-chrome);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transform: translate(-50%, -60%);
+  pointer-events: none;
+  color: var(--app-dim);
+  background: color-mix(in oklch, var(--app-bg) 92%, var(--app-text));
+  border: 1px solid color-mix(in oklch, var(--app-text) 22%, var(--app-border));
+  border-radius: var(--radius-xl);
+  box-shadow: var(--app-shadow-float);
+  opacity: 0.92;
+  transition: opacity var(--app-duration-fast) ease;
+}
+@starting-style {
+  .chat-drag-ghost { opacity: 0; }
+}
+/* The screen silhouette inside the ghost: the grabbed terminal's visible
+   buffer text at token size, transform-scaled down (raw tiny font sizes are
+   off the type scale) — 200% box + scale(.5) fills the card exactly. The
+   mask fades the tail out like a thumbnail. */
+.chat-ghost-screen {
+  position: absolute;
+  inset: 0;
+  width: 200%;
+  height: 200%;
+  margin: 0;
+  padding: 8px 10px;
+  transform: scale(0.5);
+  transform-origin: top left;
+  font-family: var(--font-sf-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+  white-space: pre;
+  overflow: hidden;
+  color: var(--app-dim);
+  -webkit-mask: linear-gradient(var(--base-text) 55%, transparent 96%);
+  mask: linear-gradient(var(--base-text) 55%, transparent 96%);
+}
 
 /* ---- sidebar v2: repos + worktrees (Conductor-style) ---- */
 .wt { display: flex; flex-direction: column; }
@@ -1208,4 +1694,17 @@ a,
 select,
 summary {
   cursor: pointer;
+}
+/* The grid cells' rearrange grip: grab beats the [role=button] pointer above
+   (both unlayered; later + more specific wins). While a drag is LIVE the
+   grabbing hand holds EVERYWHERE — the pointer is captured, so per-element
+   cursors underneath are noise (!important outranks xterm's inline styles). */
+.chat-drag[role="button"] {
+  cursor: grab;
+}
+.chat-drag[role="button"]:active {
+  cursor: grabbing;
+}
+html[data-grabbing] * {
+  cursor: grabbing !important;
 }

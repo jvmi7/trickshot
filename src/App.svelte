@@ -3,6 +3,8 @@
   import { get } from "svelte/store";
   import { onScriptEvent, onTermEvent, listWorktrees, worktreeStatus, homeDir } from "./lib/api";
   import { borderGlow } from "./lib/borderGlow";
+  import { chatSilhouette } from "./lib/chatSilhouette";
+  import { cursorTrail } from "./lib/cursorTrail";
   import { handleTermEvent } from "./lib/terminal";
   import {
     repos,
@@ -41,6 +43,7 @@
   } from "./lib/stores";
   import { handleScriptEvent } from "./lib/scriptEvents";
   import ClaudeTerminalPane from "./lib/components/ClaudeTerminalPane.svelte";
+  import ChatTabs from "./lib/components/ChatTabs.svelte";
   import CommandPalette from "./lib/components/CommandPalette.svelte";
   import Header from "./lib/components/Header.svelte";
   import ViewToggle from "./lib/components/ViewToggle.svelte";
@@ -53,7 +56,7 @@
   import Welcome from "./lib/components/Welcome.svelte";
   import ComposeDialog from "./lib/components/ComposeDialog.svelte";
   import ShortcutsHelp from "./lib/components/ShortcutsHelp.svelte";
-  import UsageIndicator from "./lib/components/UsageIndicator.svelte";
+  import Footer from "./lib/components/Footer.svelte";
   import { Button } from "./lib/components/ui/button";
   import { Toaster } from "./lib/components/ui/sonner";
   import * as Tooltip from "./lib/components/ui/tooltip";
@@ -283,14 +286,6 @@
         Settings
       </Button>
     </div>
-    <!-- drag handle straddling the right border; resizes the sidebar width -->
-    <div
-      class="sidebar-resize"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize sidebar"
-      onpointerdown={startResize}
-    ></div>
   </aside>
 
   <main class="main">
@@ -337,13 +332,38 @@
         <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
              nothing to act on there. -->
         {#if $centerView !== "settings" && $repos.length > 0}
-          <UsageIndicator />
           <RunScripts />
           <ViewToggle />
         {/if}
       {/snippet}
     </Header>
+    <!-- The chat-session strip sits on the SHELL band, outside the terminal
+         card — shown exactly when the card below renders the chat surface
+         (the same cascade conditions as the {:else} branch inside). -->
+    {#if $centerView !== "settings" && $repos.length > 0 && $mainView !== "run" && $selectedWorktree}
+      <ChatTabs />
+    {/if}
     <div class="content" use:borderGlow>
+      {#if $sidebarOpen}
+        <!-- Sidebar drag handle, anchored to the CARD: its line overlaps the
+             terminal's left border and spans only the straight edge between
+             the corner curves (top/bottom inset by the pane radius). -->
+        <div
+          class="sidebar-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          onpointerdown={startResize}
+        ></div>
+      {/if}
+      {#if $centerView !== "settings" && $repos.length > 0 && $mainView !== "run" && $selectedWorktree}
+        <!-- ONE shared background for the whole chat surface: a single trail
+             canvas clipped to the card∪tab silhouette (chatSilhouette). The
+             tab and the terminal panes above are transparent — the chrome is
+             a mask over this surface, so the pixel wake is seamless. -->
+        <div class="chat-trail" aria-hidden="true" use:cursorTrail use:chatSilhouette></div>
+      {/if}
+      <div class="content-clip">
       {#if $centerView === "settings"}
         <Settings />
       {:else if $repos.length === 0}
@@ -362,7 +382,11 @@
         <!-- The chat: the REAL Claude Code TUI on the worktree's claude PTY. -->
         <ClaudeTerminalPane />
       {/if}
+      </div>
     </div>
+    <!-- Status footer: usage + ambient items live UNDER the work, not in the
+         header. -->
+    <Footer />
   </main>
 </div>
 </Tooltip.Provider>

@@ -1,3 +1,5 @@
+import { spring } from "svelte/motion";
+
 // A single background element that slides to the currently-highlighted item,
 // instead of each item fading its own background in/out. Apply to the element
 // wrapping the items; it watches `data-highlighted` (bits-ui sets that on the
@@ -187,7 +189,7 @@ export function slidingRowHighlight(wrap: HTMLElement, opts: { rowSelector?: str
 // slides to the SELECTED item (the one carrying `data-active`), animating its
 // x-position + width. Apply to the element wrapping the items; the items should
 // be transparent (the sliding bg is the only fill) and stack above it (z-index).
-export function slidingToggle(wrap: HTMLElement) {
+export function slidingToggle(wrap: HTMLElement, opts: { radius?: string } = {}) {
   wrap.style.position = "relative";
 
   const hl = document.createElement("div");
@@ -196,7 +198,7 @@ export function slidingToggle(wrap: HTMLElement) {
     top: "0",
     left: "0",
     height: "100%",
-    borderRadius: "calc(var(--radius) - 6px)",
+    borderRadius: opts.radius ?? "calc(var(--radius) - 6px)",
     background: "var(--secondary)",
     opacity: "0",
     pointerEvents: "none",
@@ -236,6 +238,122 @@ export function slidingToggle(wrap: HTMLElement) {
       ro.disconnect();
       if (raf) cancelAnimationFrame(raf);
       hl.remove();
+    },
+  };
+}
+
+// The chat-tab chrome slider: ONE overlay carrying the active tab's frame /
+// flares / glow layers (ChatTabs › .chat-tab-chrome), positioned over
+// `[data-active]` by a REAL damped spring (svelte/motion — the platform's
+// framer-motion equivalent), so switching tabs glides with a bouncy,
+// smoothly-settling overshoot. The silhouette bump and the glow-ring notch
+// need no transitions of their own: chatSilhouette measures the CHROME's
+// live rect each frame, so background and border are glued by construction.
+// data-flush mirrors the first-tab merge state for the flush-specific rules.
+export function slidingTabChrome(el: HTMLElement) {
+  const strip = el.parentElement;
+  if (!strip) return { destroy() {} };
+  let raf = 0;
+  let first = true;
+  // Fluid with a whisper of spring: strongly damped, one soft overshoot.
+  const pos = spring({ left: 0, top: 0, width: 0, height: 0 }, { stiffness: 0.18, damping: 0.62 });
+  const unsub = pos.subscribe((v) => {
+    // ROUND every frame — in PAGE space: the spring's continuous values put
+    // the chrome's 1px strokes on partial pixels (partial alpha — they ghost
+    // out mid-flight and pop back at settle), and the strip itself may sit at
+    // a fractional x in the app layout, so strip-relative integers aren't
+    // enough. Whole-pixel steps are invisible at this tempo, and every
+    // downstream geometry (silhouette, notch, glow) re-derives from this
+    // rect, staying integer.
+    const sr = strip.getBoundingClientRect();
+    const left = Math.round(sr.left + v.left) - sr.left;
+    const top = Math.round(sr.top + v.top) - sr.top;
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+    el.style.width = `${Math.round(sr.left + v.left + v.width) - Math.round(sr.left + v.left)}px`;
+    el.style.height = `${Math.round(v.height)}px`;
+  });
+  let lastKey = "";
+  let flying = false; // spring in flight (target set, not yet settled)
+  // FLUSH CHOREOGRAPHY: the first-tab merge (squared card corner, straight
+  // left stroke, flush silhouette) must not flip while the chrome is still
+  // in flight. Applied LATE — when the spring SETTLES on the first tab — and
+  // removed EARLY — the moment the target isn't the first tab — so the
+  // corner stays rounded whenever the tab isn't actually there. This action
+  // owns the signal: data-flush on the chrome AND data-first-active on the
+  // strip (the card/ring corner rules + chatSilhouette all read the latter).
+  let wantFlush = false;
+  const setFlush = (on: boolean) => {
+    if (on) {
+      el.setAttribute("data-flush", "");
+      strip.setAttribute("data-first-active", "");
+    } else {
+      el.removeAttribute("data-flush");
+      strip.removeAttribute("data-first-active");
+    }
+  };
+  const update = () => {
+    raf = 0;
+    const tab = strip.querySelector<HTMLElement>(".chat-tab[data-active]");
+    if (!tab) {
+      el.style.opacity = "0";
+      return;
+    }
+    const s = strip.getBoundingClientRect();
+    const t = tab.getBoundingClientRect();
+    el.style.opacity = "1";
+    // +1 height: the chrome dips one row into the card, swallowing its top
+    // border (the overlap the active button itself used to provide).
+    const target = {
+      left: t.left - s.left,
+      top: t.top - s.top,
+      width: t.width,
+      height: t.height + 1,
+    };
+    const key = `${target.left},${target.top},${target.width},${target.height}`;
+    wantFlush = strip.querySelector(".chat-tab") === tab;
+    if (!wantFlush) setFlush(false);
+    if (first) {
+      // First placement lands without animating (no slide-in from nowhere).
+      void pos.set(target, { hard: true });
+      if (wantFlush) setFlush(true);
+      first = false;
+    } else if (key !== lastKey) {
+      // set() resolves when the spring settles — the flush merge lands then,
+      // unless a newer target superseded this flight.
+      flying = true;
+      pos.set(target).then(() => {
+        if (lastKey !== key) return; // superseded
+        flying = false;
+        if (wantFlush) setFlush(true);
+      });
+    } else if (wantFlush && !flying) {
+      // Same target and settled (e.g. re-clicking the active first tab).
+      setFlush(true);
+    }
+    lastKey = key;
+  };
+  const schedule = () => {
+    if (!raf) raf = requestAnimationFrame(update);
+  };
+  // data-active moves on switch; style catches snapWidth's width pinning;
+  // childList catches tabs being added/closed.
+  const mo = new MutationObserver(schedule);
+  mo.observe(strip, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["data-active", "style"],
+  });
+  const ro = new ResizeObserver(schedule);
+  ro.observe(strip);
+  schedule();
+  return {
+    destroy() {
+      unsub();
+      mo.disconnect();
+      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
     },
   };
 }

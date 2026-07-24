@@ -19,6 +19,7 @@
     setMainView,
     unreadByWorktree,
     clearUnread,
+    forgetChats,
     archivedWorkspaces,
     addArchived,
     restoreWorkspace,
@@ -219,6 +220,7 @@
       disposeTerminal(wt.path);
       await api.removeWorktree(repoPath, wt.path, true);
       clearStatus(wt.path);
+      forgetChats(wt.path);
       removeScriptRun(wt.path);
       removeWorktreeFromRepo(repoPath, wt.path);
       if ($selectedWorktree === wt.path) selectWorktree(null);
