@@ -1697,6 +1697,10 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
   box-shadow:
     var(--app-shadow-float),
     0 0 0 1px color-mix(in oklch, var(--base-text) 10%, transparent);
+  /* Micro type BY DESIGN, pinned below the scale: tooltips are glances, and
+     data-uniform-type hijacks every --text-* var to the terminal size — a
+     tooltip must stay small even then, so this is deliberately a literal. */
+  font-size: 10px; /* conformance-allowlisted: pinned below the type scale on purpose */
 }
 
 /* Text-selection highlight: accent-colored text on the per-theme selection tone at
