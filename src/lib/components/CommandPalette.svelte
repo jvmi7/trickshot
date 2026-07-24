@@ -27,9 +27,9 @@
     toggleCompose,
     toggleSidebar,
     toggleShortcutsHelp,
+    themeOptions,
     worktreesByRepo,
   } from "../stores";
-  import { THEMES } from "../themes";
   import * as api from "../api";
   import * as Command from "$lib/components/ui/command";
   import GitBranch from "@lucide/svelte/icons/git-branch";
@@ -193,7 +193,7 @@
         Keyboard shortcuts
         <Command.Shortcut>⌘/</Command.Shortcut>
       </Command.Item>
-      {#each THEMES as t (t.id)}
+      {#each $themeOptions as t (t.id)}
         <Command.Item value="theme {t.label}" onSelect={() => pick(() => setTheme(t.id))}>
           <Palette class="size-3.5" />
           Theme: {t.label}

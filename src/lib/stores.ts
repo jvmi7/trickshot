@@ -18,7 +18,13 @@ import {
   splitLeaf,
 } from "./splitTree";
 import { profileAccent } from "./termProfiles";
-import { DEFAULT_THEME, THEMES as THEME_DEFS } from "./themes";
+import {
+  DEFAULT_THEME,
+  installCustomThemes,
+  parseCustomThemes,
+  THEMES as THEME_DEFS,
+  type Theme,
+} from "./themes";
 import type { Repo, ScriptsConfig, UsageInfo, Worktree } from "./types";
 
 /** A worktree's CLI session lifecycle:
@@ -230,21 +236,82 @@ export interface ThemeOption {
   id: string;
   label: string;
 }
-/** Selectable color themes — DERIVED from the single theme config (`themes.ts`).
- *  To add/remove a theme, edit `THEMES` there; this list (and the injected CSS)
- *  follow automatically. See THEMING.md. */
-export const THEMES: ThemeOption[] = THEME_DEFS.map((t) => ({ id: t.id, label: t.label }));
+/** USER-created themes (full `Theme` objects, same shape as the built-ins).
+ *  Persisted; the parse guard drops malformed entries and built-in-id
+ *  collisions. Declared BEFORE `theme` — its validator reads this store's
+ *  loaded value. The subscriber (re)injects their CSS into a second
+ *  stylesheet: at module eval (pre-first-paint, the same window the built-ins
+ *  get via main.ts) and again on every add/edit/delete, so palette edits of
+ *  the ACTIVE theme repaint live. */
+export const customThemes = createPersisted<Theme[]>("trickshot.customThemes", [], {
+  parse: parseCustomThemes,
+});
+customThemes.subscribe((list) => installCustomThemes(list));
+
+/** Theme ids hidden from the pickers (built-in or custom). Persisted. */
+export const disabledThemes = createPersisted<string[]>("trickshot.disabledThemes", [], {
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [];
+  },
+});
+
+/** Every theme — built-ins (themes.ts) first, then the user's. The gallery's
+ *  list; the pickers use `themeOptions` (disabled ids filtered out). */
+export const allThemes: Readable<Theme[]> = derived(customThemes, ($c) => [...THEME_DEFS, ...$c]);
+
 /** Active theme id. Reflects to `<html data-theme>` (which the `--base-*`
- *  override blocks key off) and persists to localStorage. */
+ *  override blocks key off) and persists to localStorage. Validated against
+ *  built-ins + the loaded custom list — a persisted id whose custom theme was
+ *  deleted falls back to the default. */
 export const theme = createPersistedString("trickshot.theme", DEFAULT_THEME, (raw) =>
-  THEMES.some((t) => t.id === raw) ? raw : DEFAULT_THEME,
+  THEME_DEFS.some((t) => t.id === raw) || get(customThemes).some((t) => t.id === raw)
+    ? raw
+    : DEFAULT_THEME,
 );
 theme.subscribe((t) => {
   if (typeof document !== "undefined") document.documentElement.dataset.theme = t;
 });
-/** Switch the active theme (validated against THEMES by the store's parse). */
+/** Switch the active theme (validated against the known ids by the store's parse). */
 export function setTheme(id: string) {
   theme.set(id);
+}
+
+/** Picker options (the Select + command palette): hides disabled ids but
+ *  ALWAYS includes the active id, so the picker can never go empty and a
+ *  hand-tampered "disabled active" persist still has an escape hatch. */
+export const themeOptions: Readable<ThemeOption[]> = derived(
+  [allThemes, disabledThemes, theme],
+  ([$all, $off, $active]) =>
+    $all
+      .filter((t) => t.id === $active || !$off.includes(t.id))
+      .map((t) => ({ id: t.id, label: t.label })),
+);
+
+/** Add a custom theme (caller guarantees a unique slug via `uniqueThemeId`). */
+export function addCustomTheme(t: Theme) {
+  customThemes.update((list) => [...list, t]);
+}
+/** Replace a custom theme by id (the editor's save-existing path). */
+export function updateCustomTheme(t: Theme) {
+  customThemes.update((list) => list.map((x) => (x.id === t.id ? t : x)));
+}
+/** Delete a custom theme; if it was active, fall back to the default FIRST so
+ *  the UI never sits on a theme with no CSS block. Also drops a stale
+ *  disabled-list entry. */
+export function deleteCustomTheme(id: string) {
+  if (get(theme) === id) theme.set(DEFAULT_THEME);
+  customThemes.update((list) => list.filter((x) => x.id !== id));
+  disabledThemes.update((list) => (list.includes(id) ? list.filter((x) => x !== id) : list));
+}
+/** Show/hide a theme in the pickers. Disabling the ACTIVE theme is refused
+ *  (the gallery renders that switch disabled) — no surprise theme switch. */
+export function setThemeDisabled(id: string, disabled: boolean) {
+  if (disabled && get(theme) === id) return;
+  disabledThemes.update((list) => {
+    if (disabled) return list.includes(id) ? list : [...list, id];
+    return list.includes(id) ? list.filter((x) => x !== id) : list;
+  });
 }
 
 /** Which action the git panel's split commit button performs by default. */

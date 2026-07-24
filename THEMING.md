@@ -97,14 +97,31 @@ with no implicit inheritance. To **remove** a theme, delete its entry. To change
   deliberately outrank the bare `:root` default (0,1,0), so the active theme always wins.
 - **`stores.ts › theme`** is a persisted writable. On change it sets
   `document.documentElement.dataset.theme` and saves to `localStorage["trickshot.theme"]`.
-  `THEMES` (id/label for the picker) is `.map()`-derived from the config; the default
-  fallback is `DEFAULT_THEME` (the first config entry).
-- **`Settings.svelte`** is a shadcn `Select` bound to that store, iterating `THEMES`.
+  `themeOptions` (id/label for the pickers) derives from the config + the user's custom
+  themes, minus the disabled ids; the default fallback is `DEFAULT_THEME` (the first
+  config entry).
+- **`SettingsAppearance.svelte`** is a shadcn `Select` bound to that store, iterating
+  `themeOptions`, plus the theme gallery (swatch cards, show/hide switches, and the
+  create/edit dialog — `ThemeEditorDialog.svelte`).
 - **`index.html`** has a tiny inline script that applies the saved `data-theme` **before
   first paint**, so reloading on a non-default theme doesn't flash the default.
 - **`app.css :root`** keeps a literal copy of the **default theme** as a static fallback
   (styled before `installThemes()` runs / if no `data-theme` is set). Keep it in sync with
   `THEMES[0]` in themes.ts.
+
+## Custom themes (user-created)
+
+- **`stores.ts › customThemes`** persists user themes (`trickshot.customThemes`) — full
+  `Theme` objects validated by `themes.ts › parseCustomThemes` (shape guard + built-in-id
+  collision drop + a `{};`-free injection guard on every palette value). Their CSS lives
+  in a SECOND stylesheet (`<style id="theme-vars-custom">`, `installCustomThemes`),
+  re-injected by the store subscriber on every add/edit/delete — so editing the active
+  theme repaints live.
+- **`stores.ts › disabledThemes`** (`trickshot.disabledThemes`) hides ids — built-in or
+  custom — from the pickers. `themeOptions` always includes the ACTIVE id, so the picker
+  can't go empty; disabling the active theme is refused at the mutator.
+- Deleting a custom theme that is active falls back to `DEFAULT_THEME` first; the
+  persisted `theme` id validator also treats a vanished custom id as the default.
 
 ## Notes & caveats
 
