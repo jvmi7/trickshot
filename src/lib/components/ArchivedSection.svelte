@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { slide } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import {
     archivedWorkspaces,
     forgetChats,
@@ -82,6 +84,7 @@
       </Tooltip.Root>
     </div>
     {#if expanded}
+      <div transition:slide={{ duration: 220, easing: cubicOut }}>
       <div class="wt-rows archived-list" use:slidingRowHighlight>
         {#each $archivedWorkspaces as a (a.repoPath + " " + a.branch)}
           <div class="wt-row group/row archived-row">
@@ -127,6 +130,7 @@
             </Tooltip.Root>
           </div>
         {/each}
+      </div>
       </div>
     {/if}
     {#if error}<div class="error-text">{error}</div>{/if}

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { slide } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import { tick } from "svelte";
   import {
     repos,
@@ -43,10 +45,10 @@
   import * as Tooltip from "$lib/components/ui/tooltip";
   import * as ContextMenu from "$lib/components/ui/context-menu";
   import IconButton from "./IconButton.svelte";
+  import TrickshotMark from "./TrickshotMark.svelte";
   import IdentityGlyph from "./IdentityGlyph.svelte";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
-  import House from "@lucide/svelte/icons/house";
   import Plus from "@lucide/svelte/icons/plus";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -325,7 +327,7 @@
           }
         }}
       >
-        <House class="wt-home" />
+        <TrickshotMark class="wt-home" />
         <span class="wt-name">Home</span>
       </div>
     </div>
@@ -393,6 +395,9 @@
       </ContextMenu.Root>
 
       {#if !collapsed[repo.path]}
+        <!-- transition:slide = the smooth accordion height (JS-driven, so no
+             fixed-height CSS hacks; params exempt from the CSS duration scan). -->
+        <div transition:slide={{ duration: 220, easing: cubicOut }}>
         {#if creatingFor === repo.path}
           <!-- No blur-to-cancel: a stray click (or the OS dialog stealing focus)
                must not discard a half-typed name. Esc cancels; Enter creates. -->
@@ -497,6 +502,7 @@
             {/if}
           </ContextMenu.Root>
           {/each}
+        </div>
         </div>
       {/if}
     </div>
