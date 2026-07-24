@@ -17,6 +17,7 @@
     activateWorktree,
     newWorktreeRequest,
     removeScriptRun,
+    centerView,
     setCenterView,
     setMainView,
     unreadByWorktree,
@@ -99,16 +100,14 @@
     }
   }
 
-  // The Home row: a workspace rooted at ~ (outside any repo/worktree). The
-  // shared activateWorktree path works on any directory under CLI-first chat.
-  async function selectHome() {
-    const home = $homePath;
-    if (!home) return;
-    try {
-      await activateWorktree(home);
-    } catch (e) {
-      error = String(e);
-    }
+  // The Home row: lands on the HOME SCREEN (hero + composer + fleet) — the
+  // exact state closing a worktree leaves you in (deselected), so "Home"
+  // means ONE place. (It previously opened a chat rooted at ~; the Home
+  // screen replaced that meaning when it became a real destination.)
+  function selectHome() {
+    selectWorktree(null);
+    setCenterView("chat");
+    setMainView("chat"); // the run view outranks no-selection in the cascade
   }
 
   // Repo favicons: probe each repo once per app run (idempotent in the store).
@@ -308,14 +307,14 @@
      so the hover/active fill only slides between rows of the SAME repository —
      crossing into another group fades out/in instead of gliding over headers. -->
 <div class="wt">
-  <!-- Home: a workspace rooted at ~ — outside any repo/worktree, so no glyph,
-       no ± stat, no archive/remove, no context menu. Renders once the home
-       path resolves (App.svelte's launch flow). -->
+  <!-- Home: THE Home screen (hero + composer + fleet) — the same place
+       closing a worktree lands (deselected). Active whenever nothing is
+       selected and the center pane isn't Settings. -->
   {#if $homePath}
     <div class="wt-rows home-rows" use:slidingRowHighlight>
       <div
         class="wt-row"
-        class:active={$selectedWorktree === $homePath}
+        class:active={$selectedWorktree === null && $centerView !== "settings"}
         role="button"
         tabindex="0"
         onclick={selectHome}
