@@ -844,7 +844,7 @@ html, body {
     color-mix(in oklch, var(--app-text) 80%, var(--app-border)) 95%,
     transparent
   );
-  transition: opacity var(--app-duration-fast) ease;
+  transition: opacity var(--app-duration-slow) var(--ease-out-soft);
 }
 .sidebar-resize:hover::after { opacity: 1; }
 /* During a drag: show the resize cursor everywhere and don't select text. */
