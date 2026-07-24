@@ -26,12 +26,12 @@
   import { slidingToggle } from "../slidingHighlight";
   import { createHoverIntent } from "../hoverIntent";
 
-  // ONE chrome for both header popovers (Changes, Shell): the app float
-  // shadow, top-of-ladder radius, and clipped corners so the panel inside
-  // meets the ring cleanly. The panels own their size (.git-panel /
-  // .term-pane-popover); the popover shell stays w-auto p-0.
-  const headerPopoverClass =
-    "w-auto overflow-hidden rounded-xl p-0 [box-shadow:var(--app-shadow-float)]";
+  // ONE chrome for both header popovers (Changes, Shell): radius/fill/shadow
+  // come from the global [data-slot="popover-content"] override (app.css) —
+  // the tooltip-matched floating-panel chrome. Here: clipped corners so the
+  // panel inside meets the ring cleanly, and the panels own their size
+  // (.git-panel / .term-pane-popover) so the shell stays w-auto p-0.
+  const headerPopoverClass = "w-auto overflow-hidden p-0";
 
   // HOVER = reveal, CLICK = pin. Each popover has a mode: "hover" (opened by
   // dwell; pointer leave closes it) or "pinned" (opened/claimed by click,

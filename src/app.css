@@ -562,6 +562,10 @@
   /* The cursor-proximity border glow's light color — ONE knob for every
      masked ring (card frame, grid cells, tab chrome + arcs). */
   --app-glow: color-mix(in oklch, var(--base-text) 30%, transparent);
+  /* The floating-panel FILL — tooltips, the header popovers, dialogs: darker
+     than the in-flow surface so a float separates from the panels it hovers
+     over. Mixed from the theme surface so every palette darkens its own way. */
+  --app-float-fill: color-mix(in oklch, var(--base-surface) 72%, black);
   --app-term-bg-top: color-mix(in oklch, var(--base-bg) 99%, var(--base-text));
   --app-term-bg-bottom: color-mix(in oklch, var(--base-bg) 78%, black);
   /* The SHELL: the chrome around the content card (layout, sidebar, header) —
@@ -1048,7 +1052,7 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
    basis 0 and the pane collapses to nothing (only the absolute fade shows). */
 /* Radius + clip match the popover's rounded ring — the pane's square corners
    otherwise paint OVER the ring at the corners. */
-.term-pane-popover { flex: none; width: min(760px, 92vw); height: min(64vh, 700px); padding-top: 14px; border-radius: var(--radius-xl); overflow: hidden; }
+.term-pane-popover { flex: none; width: min(640px, 90vw); height: min(48vh, 540px); padding-top: 14px; border-radius: var(--radius-xl); overflow: hidden; background: var(--app-float-fill); }
 /* No top fade in the popover — that's a chat-pane reading-edge treatment; a
    small floating panel just wants its content crisp to the edge. (Double
    class: the fade rule sets content:"" LATER in the file, so this must win
@@ -1709,10 +1713,9 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
    the utilities' composed --tw-* shadows wholesale). */
 [data-slot="tooltip-content"] {
   border-radius: var(--radius-xl); /* top of the ladder — matches the header popovers */
-  /* Darker than the popover surface — a tooltip floats ABOVE everything, and
-     the deeper fill separates it from the panels it hovers over. Mixed from
-     the theme surface so every palette (Paper included) darkens its own way. */
-  background-color: color-mix(in oklch, var(--base-surface) 72%, black);
+  /* The shared floating-panel fill (--app-float-fill): deeper than the
+     in-flow surface, so the float separates from the panels it hovers over. */
+  background-color: var(--app-float-fill);
   box-shadow:
     var(--app-shadow-float),
     0 0 0 1px color-mix(in oklch, var(--base-text) 10%, transparent);
@@ -1720,6 +1723,30 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
      data-uniform-type hijacks every --text-* var to the terminal size — a
      tooltip must stay small even then, so this is deliberately a literal. */
   font-size: 10px; /* conformance-allowlisted: pinned below the type scale on purpose */
+}
+
+/* Tokenized popover chrome — the header popovers (Changes, Shell) wear the
+   SAME floating-panel language as tooltips: top-of-ladder radius, the shared
+   float fill, the ONE float shadow + foreground ring. Chrome only — layout
+   and the open/close animations stay the component's. Unlayered like its
+   siblings above (the sanctioned ui/*-slot restyle path). */
+[data-slot="popover-content"] {
+  border-radius: var(--radius-xl);
+  background-color: var(--app-float-fill);
+  box-shadow:
+    var(--app-shadow-float),
+    0 0 0 1px color-mix(in oklch, var(--base-text) 10%, transparent);
+}
+
+/* Tokenized dialog chrome — modals match the tooltip/popover family: the
+   float fill replaces the stock bg-popover grey (the "too grey" scrim-on-grey
+   read), and the float shadow + foreground ring replace the bare ring-1.
+   Radius stays the component's rounded-xl (already the ladder's top). */
+[data-slot="dialog-content"] {
+  background-color: var(--app-float-fill);
+  box-shadow:
+    var(--app-shadow-float),
+    0 0 0 1px color-mix(in oklch, var(--base-text) 10%, transparent);
 }
 
 /* Text-selection highlight: accent-colored text on the per-theme selection tone at

@@ -51,6 +51,7 @@
     cursorTrailEnabled,
   } from "./lib/stores";
   import { handleScriptEvent } from "./lib/scriptEvents";
+  import { createHoverIntent } from "./lib/hoverIntent";
   import ClaudeTerminalPane from "./lib/components/ClaudeTerminalPane.svelte";
   import ChatTabs from "./lib/components/ChatTabs.svelte";
   import CommandPalette from "./lib/components/CommandPalette.svelte";
@@ -170,6 +171,15 @@
     }
     sidebarPeek = false;
   }
+  // Hover intent in front of the settle choreography: a pointer merely
+  // GRAZING the edge zone (common in fullscreen, where the zone hugs the
+  // screen edge) must not flash the panel in and straight back out — the
+  // open waits for a dwell, and a brief exit is forgiven by the close grace.
+  // The settle queue above still guarantees a started slide-in completes.
+  const peekIntent = createHoverIntent({
+    setOpen: (v) => (v ? openPeek() : requestClosePeek()),
+  });
+  $effect(() => () => peekIntent.cancel());
   // 50px past the width clamp (stores.ts › SIDEBAR_MIN = 200) reads as intent
   // to close, not to resize.
   const SIDEBAR_CLOSE_AT = 150;
@@ -369,10 +379,11 @@
     <div
       class="sidebar-peek-zone"
       role="presentation"
-      onpointerenter={openPeek}
+      onpointerenter={() => peekIntent.enter()}
       onpointerleave={(e: PointerEvent) => {
         if (!(e.relatedTarget instanceof Node) || !peekEl?.contains(e.relatedTarget))
-          requestClosePeek();
+          peekIntent.leave();
+        else peekIntent.cancelClose();
       }}
     ></div>
     <div
@@ -383,10 +394,11 @@
       onpointerenter={() => {
         peekHover = true;
         peekCloseQueued = false;
+        peekIntent.cancelClose();
       }}
       onpointerleave={() => {
         peekHover = false;
-        requestClosePeek();
+        peekIntent.leave();
       }}
     >
       {@render sidebarContent()}
