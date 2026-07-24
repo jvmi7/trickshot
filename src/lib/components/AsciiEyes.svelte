@@ -267,18 +267,39 @@
       return;
     }
     let raf = 0;
-    let px = 0;
+    let px = 0; // target (the real cursor)
     let py = 0;
-    const apply = () => {
+    let sx = 0; // smoothed pursuit point — the eyes follow THIS
+    let sy = 0;
+    let seeded = false;
+    let last = 0;
+    /** Pursuit lag: the smoothed point closes the gap with ~this time
+     *  constant — the eyes trail the cursor by a beat instead of snapping. */
+    const PURSUIT_TAU_MS = 140;
+    const step = (now: number) => {
       raf = 0;
+      const dt = last ? Math.min(64, now - last) : 16;
+      last = now;
+      const alpha = 1 - Math.exp(-dt / PURSUIT_TAU_MS);
+      sx += (px - sx) * alpha;
+      sy += (py - sy) * alpha;
+      apply();
+      // Keep chasing until the pursuit point has effectively arrived.
+      if (Math.abs(px - sx) + Math.abs(py - sy) > 1.5) {
+        raf = requestAnimationFrame(step);
+      } else {
+        last = 0;
+      }
+    };
+    const apply = () => {
       const rect = wrapEl?.getBoundingClientRect();
       if (!rect || rect.width === 0) return;
       const cy = rect.top + rect.height / 2;
       const eye = (cx: number): Gaze => {
         // Nearer eye reacts harder: attenuate the deflection by distance.
-        const gain = clamp(1.15 - Math.hypot(px - cx, py - cy) / 900, 0.45, 1);
-        const nx = clamp((px - cx) / GAZE_REACH_X, -1, 1) * gain;
-        const ny = clamp((py - cy) / GAZE_REACH_Y, -1, 1) * gain;
+        const gain = clamp(1.15 - Math.hypot(sx - cx, sy - cy) / 900, 0.45, 1);
+        const nx = clamp((sx - cx) / GAZE_REACH_X, -1, 1) * gain;
+        const ny = clamp((sy - cy) / GAZE_REACH_Y, -1, 1) * gain;
         return {
           lean: Math.round(nx * 8) / 8,
           sv:
@@ -295,11 +316,26 @@
     const move = (e: PointerEvent) => {
       px = e.clientX;
       py = e.clientY;
-      if (!raf) raf = requestAnimationFrame(apply);
+      if (!seeded) {
+        // First sighting: no lag on the very first pose (nothing to trail from).
+        seeded = true;
+        sx = px;
+        sy = py;
+      }
+      if (!raf) raf = requestAnimationFrame(step);
     };
     const leave = () => {
-      gazeL = NEUTRAL;
-      gazeR = NEUTRAL;
+      // Ease HOME rather than snapping: target the stage center (gaze = 0)
+      // and let the pursuit loop carry the eyes back.
+      const rect = wrapEl?.getBoundingClientRect();
+      if (rect && rect.width > 0) {
+        px = rect.left + rect.width / 2;
+        py = rect.top + rect.height / 2;
+        if (!raf) raf = requestAnimationFrame(step);
+      } else {
+        gazeL = NEUTRAL;
+        gazeR = NEUTRAL;
+      }
     };
     window.addEventListener("pointermove", move, { passive: true });
     document.documentElement.addEventListener("mouseleave", leave);
