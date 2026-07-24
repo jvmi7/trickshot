@@ -273,12 +273,17 @@
     lean: number;
     /** Vertical scale about the base: hood < 1 < open. */
     sv: number;
-    /** Whole-shape translation toward the cursor, in CELLS (small — the
-     *  cartoon position shift riding under the lean/hood deformation). */
+  }
+  const NEUTRAL: Gaze = { lean: 0, sv: 1 };
+  /** The cartoon position shift is SHARED — the pair moves as one face
+   *  (per-eye translation made them drift apart, which read as broken).
+   *  Computed from the PAIR's center, applied to both eyes identically;
+   *  only lean/hood may differ per eye. */
+  interface PairShift {
     dx: number;
     dy: number;
   }
-  const NEUTRAL: Gaze = { lean: 0, sv: 1, dx: 0, dy: 0 };
+  const NO_SHIFT: PairShift = { dx: 0, dy: 0 };
   /** Horizontal/vertical px offsets where the gaze saturates. */
   const GAZE_REACH_X = 260;
   const GAZE_REACH_Y = 220;
@@ -300,15 +305,16 @@
   let wrapEl = $state<HTMLDivElement | null>(null);
   let gazeL = $state<Gaze>(NEUTRAL);
   let gazeR = $state<Gaze>(NEUTRAL);
+  let pairShift = $state<PairShift>(NO_SHIFT);
 
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-  const sameGaze = (a: Gaze, b: Gaze) =>
-    a.lean === b.lean && a.sv === b.sv && a.dx === b.dx && a.dy === b.dy;
+  const sameGaze = (a: Gaze, b: Gaze) => a.lean === b.lean && a.sv === b.sv;
 
   $effect(() => {
     if (!track) {
       gazeL = NEUTRAL;
       gazeR = NEUTRAL;
+      pairShift = NO_SHIFT;
       return;
     }
     let raf = 0;
@@ -351,16 +357,20 @@
             ny > 0
               ? Math.round((1 - HOOD * ny) * 20) / 20
               : Math.round((1 + OPEN * -ny) * 20) / 20,
-          // Whole-cell steps: coarse quantization keeps pointer motion from
-          // recomputing the grid per event, same as the lean's eighths.
-          dx: Math.round(nx * SHIFT_X),
-          dy: Math.round(ny * SHIFT_Y),
         };
       };
       const nextL = eye(rect.left + rect.width * 0.25);
       const nextR = eye(rect.left + rect.width * 0.75);
       if (!sameGaze(nextL, gazeL)) gazeL = nextL;
       if (!sameGaze(nextR, gazeR)) gazeR = nextR;
+      // ONE shift for the pair, from the pair's own center — the face moves
+      // as a unit (whole-cell steps, written only on change).
+      const nxc = clamp((sx - (rect.left + rect.width / 2)) / GAZE_REACH_X, -1, 1);
+      const nyc = clamp((sy - cy) / GAZE_REACH_Y, -1, 1);
+      const nextShift = { dx: Math.round(nxc * SHIFT_X), dy: Math.round(nyc * SHIFT_Y) };
+      if (nextShift.dx !== pairShift.dx || nextShift.dy !== pairShift.dy) {
+        pairShift = nextShift;
+      }
     };
     // VELOCITY GATE, not a debounce: at a reasonable cursor speed the eyes
     // track continuously (the pursuit ease above IS the reaction time), but
@@ -432,29 +442,41 @@
     };
   });
 
-  /** Warp one eye by its gaze — a per-cell inverse sample: the whole shape
-   *  first TRANSLATES by (dx, dy) toward the cursor (the cartoon position
-   *  shift), then rows scale vertically about the eye's BASE (the mark's
-   *  bottom edge, so hooding lowers the top and opening raises it), and each
-   *  row shears toward the cursor with the pivot at that same base (top
-   *  swings most). Point sampling is safe both ways: compression skips
-   *  source rows, stretching repeats them — never holes. */
+  /** Warp one eye by its gaze — a per-cell inverse sample, DEFORMATION only
+   *  (position is the pair's, applied after the merge): rows scale
+   *  vertically about the eye's BASE (the mark's bottom edge, so hooding
+   *  lowers the top and opening raises it), and each row shears toward the
+   *  cursor with the pivot at that same base (top swings most). Point
+   *  sampling is safe both ways: compression skips source rows, stretching
+   *  repeats them — never holes. */
   function warpEye(eye: Cell[][], gz: Gaze): Cell[][] {
     const rows = eye.length;
     if (rows === 0) return eye;
     const anchor = rows - 1 - PAD_Y; // the mark's bottom edge — the pivot
     const norm = Math.max(1, rows - 1);
     return eye.map((row, y) => {
-      const ys = Math.round(anchor + (y - gz.dy - anchor) / gz.sv);
+      const ys = Math.round(anchor + (y - anchor) / gz.sv);
       const srcRow = eye[ys];
       if (!srcRow) return row.map(() => SPACE);
-      const shift = Math.round(gz.lean * (LEAN_BASE + LEAN_SHEAR * (1 - y / norm))) + gz.dx;
+      const shift = Math.round(gz.lean * (LEAN_BASE + LEAN_SHEAR * (1 - y / norm)));
       if (shift === 0 && ys === y) return srcRow;
       return row.map((_, x) => {
         const c = srcRow[x - shift];
         return c && c.ch !== " " ? c : SPACE;
       });
     });
+  }
+
+  /** The pair's shared position shift: ONE whole-grid translate after the
+   *  eyes merge — the face moves as a unit, never eye-by-eye. */
+  function shiftPair(g: Cell[][], s: PairShift): Cell[][] {
+    if (s.dx === 0 && s.dy === 0) return g;
+    return g.map((row, y) =>
+      row.map((_, x) => {
+        const src = g[y - s.dy]?.[x - s.dx];
+        return src && src.ch !== " " ? src : SPACE;
+      }),
+    );
   }
 
   /** Apply each eye's gaze: each eye is ISOLATED by masking the other half
@@ -482,7 +504,8 @@
   const display = $derived.by(() => {
     const gazed =
       sameGaze(gazeL, NEUTRAL) && sameGaze(gazeR, NEUTRAL) ? grid : applyGaze(grid, gazeL, gazeR);
-    return squash >= 1 ? gazed : squashGrid(gazed, squash);
+    const placed = shiftPair(gazed, pairShift); // the pair moves as ONE face
+    return squash >= 1 ? placed : squashGrid(placed, squash);
   });
 
   $effect(() => {
