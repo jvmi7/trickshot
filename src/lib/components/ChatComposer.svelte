@@ -17,8 +17,6 @@
   } from "../stores";
   import { claudeTermKey } from "../terminal";
   import * as InputGroup from "$lib/components/ui/input-group";
-  import ArrowUp from "@lucide/svelte/icons/arrow-up";
-  import Square from "@lucide/svelte/icons/square";
 
   let {
     worktree,
@@ -112,25 +110,23 @@
     <InputGroup.Addon align="inline-end" class="self-start pt-1.5">
       {#if busy}
         <InputGroup.Button
-          size="icon-xs"
+          size="xs"
           variant="default"
           class="rounded-none"
-          aria-label="Interrupt"
           title="Stop the running turn (Esc)"
           onclick={interrupt}
         >
-          <Square class="size-3 fill-current" />
+          stop
         </InputGroup.Button>
       {:else}
         <InputGroup.Button
-          size="icon-xs"
+          size="xs"
           variant="default"
           class="rounded-none"
-          aria-label="Send"
           disabled={!canSend}
           onclick={() => void submit()}
         >
-          <ArrowUp class="size-3.5" />
+          send
         </InputGroup.Button>
       {/if}
     </InputGroup.Addon>
