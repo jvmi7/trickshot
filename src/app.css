@@ -1694,6 +1694,10 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
    the utilities' composed --tw-* shadows wholesale). */
 [data-slot="tooltip-content"] {
   border-radius: var(--radius-xl); /* top of the ladder — matches the header popovers */
+  /* Darker than the popover surface — a tooltip floats ABOVE everything, and
+     the deeper fill separates it from the panels it hovers over. Mixed from
+     the theme surface so every palette (Paper included) darkens its own way. */
+  background-color: color-mix(in oklch, var(--base-surface) 72%, black);
   box-shadow:
     var(--app-shadow-float),
     0 0 0 1px color-mix(in oklch, var(--base-text) 10%, transparent);
