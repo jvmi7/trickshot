@@ -5,7 +5,7 @@
     "": {
       "name": "trickshot",
       "dependencies": {
-        "@lucide/svelte": "^1.24.0",
+        "@lucide/svelte": "^1.26.0",
         "@tauri-apps/api": "^2",
         "@xterm/addon-fit": "^0.11.0",
         "@xterm/xterm": "^6.0.0",
@@ -117,7 +117,7 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@lucide/svelte": ["@lucide/svelte@1.24.0", "", { "peerDependencies": { "svelte": "^5" } }, "sha512-yXwewA7ANQ5hfaSDrvsecosWjZn5RglzeXUZRSnxeANBskpNwblOkEJTqD0ujDdNKIKL8E9eVc2U/P3ziJr7OA=="],
+    "@lucide/svelte": ["@lucide/svelte@1.26.0", "", { "peerDependencies": { "svelte": "^5" } }, "sha512-KUfLTlNRVrHZ460Um7jdrvh46hI/8Sw4+1k/Ttj4g6JI9bCrjD7HZVG4cqhh7LasjfDz5b+CuKrjd/k/3obYcA=="],
 
     "@rollup/rollup-android-arm-eabi": ["@rollup/rollup-android-arm-eabi@4.62.2", "", { "os": "android", "cpu": "arm" }, "sha512-6o7ZLZK+BeenkZCFNDXqpbjw9bD6nuWonvS/lwQJp7NoVVxm6p3qE7qQ5jGuBjiFsgvqjD8mZAU5oWxTmbOeOg=="],
 
