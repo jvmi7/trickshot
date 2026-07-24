@@ -775,7 +775,8 @@ html, body {
   top: 42px;
   bottom: 8px;
   left: 8px;
-  width: var(--sidebar-width, 320px);
+  /* Wider than the docked sidebar — the floating card breathes. */
+  width: calc(var(--sidebar-width, 320px) + 40px);
   display: flex;
   flex-direction: column;
   min-height: 0;
