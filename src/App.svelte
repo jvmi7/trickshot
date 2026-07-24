@@ -13,7 +13,7 @@
   import { borderGlow } from "./lib/borderGlow";
   import { chatSilhouette } from "./lib/chatSilhouette";
   import { cursorTrail } from "./lib/cursorTrail";
-  import { clearFocusedTerminal, handleTermEvent } from "./lib/terminal";
+  import { claudeTermKey, clearFocusedTerminal, handleTermEvent } from "./lib/terminal";
   import {
     repos,
     worktreesByRepo,
@@ -49,6 +49,8 @@
     toggleShortcutsHelp,
     requestNewWorktree,
     cursorTrailEnabled,
+    focusedChatByWorktree,
+    DEFAULT_CHAT_ID,
   } from "./lib/stores";
   import { handleScriptEvent } from "./lib/scriptEvents";
   import { createHoverIntent } from "./lib/hoverIntent";
@@ -115,8 +117,12 @@
       e.preventDefault();
       toggleCommandPalette();
     } else if (!e.shiftKey && k === "k") {
-      // Terminal muscle memory: clear whichever terminal owns the keyboard.
-      if (clearFocusedTerminal()) e.preventDefault();
+      // Terminal muscle memory: clear whichever terminal owns the keyboard —
+      // or, since the composer usually does, the SELECTED worktree's focused
+      // chat terminal (the one on screen).
+      const wt = get(selectedWorktree);
+      const chat = wt ? (get(focusedChatByWorktree)[wt] ?? DEFAULT_CHAT_ID) : undefined;
+      if (clearFocusedTerminal(wt ? claudeTermKey(wt, chat) : undefined)) e.preventDefault();
     } else if (e.shiftKey && k === "n") {
       e.preventDefault();
       requestNewWorktree();

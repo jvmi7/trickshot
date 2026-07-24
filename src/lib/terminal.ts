@@ -368,17 +368,26 @@ export function focusTerminal(key: string) {
   instances.get(key)?.term.focus();
 }
 
-/** Clear the scrollback of whichever cached terminal owns keyboard focus
- *  (⌘K — terminal muscle memory). Resolved by DOM containment: xterm parks
- *  focus on its hidden helper textarea inside the instance's element, so the
- *  focused instance is the one whose element contains document.activeElement.
- *  Returns whether a terminal was cleared (no focused terminal = no-op, so
- *  the chord is safe to fire from anywhere). */
-export function clearFocusedTerminal(): boolean {
+/** Clear a terminal for ⌘K (terminal muscle memory). Resolution order:
+ *  (1) whichever cached terminal owns keyboard focus — DOM containment,
+ *  xterm parks focus on its hidden textarea (the shell popover case);
+ *  (2) `fallbackKey`'s instance — the VISIBLE chat, because under the
+ *  composer-only input policy the composer owns focus, so a chat terminal
+ *  is almost never the activeElement itself. Returns whether anything
+ *  cleared (nothing to clear = no-op, safe to fire from anywhere). */
+export function clearFocusedTerminal(fallbackKey?: string): boolean {
   const active = document.activeElement;
-  if (!active) return false;
-  for (const inst of instances.values()) {
-    if (inst.term.element?.contains(active)) {
+  if (active) {
+    for (const inst of instances.values()) {
+      if (inst.term.element?.contains(active)) {
+        inst.term.clear();
+        return true;
+      }
+    }
+  }
+  if (fallbackKey) {
+    const inst = instances.get(fallbackKey);
+    if (inst) {
       inst.term.clear();
       return true;
     }
