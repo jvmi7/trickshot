@@ -5,6 +5,7 @@
   // work". Feature component (stores wiring).
   import { repos, toggleCommandPalette } from "../stores";
   import UsageIndicator from "./UsageIndicator.svelte";
+  import VolumeControl from "./VolumeControl.svelte";
   import Command from "@lucide/svelte/icons/command";
 </script>
 
@@ -15,6 +16,7 @@
       <span class="footer-hint-label">commands</span>
     </button>
     <span class="footer-spacer"></span>
+    <VolumeControl />
     <UsageIndicator />
   </footer>
 {/if}

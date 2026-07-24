@@ -5,6 +5,7 @@ mod github;
 mod scripts;
 mod terminal;
 mod usage;
+mod volume;
 mod worktree;
 mod worktree_map;
 
@@ -56,6 +57,9 @@ pub fn run() {
             terminal::term_close,
             usage::get_usage,
             usage::check_auth,
+            volume::get_volume,
+            volume::set_volume,
+            volume::set_muted,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
