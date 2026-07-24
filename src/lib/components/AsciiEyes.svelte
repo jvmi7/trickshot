@@ -8,6 +8,8 @@
   // sampled ONCE per geometry from an offscreen canvas (the real SVG paths
   // via Path2D, supersampled so the wedge edges land cleanly); only the
   // character/color roll runs per tick.
+  import { GLYPH_PALETTES } from "../identityGlyph";
+
   let {
     cols = 56,
     charset = "%#!&TRCKSHOT",
@@ -138,6 +140,31 @@
 
   const SPACE: Cell = { ch: " ", color: "" };
 
+  // ---- Palette modes (click the eyes to cycle) ----
+  // The default confetti (random vivid hex), then the FIVE swatch palettes
+  // (identityGlyph.ts › GLYPH_PALETTES — the workspaces' own families), then
+  // all-white. Clicking recolors every inked cell in place (chars keep) and
+  // the shimmer keeps rolling in the active mode.
+  const WHITE = "#ffffff"; // conformance-allowlisted: palette DATA (brand play), not themed styling
+  const MODES: { id: string; pick: () => string }[] = [
+    { id: "confetti", pick: () => randColor() },
+    ...GLYPH_PALETTES.map((p) => ({
+      id: p.name,
+      pick: () => p.colors[Math.floor(Math.random() * p.colors.length)] ?? WHITE,
+    })),
+    { id: "white", pick: () => WHITE },
+  ];
+  let paletteIdx = $state(0);
+  const pickColor = () => (MODES[paletteIdx] ?? MODES[0])?.pick() ?? WHITE;
+
+  function cyclePalette() {
+    paletteIdx = (paletteIdx + 1) % MODES.length;
+    // Recolor in place — same glyphs, new family, instant feedback.
+    grid = grid.map((row) =>
+      row.map((c) => (c.ch === " " ? c : { ch: c.ch, color: pickColor() })),
+    );
+  }
+
   /** One frame: inked cells keep their glyph+color or re-roll both. */
   function roll(prev: Cell[][] | null): Cell[][] {
     return mask.map((row, y) =>
@@ -146,7 +173,7 @@
         const kept = prev?.[y]?.[x];
         return kept && kept.ch !== " " && Math.random() >= RE_ROLL
           ? kept
-          : { ch: randChar(), color: randColor() };
+          : { ch: randChar(), color: pickColor() };
       }),
     );
   }
@@ -463,7 +490,16 @@
   });
 </script>
 
-<div class="ascii-eyes {className ?? ''}" aria-hidden="true" bind:this={wrapEl}>
+<!-- Decorative + a click toy: cycling colors is a bonus, not a control
+     (keyboard users lose nothing) — hence the a11y ignores. -->
+<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+<div
+  class="ascii-eyes {className ?? ''}"
+  aria-hidden="true"
+  bind:this={wrapEl}
+  onclick={cyclePalette}
+  title="Click to cycle colors"
+>
   <!-- Two whitespace landmines, both defused here: (1) each row's cells MUST
        be one unbroken template line — Svelte keeps a single space around
        inline elements split across source lines, which white-space: pre
@@ -487,6 +523,7 @@
     line-height: 1;
     letter-spacing: 0;
     user-select: none;
+    cursor: pointer; /* the click toy: cycle the palette */
   }
   .ascii-row {
     white-space: pre;
