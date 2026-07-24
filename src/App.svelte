@@ -127,8 +127,35 @@
   // that shows the col-resize cursor and suppresses text selection during the drag.
   let resizing = $state(false);
   // Hover-peek: the floating sidebar overlay while collapsed (left-edge graze).
+  // Once the slide-in STARTS it always completes: close requests during the
+  // flight are queued and applied only after the open settles (and only if
+  // the pointer isn't resting on the panel by then).
   let sidebarPeek = $state(false);
   let peekEl = $state<HTMLElement | null>(null);
+  let peekSettled = false;
+  let peekCloseQueued = false;
+  let peekHover = false;
+  function openPeek() {
+    peekCloseQueued = false;
+    if (!sidebarPeek) {
+      sidebarPeek = true;
+      peekSettled = false;
+    }
+  }
+  function requestClosePeek() {
+    if (!sidebarPeek) return;
+    if (!peekSettled) {
+      peekCloseQueued = true;
+      return;
+    }
+    sidebarPeek = false;
+  }
+  function peekTransitionEnd(e: TransitionEvent) {
+    if (e.propertyName !== "translate" || !sidebarPeek) return;
+    peekSettled = true;
+    if (peekCloseQueued && !peekHover) sidebarPeek = false;
+    peekCloseQueued = false;
+  }
   // 50px past the width clamp (stores.ts › SIDEBAR_MIN = 200) reads as intent
   // to close, not to resize.
   const SIDEBAR_CLOSE_AT = 150;
@@ -309,10 +336,10 @@
     <div
       class="sidebar-peek-zone"
       role="presentation"
-      onpointerenter={() => (sidebarPeek = true)}
+      onpointerenter={openPeek}
       onpointerleave={(e: PointerEvent) => {
         if (!(e.relatedTarget instanceof Node) || !peekEl?.contains(e.relatedTarget))
-          sidebarPeek = false;
+          requestClosePeek();
       }}
     ></div>
     <div
@@ -320,7 +347,15 @@
       class="sidebar-peek"
       class:open={sidebarPeek}
       role="presentation"
-      onpointerleave={() => (sidebarPeek = false)}
+      onpointerenter={() => {
+        peekHover = true;
+        peekCloseQueued = false;
+      }}
+      onpointerleave={() => {
+        peekHover = false;
+        requestClosePeek();
+      }}
+      ontransitionend={peekTransitionEnd}
     >
       {@render sidebarContent()}
     </div>
