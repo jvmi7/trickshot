@@ -110,14 +110,15 @@
   <!-- rounded-none: the input box is deliberately SQUARE (terminal-crisp,
        squarer than the radius ladder's floor). -->
   <InputGroup.Root class="rounded-none">
-    <!-- text-base: the input reads at the app's body size (the primitive's
-         stock text-sm sat smaller than everything around it). -->
+    <!-- Body-size type at EVERY width: the base Textarea ships
+         `text-base md:text-sm`, so a plain text-base still lost to the
+         responsive md: variant on desktop — override that breakpoint too. -->
     <InputGroup.Textarea
       bind:ref={textareaEl}
       bind:value={draft}
       rows={1}
       {placeholder}
-      class="text-base"
+      class="text-base md:text-base"
       aria-label="Prompt for Claude"
       onkeydown={onKeydown}
     />
