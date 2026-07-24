@@ -132,7 +132,7 @@ const extendedCache = new Map<string, string[]>();
  *  standard entry it replaces. The TUI's 256-color syntax highlighting (the
  *  CLI is capped below truecolor — terminal.rs strips COLORTERM from claude
  *  PTYs) then renders with its intended lightness structure, in one hue.
- *  Cached per accent (five palettes → five arrays); exported for tests. */
+ *  Cached per accent (one array per palette accent); exported for tests. */
 export function monoExtended(accent: string): string[] {
   const hit = extendedCache.get(accent);
   if (hit) return hit;
