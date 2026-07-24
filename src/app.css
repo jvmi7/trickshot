@@ -769,8 +769,10 @@ html, body {
   position: absolute;
   top: var(--app-pane-radius);
   bottom: var(--app-pane-radius);
-  left: -6px; /* centers the grab zone (and its line) on the border column */
-  width: 12px;
+  /* Grab zone reaches from 6px right of the border back past the line at
+     -8px (with 6px of slack beyond it) — the line sits mid-zone again. */
+  left: -14px;
+  width: 20px;
   cursor: col-resize;
   z-index: var(--app-z-chrome);
 }
@@ -781,7 +783,7 @@ html, body {
   bottom: 0;
   left: 50%;
   /* 2px left of the card border — a hairline of air between line and frame. */
-  transform: translateX(calc(-50% - 8px));
+  transform: translateX(calc(-50% - 4px));
   width: 1px;
   opacity: 0;
   /* The line itself: neutral tint, TAPERING to transparent at both ends
