@@ -46,8 +46,8 @@
   import * as Tooltip from "$lib/components/ui/tooltip";
   import * as ContextMenu from "$lib/components/ui/context-menu";
   import IconButton from "./IconButton.svelte";
-  import AsciiEyes from "./AsciiEyes.svelte";
   import IdentityGlyph from "./IdentityGlyph.svelte";
+  import TrickshotMark from "./TrickshotMark.svelte";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
   import Plus from "@lucide/svelte/icons/plus";
@@ -326,10 +326,7 @@
           }
         }}
       >
-        <!-- The brand EYES as a static dot-matrix mini (AsciiEyes dotted):
-             the same sampled mark as the homepage hero, but stone-still —
-             no blink, no tracking, no shimmer — in the row's own tone. -->
-        <AsciiEyes dotted blink={false} track={false} tickMs={0} cols={14} dottedWidth={16} />
+        <TrickshotMark class="wt-home" />
         <span class="wt-name">trickshot</span>
       </div>
     </div>

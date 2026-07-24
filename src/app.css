@@ -1527,7 +1527,7 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
 /* The trickshot (Home) row block sits above the Repositories section header —
    a taller, roomier row than the worktree rows (it's the brand destination,
    not a list item), with clear air before the sections below. */
-.home-rows { margin-bottom: 36px; }
+.home-rows { margin-bottom: 48px; }
 .home-rows .wt-row { padding-top: 12px; padding-bottom: 12px; }
 .repo-group { margin-bottom: 12px; }
 .repo-head { display: flex; align-items: center; gap: 6px; padding: 2px; }
