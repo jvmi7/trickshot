@@ -788,8 +788,8 @@ html, body {
   background: linear-gradient(
     to bottom,
     transparent,
-    color-mix(in oklch, var(--app-text) 30%, var(--app-border)) 7%,
-    color-mix(in oklch, var(--app-text) 30%, var(--app-border)) 93%,
+    color-mix(in oklch, var(--app-text) 30%, var(--app-border)) 5%,
+    color-mix(in oklch, var(--app-text) 30%, var(--app-border)) 95%,
     transparent
   );
   transition: opacity var(--app-duration-fast) ease;
