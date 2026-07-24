@@ -151,13 +151,22 @@
     border-radius: 999px 0 0 999px;
     background: color-mix(in oklch, var(--app-text) 50%, transparent);
   }
-  /* No visible knob — the fill's flat edge is the indicator. The thumb stays
-     in the DOM for dragging + keyboard control and only surfaces for
-     keyboard focus (the ring needs something to anchor to). */
+  /* The thumb: hidden at rest (the fill's flat edge is the level), popping
+     in on hover with an overshoot ease and growing further while grabbed.
+     NO ring/border — the stock shadcn halo (ring-3 on hover/active) is
+     killed here; the scale pop is the whole affordance, and keyboard focus
+     shows the same pop instead of a ring. */
   .volume :global([data-slot="slider-thumb"]) {
-    opacity: 0;
+    border: none;
+    box-shadow: none;
+    scale: 0;
+    transition: scale var(--app-duration-slow) var(--ease-spring);
   }
+  .volume:hover :global([data-slot="slider-thumb"]),
   .volume :global([data-slot="slider-thumb"]:focus-visible) {
-    opacity: 1;
+    scale: 1;
+  }
+  .volume :global([data-slot="slider-thumb"]:active) {
+    scale: 1.4;
   }
 </style>

@@ -74,6 +74,7 @@ shadcn overlays own `z-50` — stay below it. Local stacking *inside* one compon
 | `--app-duration-slow` | 300ms | structural: panel slides, fades, reveals |
 | `--ease-out-soft` | cubic-bezier(0.22, 1, 0.36, 1) | deceleration reveals (scroll indicator) |
 | `--ease-slide` | cubic-bezier(0.4, 0, 0.2, 1) | structural slides (sidebar collapse) |
+| `--ease-spring` | cubic-bezier(0.34, 1.56, 0.64, 1) | overshoot pop for grabbable affordances (the volume thumb) — CSS-side; real damped springs use `svelte/motion` (slidingHighlight) |
 
 Literal `transition` durations fail CI. Keyframe `animation` choreography
 (spinners, pulses) keeps literal durations by design — those are rhythms, not
