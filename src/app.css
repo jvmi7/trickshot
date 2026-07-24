@@ -1606,7 +1606,9 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
 /* Text on the accent fill is --base-on-accent, NOT --app-bg: they coincide in the
    current dark themes but diverge on a light-valued palette (dark accent text over
    a light canvas). Crisp chip corners (terminal aesthetic), not a pill. */
-.wt-unread { flex-shrink: 0; min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-2xs); font-weight: 700; border-radius: var(--radius-2xs); background: var(--app-accent); color: var(--base-on-accent); }
+/* Fully round (999px pill — a genuinely round thing): the notification sits
+   IN the identity slot, replacing the swatch, and reads as a dot-with-count. */
+.wt-unread { flex-shrink: 0; min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--text-2xs); font-weight: 700; border-radius: 999px; background: var(--app-accent); color: var(--base-on-accent); }
 
 /* ---- header breadcrumb ---- */
 /* workspace path shown inline in the content column's top bar (Header), as a

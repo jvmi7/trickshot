@@ -478,6 +478,7 @@
           <!-- busy also drives the row class: a greyed glyph must color back in
                while its session's loading morph plays (see app.css). -->
           {@const busy = $sessionStatus[wt.path] === "busy"}
+          {@const unread = ($unreadByWorktree[wt.path] ?? 0) > 0 && $selectedWorktree !== wt.path}
           <ContextMenu.Root>
             <ContextMenu.Trigger>
               {#snippet child({ props })}
@@ -499,7 +500,14 @@
                     }
                   }}
                 >
-                  <IdentityGlyph seed={wt.path} color={profileAccent(wt.path)} loading={busy} />
+                  <!-- The notification REPLACES the swatch: a fully-round
+                       count in the identity slot — the row's leading mark IS
+                       its state (busy morph > unread count > idle glyph). -->
+                  {#if unread}
+                    <span class="wt-unread" title="Finished while in background">{$unreadByWorktree[wt.path]}</span>
+                  {:else}
+                    <IdentityGlyph seed={wt.path} color={profileAccent(wt.path)} loading={busy} />
+                  {/if}
                   <span class="wt-name">{wt.branch ?? "(detached)"}</span>
                   {#if ($gitStatByWorktree[wt.path]?.changed ?? 0) > 0}
                     {@const gs = $gitStatByWorktree[wt.path]}
@@ -508,9 +516,6 @@
                       {#if gs?.deletions}<span class="diff-del">−{gs.deletions}</span>{/if}
                       {#if !gs?.insertions && !gs?.deletions}<span class="diff-add">●</span>{/if}
                     </span>
-                  {/if}
-                  {#if ($unreadByWorktree[wt.path] ?? 0) > 0 && $selectedWorktree !== wt.path}
-                    <span class="wt-unread" title="Finished while in background">{$unreadByWorktree[wt.path]}</span>
                   {/if}
                   <!-- Archive is the ONE verb on a live workspace (delete lives on
                        the Archived list). The trash fallback exists only for a
