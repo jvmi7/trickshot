@@ -791,7 +791,7 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
   bottom: 8px;
   left: 8px;
   /* Wider than the docked sidebar — the floating card breathes. */
-  width: calc(var(--sidebar-width, 320px) + 40px);
+  width: calc(var(--sidebar-width, 320px) + 80px);
   display: flex;
   flex-direction: column;
   min-height: 0;
