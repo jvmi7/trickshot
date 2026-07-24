@@ -13,6 +13,8 @@
     setTerminalFontSize,
     uniformType,
     setUniformType,
+    cursorTrailEnabled,
+    setCursorTrailEnabled,
   } from "../stores";
   import { applyTerminalFontSize } from "../terminal";
 
@@ -77,6 +79,20 @@
       checked={$uniformType}
       onCheckedChange={setUniformType}
       aria-label="Match terminal text size"
+    />
+  </div>
+
+  <div class="flex items-center justify-between gap-4">
+    <div class="flex flex-col gap-0.5">
+      <span class="text-sm text-muted-foreground">Cursor trail</span>
+      <span class="text-xs text-muted-foreground">
+        The pointer's pixel wake on the terminal backdrop.
+      </span>
+    </div>
+    <Switch
+      checked={$cursorTrailEnabled}
+      onCheckedChange={setCursorTrailEnabled}
+      aria-label="Cursor trail"
     />
   </div>
 

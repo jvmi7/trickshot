@@ -48,6 +48,7 @@
     toggleCompose,
     toggleShortcutsHelp,
     requestNewWorktree,
+    cursorTrailEnabled,
   } from "./lib/stores";
   import { handleScriptEvent } from "./lib/scriptEvents";
   import ClaudeTerminalPane from "./lib/components/ClaudeTerminalPane.svelte";
@@ -419,7 +420,7 @@
           onpointerdown={startResize}
         ></div>
       {/if}
-      {#if $centerView !== "settings" && $repos.length > 0 && $mainView !== "run" && $selectedWorktree}
+      {#if $cursorTrailEnabled && $centerView !== "settings" && $repos.length > 0 && $mainView !== "run" && $selectedWorktree}
         <!-- ONE shared background for the whole chat surface: a single trail
              canvas clipped to the card∪tab silhouette (chatSilhouette). The
              tab and the terminal panes above are transparent — the chrome is

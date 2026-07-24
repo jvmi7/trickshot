@@ -873,6 +873,16 @@ export function setUniformType(v: boolean) {
   uniformType.set(v);
 }
 
+/** Cursor trail: the terminal-backdrop pointer effect (cursorTrail.ts). On by
+ *  default; App.svelte gates the trail node on this. Persisted. */
+export const cursorTrailEnabled = createPersisted<boolean>("trickshot.cursorTrail", true, {
+  parse: (raw) => raw === "true",
+  serialize: String,
+});
+export function setCursorTrailEnabled(v: boolean) {
+  cursorTrailEnabled.set(v);
+}
+
 // ---- Session/worktree orchestration ----
 // Opening a repo, activating a worktree's CLI chat, and handing prompts to the
 // TUI live in `session.ts` (the scriptEvents.ts precedent); re-export so
