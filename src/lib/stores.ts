@@ -777,7 +777,7 @@ export async function refreshUsage(force = false) {
 }
 
 // ---- Provider login presence (ambient app state, not persisted) ----
-// Drives the first-run "sign in" notice (Welcome + the composer banner, see
+// Drives the first-run "sign in" notice (Home + the composer banner, see
 // AuthNotice). Only a DEFINITIVE "no credentials anywhere" flips to `missing`;
 // ambiguous check failures (keychain/HOME errors) leave the state alone so we
 // never false-alarm.

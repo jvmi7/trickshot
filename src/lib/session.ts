@@ -44,7 +44,7 @@ import { basename } from "./utils";
 /** Pick a folder and open it as a repo: validate it's a git repo FIRST (so a
  *  bad pick never persists a junk entry), then add it, cache its worktrees, and
  *  activate the main worktree so the user lands in a live chat. The ONE add-repo
- *  path — the Welcome CTA and the sidebar's FolderPlus both route through here.
+ *  path — the Home CTA and the sidebar's FolderPlus both route through here.
  *  Returns false when the picker is cancelled; throws on failure so callers
  *  surface it in their local error state. */
 export async function openRepository(): Promise<boolean> {

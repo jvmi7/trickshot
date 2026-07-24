@@ -115,11 +115,11 @@
       </Command.Item>
       {#if allWorktrees.length > 0}
         <Command.Item
-          value="fleet overview all workspaces dashboard"
+          value="home fleet overview all workspaces dashboard"
           onSelect={() => pick(() => { setCenterView("chat"); selectWorktree(null); })}
         >
           <LayoutGrid class="size-3.5" />
-          Fleet overview
+          Home
         </Command.Item>
       {/if}
       {#if $selectedWorktree}

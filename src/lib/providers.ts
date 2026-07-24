@@ -7,7 +7,7 @@
 
 export interface ProviderDisplay {
   id: string;
-  /** Ambient sign-in banner copy (Welcome, see AuthNotice). `command` (when
+  /** Ambient sign-in banner copy (Home, see AuthNotice). `command` (when
    *  set) renders as inline code between `before` and `after`. */
   signInNotice: { before: string; command?: string; after?: string };
   /** Tooltip footnote for the usage chip (what the numbers estimate). */

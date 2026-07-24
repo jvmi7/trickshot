@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { openRepository } from "../stores";
+  // The homepage — the center pane whenever nothing is selected: first run
+  // (zero repos) AND the repos-exist-but-no-worktree state share one screen.
+  // A welcome hero always; below it either the first-run onboarding (open-repo
+  // CTA, CLI preflight, feature steps, sign-in notice) or the Fleet grid
+  // (mission control). Feature component (reads stores by design);
+  // Fleet stays the grid-only component this composes.
+  import { openRepository, repos } from "../stores";
   import * as api from "../api";
   import { Button } from "$lib/components/ui/button";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
@@ -8,6 +14,7 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import AuthNotice from "./AuthNotice.svelte";
+  import Fleet from "./Fleet.svelte";
 
   let picking = $state(false);
   let error = $state("");
@@ -16,6 +23,8 @@
   // dead end the user would only discover deep in a session failure — say it
   // HERE. "unknown" (probe rejected) stays silent rather than false-alarming.
   let cliState = $state<"checking" | "ok" | "missing" | "unknown">("checking");
+
+  const hasRepos = $derived($repos.length > 0);
 
   async function probeCli() {
     cliState = "checking";
@@ -34,7 +43,7 @@
   });
 
   $effect(() => {
-    void probeCli();
+    if (!hasRepos) void probeCli();
   });
 
   async function open() {
@@ -59,68 +68,87 @@
   }
 </script>
 
-<div class="welcome">
-  <div class="welcome-inner">
+<div class="home" class:centered={!hasRepos}>
+  <div class="home-hero" class:compact={hasRepos}>
     <h1 class="wordmark">trickshot</h1>
     <p class="tagline">parallel coding agents — one per git worktree</p>
 
-    <Button class="mt-7 gap-2" bind:ref={ctaEl} disabled={picking} onclick={open}>
-      <FolderPlus class="size-4" />
-      {picking ? "Opening…" : "Open a repository"}
-    </Button>
-    {#if error}
-      <p class="pick-error">{error}</p>
+    {#if !hasRepos}
+      <Button class="mt-7 gap-2" bind:ref={ctaEl} disabled={picking} onclick={open}>
+        <FolderPlus class="size-4" />
+        {picking ? "Opening…" : "Open a repository"}
+      </Button>
+      {#if error}
+        <p class="pick-error">{error}</p>
+      {/if}
+
+      {#if cliState === "missing"}
+        <div class="cli-notice">
+          <TriangleAlert class="size-3.5 shrink-0" />
+          <span>
+            The <code>claude</code> CLI isn't on your PATH — trickshot drives Claude Code, so
+            install it first (<code>npm i -g @anthropic-ai/claude-code</code>), then retry.
+          </span>
+          <Button size="sm" variant="ghost" class="h-6 shrink-0 text-xs" onclick={probeCli}>
+            <RefreshCw class="size-3" /> Retry
+          </Button>
+        </div>
+      {/if}
+
+      <div class="steps">
+        <div class="step">
+          <FolderPlus class="size-3.5 shrink-0" />
+          <span>one repo → many worktrees, one per task</span>
+        </div>
+        <div class="step">
+          <GitBranch class="size-3.5 shrink-0" />
+          <span>every worktree gets its own live agent</span>
+        </div>
+        <div class="step">
+          <Bot class="size-3.5 shrink-0" />
+          <span>agents keep running while you switch</span>
+        </div>
+      </div>
+
+      <AuthNotice class="mt-8 max-w-sm p-3 text-left" />
     {/if}
-
-    {#if cliState === "missing"}
-      <div class="cli-notice">
-        <TriangleAlert class="size-3.5 shrink-0" />
-        <span>
-          The <code>claude</code> CLI isn't on your PATH — trickshot drives Claude Code, so
-          install it first (<code>npm i -g @anthropic-ai/claude-code</code>), then retry.
-        </span>
-        <Button size="sm" variant="ghost" class="h-6 shrink-0 text-xs" onclick={probeCli}>
-          <RefreshCw class="size-3" /> Retry
-        </Button>
-      </div>
-    {/if}
-
-    <div class="steps">
-      <div class="step">
-        <FolderPlus class="size-3.5 shrink-0" />
-        <span>one repo → many worktrees, one per task</span>
-      </div>
-      <div class="step">
-        <GitBranch class="size-3.5 shrink-0" />
-        <span>every worktree gets its own live agent</span>
-      </div>
-      <div class="step">
-        <Bot class="size-3.5 shrink-0" />
-        <span>agents keep running while you switch</span>
-      </div>
-    </div>
-
-    <AuthNotice class="mt-8 max-w-sm p-3 text-left" />
   </div>
+
+  {#if hasRepos}
+    <Fleet />
+  {/if}
 </div>
 
 <style>
-  /* First-run pane: fills the center content slot; one-component layout, so it
-     lives here (split-by-reach) and colors come from the shared tokens. */
-  .welcome {
+  /* Homepage layout: one-component structural CSS (split-by-reach); colors
+     come from the shared tokens. */
+  .home {
     flex: 1;
+    min-width: 0;
+    min-height: 0;
     display: flex;
+    flex-direction: column;
+  }
+  /* First-run: no grid below, so the hero owns the pane and sits centered. */
+  .home.centered {
     align-items: center;
     justify-content: center;
     padding: 24px;
   }
-  .welcome-inner {
+  .home-hero {
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
+  }
+  .home.centered .home-hero {
     /* optical center: the pane's true middle reads low under the 48px header */
     margin-top: -6vh;
+  }
+  /* Repos exist: the hero is a quiet masthead above the fleet grid. */
+  .home-hero.compact {
+    flex: none;
+    padding: 28px 24px 4px;
   }
   .wordmark {
     font-size: 20px; /* conformance-allowlisted: one-off display size, off the token scale */
