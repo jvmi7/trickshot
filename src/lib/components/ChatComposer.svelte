@@ -114,7 +114,7 @@
         <InputGroup.Button
           size="icon-xs"
           variant="default"
-          class="rounded-full"
+          class="rounded-none"
           aria-label="Interrupt"
           title="Stop the running turn (Esc)"
           onclick={interrupt}
@@ -125,7 +125,7 @@
         <InputGroup.Button
           size="icon-xs"
           variant="default"
-          class="rounded-full"
+          class="rounded-none"
           aria-label="Send"
           disabled={!canSend}
           onclick={() => void submit()}
