@@ -321,7 +321,11 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
         // The CLI ended (/exit, crash, or our own termClose): session.ts marks
         // the session stopped (type-to-revive). Call-time import per the
         // CIRCULAR-IMPORT CONTRACT.
-        inst.term.write("\r\n\x1b[2m[claude exited — type here to restart it]\x1b[0m\r\n");
+        // The chat cell blocks direct typing (composer-only input) — point at
+        // the surfaces that actually revive it.
+        inst.term.write(
+          "\r\n\x1b[2m[claude exited — send a message or use Restart to start it again]\x1b[0m\r\n",
+        );
         handleCliExit(keyWorktree(key), key);
       } else {
         // Typing revives it (the onData reconnect path) — say so.
@@ -409,7 +413,17 @@ export function disposeChatTerminal(worktree: string, chatId: string) {
 export function attachTerminal(
   key: string,
   el: HTMLElement,
-  opts: { onOpen: () => Promise<void>; onError?: (e: unknown) => void; focus?: boolean },
+  opts: {
+    onOpen: () => Promise<void>;
+    onError?: (e: unknown) => void;
+    focus?: boolean;
+    /** Swallow EVERY keyboard event the terminal would handle and call this
+     *  instead (per keydown) — the chat cells' composer-only input policy:
+     *  a focused xterm must not accept blind typing into the TUI's cropped
+     *  input box; keystrokes bounce focus to the composer. Mouse reporting
+     *  and text selection are untouched. Omit = normal typing (the shell). */
+    blockKeys?: () => void;
+  },
 ): () => void {
   const inst = getTerminal(key);
   el.replaceChildren(); // drop a previous worktree's terminal DOM
@@ -431,6 +445,19 @@ export function attachTerminal(
   // focus: false = a passive reveal (the hover-opened shell popover) — the
   // chat pane keeps the keyboard; the caller focuses explicitly on intent.
   if (opts.focus !== false) inst.term.focus();
+  // Keyboard policy per attach (ONE handler per xterm — the latest attach
+  // owns it): blockKeys swallows everything and bounces to the composer;
+  // otherwise restore normal typing (a cached instance may carry a stale
+  // handler from a previous surface).
+  if (opts.blockKeys) {
+    const bounce = opts.blockKeys;
+    inst.term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type === "keydown") bounce();
+      return false;
+    });
+  } else {
+    inst.term.attachCustomKeyEventHandler(() => true);
+  }
 
   // Fit AFTER layout settles, coalesced to one rAF per burst. Fitting
   // synchronously inside the ResizeObserver callback mutates layout and

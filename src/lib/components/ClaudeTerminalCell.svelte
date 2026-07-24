@@ -104,12 +104,15 @@
     const el = container;
     if (!el) return;
     error = "";
-    // focus: false — the composer below owns first focus; clicking the
-    // terminal still focuses xterm for TUI dialogs/menus/shortcuts.
+    // focus: false — the composer owns the keyboard; blockKeys makes that a
+    // POLICY: a focused xterm (drag-select, Tab) swallows keystrokes and
+    // bounces focus to the composer instead of typing blind into the TUI's
+    // cropped input box. Mouse reporting/selection stay live.
     return attachTerminal(claudeTermKey(wt, id), el, {
       onOpen: () => ensureClaudeOpen(wt, id),
       onError: (e) => (error = String(e)),
       focus: false,
+      blockKeys: () => composer?.focusInput(),
     });
   });
 </script>
