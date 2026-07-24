@@ -318,31 +318,10 @@
       return;
     }
     let raf = 0;
-    let px = 0; // target (the real cursor)
-    let py = 0;
-    let sx = 0; // smoothed pursuit point — the eyes follow THIS
-    let sy = 0;
-    let seeded = false;
-    let last = 0;
-    /** Pursuit lag: the smoothed point closes the gap with ~this time
-     *  constant — the eyes trail the cursor by a beat instead of snapping. */
-    const PURSUIT_TAU_MS = 140;
-    const step = (now: number) => {
-      raf = 0;
-      const dt = last ? Math.min(64, now - last) : 16;
-      last = now;
-      const alpha = 1 - Math.exp(-dt / PURSUIT_TAU_MS);
-      sx += (px - sx) * alpha;
-      sy += (py - sy) * alpha;
-      apply();
-      // Keep chasing until the pursuit point has effectively arrived.
-      if (Math.abs(px - sx) + Math.abs(py - sy) > 1.5) {
-        raf = requestAnimationFrame(step);
-      } else {
-        last = 0;
-      }
-    };
+    let sx = 0; // the cursor, raw — the eyes follow it DIRECTLY (no lag:
+    let sy = 0; // pursuit smoothing/velocity gating read as delay; removed)
     const apply = () => {
+      raf = 0;
       const rect = wrapEl?.getBoundingClientRect();
       if (!rect || rect.width === 0) return;
       const cy = rect.top + rect.height / 2;
@@ -372,64 +351,23 @@
         pairShift = nextShift;
       }
     };
-    // VELOCITY GATE, not a debounce: at a reasonable cursor speed the eyes
-    // track continuously (the pursuit ease above IS the reaction time), but
-    // a cursor FLYING across the screen isn't followed frame by frame — the
-    // gaze holds until the smoothed velocity drops back under the gate. A
-    // short stopped-timer catches the case where a fast flight simply ends
-    // (no slow samples ever arrive) so the eyes still land on the rest point.
-    const V_TRACK = 1.0; // px/ms — above this the cursor is "flying"
-    const V_SMOOTH = 0.35; // EMA weight per sample (raw dt jitter is noisy)
-    const STOP_COMMIT_MS = 90;
-    let settle: ReturnType<typeof setTimeout> | undefined;
-    let lastMoveAt = 0;
-    let lastMx = 0;
-    let lastMy = 0;
-    let vAvg = 0;
-    const commit = (cx: number, cy: number) => {
-      px = cx;
-      py = cy;
-      if (!raf) raf = requestAnimationFrame(step);
-    };
+    // rAF-coalesced only — one recompute per frame at most; quantization
+    // already keeps grid rebuilds to actual pose changes.
     const move = (e: PointerEvent) => {
-      const cx = e.clientX;
-      const cy = e.clientY;
-      const now = e.timeStamp;
-      if (!seeded) {
-        // First sighting: no lag on the very first pose (nothing to trail from).
-        seeded = true;
-        sx = cx;
-        sy = cy;
-        lastMoveAt = now;
-        lastMx = cx;
-        lastMy = cy;
-        commit(cx, cy);
-        return;
-      }
-      const dt = Math.max(1, now - lastMoveAt);
-      const v = Math.hypot(cx - lastMx, cy - lastMy) / dt;
-      vAvg += (v - vAvg) * V_SMOOTH;
-      lastMoveAt = now;
-      lastMx = cx;
-      lastMy = cy;
-      if (vAvg <= V_TRACK) commit(cx, cy);
-      clearTimeout(settle);
-      settle = setTimeout(() => {
-        vAvg = 0; // events ceased — the cursor is at rest
-        commit(cx, cy);
-      }, STOP_COMMIT_MS);
+      sx = e.clientX;
+      sy = e.clientY;
+      if (!raf) raf = requestAnimationFrame(apply);
     };
     const leave = () => {
-      // Ease HOME rather than snapping: target the stage center (gaze = 0)
-      // and let the pursuit loop carry the eyes back.
       const rect = wrapEl?.getBoundingClientRect();
       if (rect && rect.width > 0) {
-        px = rect.left + rect.width / 2;
-        py = rect.top + rect.height / 2;
-        if (!raf) raf = requestAnimationFrame(step);
+        sx = rect.left + rect.width / 2;
+        sy = rect.top + rect.height / 2;
+        if (!raf) raf = requestAnimationFrame(apply);
       } else {
         gazeL = NEUTRAL;
         gazeR = NEUTRAL;
+        pairShift = NO_SHIFT;
       }
     };
     window.addEventListener("pointermove", move, { passive: true });
@@ -438,7 +376,6 @@
       window.removeEventListener("pointermove", move);
       document.documentElement.removeEventListener("mouseleave", leave);
       cancelAnimationFrame(raf);
-      clearTimeout(settle);
     };
   });
 
