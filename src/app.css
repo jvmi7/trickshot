@@ -596,6 +596,11 @@
   --app-dim: var(--base-text-muted);
   --app-accent: var(--base-accent);
   --app-danger: var(--base-danger);
+  /* Git-diff green/red: the state hues BOOSTED (brighter + more saturated,
+     relative-color over the palette) so ± counts and diff lines read at a
+     glance — still theme-derived, retinting with every palette. */
+  --app-diff-add: oklch(from var(--base-success) calc(l * 1.12) calc(c * 1.6) h); /* conformance-allowlisted: palette-derived relative color, no literal */
+  --app-diff-del: oklch(from var(--base-danger) calc(l * 1.1) calc(c * 1.5) h); /* conformance-allowlisted: palette-derived relative color, no literal */
   /* Text-selection colors — theme-driven, derived from the base palette (no raw hex).
      Selected text recolors to the brand accent; the highlight fill is the per-theme
      `selection` tone rendered at 20%. */
@@ -965,8 +970,8 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
 .notice-text { color: var(--base-success); font-size: var(--text-xs); white-space: pre-wrap; word-break: break-word; }
 /* Diffstat ± counts (added green / removed red, matching DiffView's line
    colors) — shared by ViewToggle's Changes tab and GitPanel's file rows. */
-.diff-add { color: var(--base-success); font-variant-numeric: tabular-nums; }
-.diff-del { color: var(--app-danger); font-variant-numeric: tabular-nums; }
+.diff-add { color: var(--app-diff-add); font-variant-numeric: tabular-nums; }
+.diff-del { color: var(--app-diff-del); font-variant-numeric: tabular-nums; }
 /* Bordered panel section + its plumbing, shared by GitPanel and PrPanel (hoisted
    from their formerly copy-pasted "keep in sync" scoped styles). */
 .panel-section { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-top: 1px solid var(--app-border); }
