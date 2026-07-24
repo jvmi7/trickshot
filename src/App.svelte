@@ -329,8 +329,8 @@
     <!-- Archived workspaces: pinned BELOW the scrolling list (its own footer
          band) so a long repo list can't push it off screen. -->
     <ArchivedSection />
-    <!-- Opens the full Settings page (appearance + global connectors) in the
-         center pane, in place of the chat. -->
+    <!-- Opens the full Settings page in the center pane, in place of the
+         chat. -->
     <div class="sidebar-foot">
       <Button
         variant="ghost"
