@@ -80,7 +80,7 @@ Boundary arg casing (deliberate asymmetry, matches Tauri serde defaults):
 | Per-workspace terminal profiles (path-hash → full ANSI palette/accent; identity chips + header ❯) | `src/lib/termProfiles.ts` (data + `profileFor/Accent`, tested) + `terminal.ts › themeColors(key)` + `stores.ts` `--ws-*` reflect |
 | The SWATCH — the 3×3 workspace identity mark; "swatch" is its house name. Its `loading` morph IS the busy indicator (sidebar rows + chat tabs, driven by `sessionStatus`/`chatStatusByKey`) | `IdentityGlyph.svelte` (SVG + morph choreography) + `identityGlyph.ts` (seeded shapes/palettes, tested) |
 | ANSI (SGR) rendering for script output — the ONE home | `src/lib/ansi.ts` (+ tests) + `AnsiText.svelte`; `--app-ansi-*` tokens in app.css (conformance §8) |
-| Command palette (⌘K) + shortcuts (⌘⇧N/⌘⇧D/⌘⇧P in `App.svelte`) | `CommandPalette.svelte` + `stores.ts › commandPaletteOpen`/`newWorktreeRequest`/`activateWorktree` |
+| Command palette (⌘P) + shortcuts (⌘K clear-terminal, ⌘⇧N/⌘⇧D/⌘⇧P in `App.svelte`) | `CommandPalette.svelte` + `stores.ts › commandPaletteOpen`/`newWorktreeRequest`/`activateWorktree` |
 | Background fleet (unread badges) | `unreadByWorktree` store + `Worktrees.svelte`/`Fleet.svelte` badges; the busy/turn-end signal is derived from PTY output flow (`cliActivity.ts`). (The notification system — OS `notify` command + in-app bell — was DELETED by user request; don’t reintroduce it.) |
 | Rust commands: session-store scan / git worktrees + repo icons | `src-tauri/src/agent.rs`, `worktree.rs` |
 | Rust command registry (`generate_handler!`) | `src-tauri/src/lib.rs` |

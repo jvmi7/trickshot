@@ -989,8 +989,8 @@ export function setCursorTrailEnabled(v: boolean) {
 // TUI live in `session.ts` (the scriptEvents.ts precedent); re-export so
 // `import { activateWorktree } from "./stores"` keeps working.
 export {
-  activateWorktree,
   ArchiveHookError,
+  activateWorktree,
   archiveWorkspace,
   closeChat,
   ensureClaudeOpen,

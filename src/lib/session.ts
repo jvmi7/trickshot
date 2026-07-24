@@ -116,7 +116,8 @@ export class ArchiveHookError extends Error {}
  *  here; callers own their confirm surfaces (dirty trees, hook failures) and
  *  their local error state. */
 export async function archiveWorkspace(repoPath: string, wt: Worktree, skipHook = false) {
-  if (!wt.branch) throw new Error("a detached-HEAD worktree can't archive (restore needs a branch)");
+  if (!wt.branch)
+    throw new Error("a detached-HEAD worktree can't archive (restore needs a branch)");
   let archiveCmd: string | null = null;
   if (!skipHook) {
     try {

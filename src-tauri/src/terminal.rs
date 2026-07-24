@@ -196,7 +196,11 @@ pub async fn save_attachment(data: String, ext: String) -> Result<String, String
             .take(8)
             .collect::<String>()
             .to_ascii_lowercase();
-        let ext = if ext.is_empty() { "png".to_string() } else { ext };
+        let ext = if ext.is_empty() {
+            "png".to_string()
+        } else {
+            ext
+        };
         let dir = std::env::temp_dir().join("trickshot-attachments");
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let stamp = std::time::SystemTime::now()
