@@ -9,6 +9,7 @@
   // apply while typing HERE — text arrives on submit. Feature component.
   import { tick } from "svelte";
   import { sendToCli } from "../stores";
+  import { profileAccent } from "../termProfiles";
   import * as InputGroup from "$lib/components/ui/input-group";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
 
@@ -42,6 +43,9 @@
   }
 
   const canSend = $derived(!sending && draft.trim().length > 0);
+  // The focus treatment carries the WINDOW's identity: the workspace accent
+  // (the swatch/header ❯ color), applied via the scoped override below.
+  const accent = $derived(profileAccent(worktree));
 
   $effect(() => {
     if (autofocus) void tick().then(() => textareaEl?.focus());
@@ -73,7 +77,7 @@
   }
 </script>
 
-<div class="chat-composer">
+<div class="chat-composer" style="--composer-accent: {accent}">
   {#if error}
     <p class="error-text">{error}</p>
   {/if}
@@ -109,5 +113,17 @@
     flex-direction: column;
     gap: 4px;
     min-width: 0;
+  }
+  /* Focused input = the WORKSPACE's color, not the theme ring: border +
+     a soft halo mixed from the identity accent (--composer-accent, set
+     inline above). :global — the slots live inside ui/input-group, which
+     never gets hand-edited; the consumer restyles its own instance (the
+     UsageIndicator badge precedent). */
+  .chat-composer
+    :global(
+      [data-slot="input-group"]:has([data-slot="input-group-control"]:focus-visible)
+    ) {
+    border-color: var(--composer-accent);
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--composer-accent) 25%, transparent);
   }
 </style>
