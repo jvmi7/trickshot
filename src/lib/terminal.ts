@@ -21,26 +21,33 @@ import { ensureClaudeOpen, handleCliExit } from "./session";
 import {
   bumpGitRefresh,
   bumpUnread,
+  clearChatStatuses,
+  DEFAULT_CHAT_ID,
   refreshUsage,
   selectedWorktree,
-  setStatus,
+  setChatStatus,
   terminalFontSize,
 } from "./stores";
-import { profileAccent, profileFor } from "./termProfiles";
+import { monoExtended, profileAccent, profileFor } from "./termProfiles";
 import type { TermEnvelope } from "./types";
 
-/** PTY slot suffix for the dedicated Claude CLI terminal (the chat pane's CLI
- *  mode). NUL can't occur in a filesystem path, so the composite key can't
- *  collide with a real worktree. Hand-mirrored by `CLAUDE_SLOT` in
+/** PTY slot suffix for the dedicated Claude CLI terminals (the chat pane).
+ *  NUL can't occur in a filesystem path, so the composite key can't collide
+ *  with a real worktree. Hand-mirrored by `CLAUDE_SLOT` in
  *  src-tauri/src/terminal.rs — keep the pair in sync (see ARCHITECTURE.md). */
 const CLAUDE_SLOT = "\u0000claude";
-/** The claude-slot PTY key for a worktree (see CLAUDE_SLOT). */
-export function claudeTermKey(worktree: string): string {
-  return worktree + CLAUDE_SLOT;
+/** The claude-slot PTY key for one of a worktree's chats. The DEFAULT chat
+ *  keeps the bare slot (pre-multi-chat sessions keep working); additional
+ *  chats append `:<chat id>`. Mirrors Rust's `claude_key` — keep in sync. */
+export function claudeTermKey(worktree: string, chatId?: string): string {
+  return chatId && chatId !== DEFAULT_CHAT_ID
+    ? `${worktree}${CLAUDE_SLOT}:${chatId}`
+    : worktree + CLAUDE_SLOT;
 }
 /** The real worktree path behind a PTY key (identity for shell keys). */
-function keyWorktree(key: string): string {
-  return key.endsWith(CLAUDE_SLOT) ? key.slice(0, -CLAUDE_SLOT.length) : key;
+export function keyWorktree(key: string): string {
+  const i = key.indexOf(CLAUDE_SLOT);
+  return i >= 0 ? key.slice(0, i) : key;
 }
 
 interface TermInstance {
@@ -99,6 +106,8 @@ export function themeColors(key?: string) {
     foreground: v("--base-text"),
     selectionBackground: v("--base-selection"),
   };
+  // Slots 16–255 (string[] — typed apart from the flat color record).
+  let extended: string[] | undefined;
   const probe = document.createElement("span");
   probe.style.display = "none";
   document.body.appendChild(probe);
@@ -107,10 +116,13 @@ export function themeColors(key?: string) {
     return getComputedStyle(probe).color || undefined;
   };
   if (key) {
-    // Per-workspace terminal PROFILE (termProfiles.ts): its own ANSI palette,
-    // with the workspace's identity accent as BOTH the main text color and the
-    // cursor — the EXACT color of its sidebar chip. Background stays the APP
-    // THEME's for every workspace (uniform canvas; the accent differentiates).
+    // Per-workspace terminal PROFILE (termProfiles.ts): its own MONOCHROME
+    // ANSI palette, with the workspace's identity accent as BOTH the main
+    // text color and the cursor — the EXACT color of its sidebar chip.
+    // Background stays the APP THEME's for every workspace (uniform canvas;
+    // the accent differentiates). extendedAnsi covers slots 16–255 so the
+    // TUI's 256-color syntax highlighting stays in the hue too (the CLI is
+    // capped below truecolor — terminal.rs strips COLORTERM).
     const wt = keyWorktree(key);
     const p = profileFor(wt);
     theme.background = "rgba(0, 0, 0, 0)"; // transparent — the backdrop div paints it
@@ -120,6 +132,7 @@ export function themeColors(key?: string) {
     ANSI_SLOTS.forEach((slot, i) => {
       theme[slot] = p.ansi[i];
     });
+    extended = monoExtended(accent);
   } else {
     // No workspace context: the app theme's terminal colors.
     theme.background = "rgba(0, 0, 0, 0)"; // transparent — the backdrop div paints it
@@ -130,7 +143,7 @@ export function themeColors(key?: string) {
     });
   }
   probe.remove();
-  return theme;
+  return extended ? { ...theme, extendedAnsi: extended } : theme;
 }
 
 /** Get (or lazily create) the persistent xterm instance for a PTY key (a
@@ -138,7 +151,7 @@ export function themeColors(key?: string) {
 export function getTerminal(key: string): TermInstance {
   let inst = instances.get(key);
   if (!inst) {
-    const slot: TermInstance["slot"] = key.endsWith(CLAUDE_SLOT) ? "claude" : "shell";
+    const slot: TermInstance["slot"] = key.includes(CLAUDE_SLOT) ? "claude" : "shell";
     const term = new Terminal({
       fontSize: get(terminalFontSize),
       fontFamily: "ui-monospace, Menlo, monospace",
@@ -151,6 +164,26 @@ export function getTerminal(key: string): TermInstance {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    if (slot === "claude") {
+      // Shift+Enter → NEWLINE in the CLI. A plain terminal can't distinguish
+      // Shift+Enter from Enter (both are CR), and xterm.js speaks neither the
+      // kitty keyboard protocol nor CSI-u — so the TUI would submit. Send the
+      // CLI's documented newline fallback ("\" + CR) ourselves and swallow
+      // the keystroke.
+      term.attachCustomKeyEventHandler((e) => {
+        if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+          // Swallow BOTH the keydown and the trailing keypress — xterm
+          // consults this handler for each, and an unswallowed keypress
+          // still emits a bare \r (which submits).
+          if (e.type === "keydown") {
+            noteCliInput(key);
+            api.termWrite(key, "\\\r").catch(() => {});
+          }
+          return false;
+        }
+        return true;
+      });
+    }
     // Keystrokes → PTY. If the write fails the PTY is gone (killed, or the Rust
     // core restarted under a dev rebuild — no `exit` event reaches us then), so
     // RECONNECT: reopen the PTY — as the login shell for the shell slot, as the
@@ -230,15 +263,25 @@ export function muteCliActivity(key: string, ms: number) {
   cliEntry(key).tracker.muteUntil(Date.now() + ms);
 }
 
+/** Whether this claude PTY has an announced turn in flight RIGHT NOW — the
+ *  tracker is the per-instance source of truth. Status writers consult this
+ *  instead of assuming a state (ensureClaudeOpen's idempotent re-open used to
+ *  stomp a streaming turn's busy → ready, freezing the sidebar glyph for the
+ *  rest of the turn — the once-per-burst announce can't re-fire). No entry =
+ *  no tracked activity = not busy. */
+export function cliBusy(key: string): boolean {
+  return cliActivity.get(key)?.tracker.isBusy ?? false;
+}
+
 function noteCliActivity(key: string) {
   const entry = cliEntry(key);
   const wt = keyWorktree(key);
-  if (entry.tracker.onData(Date.now()) === "busy") setStatus(wt, "busy");
+  if (entry.tracker.onData(Date.now()) === "busy") setChatStatus(wt, key, "busy");
   if (entry.timer) clearTimeout(entry.timer);
   entry.timer = setTimeout(() => {
     entry.timer = null;
     const burst = entry.tracker.onIdle(Date.now());
-    setStatus(wt, "ready");
+    setChatStatus(wt, key, "ready");
     if (burst === "turn") {
       // A turn just finished: budget + git state moved, and a background
       // worktree deserves attention. ("Finished" may also mean "waiting on a
@@ -283,8 +326,12 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
         // The CLI ended (/exit, crash, or our own termClose): session.ts marks
         // the session stopped (type-to-revive). Call-time import per the
         // CIRCULAR-IMPORT CONTRACT.
-        inst.term.write("\r\n\x1b[2m[claude exited — type here to restart it]\x1b[0m\r\n");
-        handleCliExit(keyWorktree(key));
+        // The chat cell blocks direct typing (composer-only input) — point at
+        // the surfaces that actually revive it.
+        inst.term.write(
+          "\r\n\x1b[2m[claude exited — send a message or use Restart to start it again]\x1b[0m\r\n",
+        );
+        handleCliExit(keyWorktree(key), key);
       } else {
         // Typing revives it (the onData reconnect path) — say so.
         inst.term.write("\r\n\x1b[2m[session ended — type here to restart it]\x1b[0m\r\n");
@@ -320,18 +367,39 @@ export function applyTerminalFontSize(px: number) {
   }
 }
 
-/** Kill the PTYs and drop the cached xterms (worktree removal/archive) — BOTH
- *  slots, so an archived worktree's CLI terminal can't linger. */
-export function disposeTerminal(worktree: string) {
-  for (const key of [worktree, claudeTermKey(worktree)]) {
-    clearCliActivity(key);
-    api.termClose(key).catch(() => {});
-    const inst = instances.get(key);
-    if (inst) {
-      inst.term.dispose();
-      instances.delete(key);
-    }
+/** Focus a cached xterm (the shell popover's click-to-pin path). No-op when
+ *  the instance doesn't exist yet — attach handles first focus. */
+export function focusTerminal(key: string) {
+  instances.get(key)?.term.focus();
+}
+
+/** Kill ONE PTY and drop its cached xterm. */
+function disposeKey(key: string) {
+  clearCliActivity(key);
+  api.termClose(key).catch(() => {});
+  const inst = instances.get(key);
+  if (inst) {
+    inst.term.dispose();
+    instances.delete(key);
   }
+}
+
+/** Kill the PTYs and drop the cached xterms (worktree removal/archive) — the
+ *  shell slot AND every chat slot, so nothing lingers. Sweeps the instance
+ *  cache by key identity (a worktree can have any number of chat PTYs), plus
+ *  the default chat key (its PTY may be alive with no cached xterm yet). */
+export function disposeTerminal(worktree: string) {
+  const keys = new Set<string>([worktree, claudeTermKey(worktree)]);
+  for (const key of instances.keys()) if (keyWorktree(key) === worktree) keys.add(key);
+  for (const key of keys) disposeKey(key);
+  clearChatStatuses(worktree);
+}
+
+/** Kill one CHAT's PTY + xterm (closing a tab/cell). The chat's transcript in
+ *  Claude Code's session store is untouched — only the process and the app-side
+ *  terminal go. */
+export function disposeChatTerminal(worktree: string, chatId: string) {
+  disposeKey(claudeTermKey(worktree, chatId));
 }
 
 /** Attach a cached xterm to a pane element and keep it fitted — the ONE
@@ -350,7 +418,17 @@ export function disposeTerminal(worktree: string) {
 export function attachTerminal(
   key: string,
   el: HTMLElement,
-  opts: { onOpen: () => Promise<void>; onError?: (e: unknown) => void },
+  opts: {
+    onOpen: () => Promise<void>;
+    onError?: (e: unknown) => void;
+    focus?: boolean;
+    /** Swallow EVERY keyboard event the terminal would handle and call this
+     *  instead (per keydown) — the chat cells' composer-only input policy:
+     *  a focused xterm must not accept blind typing into the TUI's cropped
+     *  input box; keystrokes bounce focus to the composer. Mouse reporting
+     *  and text selection are untouched. Omit = normal typing (the shell). */
+    blockKeys?: () => void;
+  },
 ): () => void {
   const inst = getTerminal(key);
   el.replaceChildren(); // drop a previous worktree's terminal DOM
@@ -369,7 +447,22 @@ export function attachTerminal(
   inst.term.options.allowTransparency = true;
   inst.term.options.theme = themeColors(key);
   inst.term.options.fontSize = get(terminalFontSize);
-  inst.term.focus();
+  // focus: false = a passive reveal (the hover-opened shell popover) — the
+  // chat pane keeps the keyboard; the caller focuses explicitly on intent.
+  if (opts.focus !== false) inst.term.focus();
+  // Keyboard policy per attach (ONE handler per xterm — the latest attach
+  // owns it): blockKeys swallows everything and bounces to the composer;
+  // otherwise restore normal typing (a cached instance may carry a stale
+  // handler from a previous surface).
+  if (opts.blockKeys) {
+    const bounce = opts.blockKeys;
+    inst.term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type === "keydown") bounce();
+      return false;
+    });
+  } else {
+    inst.term.attachCustomKeyEventHandler(() => true);
+  }
 
   // Fit AFTER layout settles, coalesced to one rAF per burst. Fitting
   // synchronously inside the ResizeObserver callback mutates layout and

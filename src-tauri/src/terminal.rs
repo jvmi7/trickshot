@@ -21,8 +21,25 @@ use crate::worktree_map::{lock_ignore_poison, next_generation, WorktreeEvent, Wo
 /// src/lib/terminal.ts — keep the two in sync (see ARCHITECTURE.md).
 pub(crate) const CLAUDE_SLOT: &str = "\u{0}claude";
 
-fn claude_key(worktree: &str) -> String {
-    format!("{worktree}{CLAUDE_SLOT}")
+/// The default chat's id. Its key stays the BARE claude slot so pre-multi-chat
+/// PTYs/keys keep working (migration-safe); additional chats append `:<id>`.
+/// Hand-mirrored by `DEFAULT_CHAT_ID` in src/lib/stores.ts.
+const DEFAULT_CHAT: &str = "main";
+
+/// The claude-slot PTY key for a worktree's chat. One worktree can run several
+/// concurrent CLI chats (the tab/grid surface) — each gets its own PTY, keyed
+/// `{worktree}\0claude` (default chat) or `{worktree}\0claude:{chat}`.
+fn claude_key(worktree: &str, chat: Option<&str>) -> String {
+    match chat {
+        Some(id) if id != DEFAULT_CHAT => format!("{worktree}{CLAUDE_SLOT}:{id}"),
+        _ => format!("{worktree}{CLAUDE_SLOT}"),
+    }
+}
+
+/// Chat ids are app-generated slugs — validated anyway (defense in depth, the
+/// session-id posture): short alphanumeric/dash only.
+fn is_valid_chat_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 32 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 /// The user's login shell (also the shell we ask for PATH/claude resolution).
@@ -180,6 +197,9 @@ pub async fn check_cli() -> Result<bool, String> {
 /// chat mode coexist. Output streams as `term-event`s tagged with the PTY key.
 /// Async + spawn_blocking: spawning is a subprocess launch and must run off the
 /// main thread.
+// Command args mirror the IPC surface 1:1 (flat camelCase args from api.ts);
+// bundling them into a struct would nest the wire shape for style points.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn term_open(
     app: AppHandle,
@@ -188,11 +208,25 @@ pub async fn term_open(
     cols: u16,
     launch: Option<String>,
     resume_session_id: Option<String>,
+    chat: Option<String>,
+    session_id: Option<String>,
 ) -> Result<bool, String> {
     let launch = parse_launch(launch.as_deref())?;
     if let Some(id) = &resume_session_id {
         if !is_valid_session_id(id) {
             return Err("invalid session id".to_string());
+        }
+    }
+    // `session_id` = a DETERMINISTIC id for a NEW session (`--session-id`), so
+    // the app knows a chat's transcript identity from birth — no store scan.
+    if let Some(id) = &session_id {
+        if !is_valid_session_id(id) {
+            return Err("invalid session id".to_string());
+        }
+    }
+    if let Some(id) = &chat {
+        if !is_valid_chat_id(id) {
+            return Err("invalid chat id".to_string());
         }
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -203,7 +237,7 @@ pub async fn term_open(
             Launch::Shell => None,
         };
         let key = match launch {
-            Launch::Claude => claude_key(&worktree),
+            Launch::Claude => claude_key(&worktree, chat.as_deref()),
             Launch::Shell => worktree.clone(),
         };
 
@@ -227,10 +261,32 @@ pub async fn term_open(
                 if let Some(id) = &resume_session_id {
                     c.arg("--resume");
                     c.arg(id); // argv-only, validated — never through a shell
+                } else if let Some(id) = &session_id {
+                    // A NEW session with an app-chosen id (multi-chat: each
+                    // chat owns its transcript identity from birth).
+                    c.arg("--session-id");
+                    c.arg(id); // argv-only, validated — never through a shell
                 }
                 if !login_path.is_empty() {
                     c.env("PATH", login_path);
                 }
+                // The app's chats are TOP-LEVEL sessions. When the app itself
+                // was launched from inside a Claude Code session (dev flow),
+                // the CLI would inherit these markers, believe it's a child
+                // session, and DISABLE transcript saving — which breaks
+                // resume (latest_session_id/session_exists scan transcripts).
+                c.env_remove("CLAUDECODE");
+                c.env_remove("CLAUDE_CODE_CHILD_SESSION");
+                c.env_remove("CLAUDE_CODE_ENTRYPOINT");
+                // Cap the CLI at 256-color output (no COLORTERM = no
+                // truecolor advertisement; FORCE_COLOR could re-force it).
+                // Truecolor SGR bypasses xterm's palette entirely, which
+                // would defeat the per-workspace MONOCHROME profile — at 256
+                // colors every code the TUI emits routes through the theme's
+                // extendedAnsi ramp (terminal.ts › themeColors). Claude-slot
+                // only: the plain shell keeps the user's full color env.
+                c.env_remove("COLORTERM");
+                c.env_remove("FORCE_COLOR");
                 c
             }
             None => {
@@ -390,10 +446,31 @@ mod tests {
 
     #[test]
     fn claude_key_is_nul_suffixed_and_collision_free() {
-        let key = claude_key("/some/worktree");
+        let key = claude_key("/some/worktree", None);
         assert_eq!(key, format!("/some/worktree{CLAUDE_SLOT}"));
         assert!(key.contains('\u{0}')); // NUL can't occur in a real path
         assert_ne!(key, "/some/worktree");
+        // The default chat aliases to the bare slot (migration-safe)…
+        assert_eq!(claude_key("/w", Some("main")), format!("/w{CLAUDE_SLOT}"));
+        // …while additional chats get their own keys.
+        assert_eq!(
+            claude_key("/w", Some("a1b2c3")),
+            format!("/w{CLAUDE_SLOT}:a1b2c3")
+        );
+        assert_ne!(claude_key("/w", Some("x")), claude_key("/w", Some("y")));
+    }
+
+    #[test]
+    fn chat_id_validation_is_slug_shaped() {
+        use super::is_valid_chat_id;
+        assert!(is_valid_chat_id("main"));
+        assert!(is_valid_chat_id("a1b2-c3"));
+        assert!(!is_valid_chat_id(""));
+        assert!(!is_valid_chat_id("has space"));
+        assert!(!is_valid_chat_id(
+            "way-too-long-to-be-an-app-generated-slug"
+        ));
+        assert!(!is_valid_chat_id("nul\u{0}byte"));
     }
 
     #[test]

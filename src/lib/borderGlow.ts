@@ -12,16 +12,36 @@ export function borderGlow(node: HTMLElement): { destroy(): void } {
   let y = 0;
   let visible = false;
 
+  let last = "";
   const paint = () => {
     raf = 0;
     const r = node.getBoundingClientRect();
+    // Skip identical writes: paint is ALSO triggered by the node's own style
+    // mutations (see the observer below), and unguarded setProperty calls
+    // would re-fire it forever.
+    const next = `${(x - r.left).toFixed(1)},${(y - r.top).toFixed(1)},${visible ? 1 : 0}`;
+    if (next === last) return;
+    last = next;
     node.style.setProperty("--glow-x", `${x - r.left}px`);
+    // Right-anchored twin (negative left of the right edge): consumers whose
+    // boxes hang off the node's RIGHT side (the chat tab's right flare glow)
+    // can center the light without knowing the node's width.
+    node.style.setProperty("--glow-xr", `${x - r.right}px`);
     node.style.setProperty("--glow-y", `${y - r.top}px`);
     node.style.setProperty("--glow-o", visible ? "1" : "0");
   };
   const schedule = () => {
     if (!raf) raf = requestAnimationFrame(paint);
   };
+  // Repaint when the NODE moves under a stationary cursor (the sliding tab
+  // chrome springs its position every frame): its style mutations re-derive
+  // the vars from the fresh rect — no pointer movement required. SYNCHRONOUS
+  // (not rAF): deferring lands one frame behind the moving node, and under
+  // main-thread jank (the xterm re-attach during a tab switch) that smears
+  // the lit border off the chrome. paint()'s identical-value guard keeps the
+  // observer from re-firing on its own writes.
+  const mo = new MutationObserver(paint);
+  mo.observe(node, { attributes: true, attributeFilter: ["style"] });
   const onMove = (e: PointerEvent) => {
     x = e.clientX;
     y = e.clientY;
@@ -40,6 +60,7 @@ export function borderGlow(node: HTMLElement): { destroy(): void } {
   window.addEventListener("pointerout", onOut);
   return {
     destroy() {
+      mo.disconnect();
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerout", onOut);
       if (raf) cancelAnimationFrame(raf);

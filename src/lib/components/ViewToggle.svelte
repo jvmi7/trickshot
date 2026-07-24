@@ -24,6 +24,77 @@
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import Terminal from "@lucide/svelte/icons/terminal";
   import { slidingToggle } from "../slidingHighlight";
+  import { createHoverIntent } from "../hoverIntent";
+
+  // ONE chrome for both header popovers (Changes, Shell): the app float
+  // shadow, top-of-ladder radius, and clipped corners so the panel inside
+  // meets the ring cleanly. The panels own their size (.git-panel /
+  // .term-pane-popover); the popover shell stays w-auto p-0.
+  const headerPopoverClass =
+    "w-auto overflow-hidden rounded-xl p-0 [box-shadow:var(--app-shadow-float)]";
+
+  // HOVER = reveal, CLICK = pin. Each popover has a mode: "hover" (opened by
+  // dwell; pointer leave closes it) or "pinned" (opened/claimed by click,
+  // keyboard shortcut, or any non-hover path; only outside-click/Esc/re-click
+  // closes it). Close resets the mode to "pinned" so externally-driven opens
+  // (⌘⇧D/⌘⇧P) default sticky; the hover path claims "hover" as it opens.
+  let changesMode = $state<"hover" | "pinned">("pinned");
+  let shellMode = $state<"hover" | "pinned">("pinned");
+  const changesHover = createHoverIntent({
+    setOpen: (v) => {
+      if (v) {
+        changesMode = "hover";
+        setChangesOpen(true);
+      } else if (changesMode === "hover") {
+        setChangesOpen(false);
+      }
+    },
+  });
+  const shellHover = createHoverIntent({
+    setOpen: (v) => {
+      if (v) {
+        shellMode = "hover";
+        setShellOpen(true);
+      } else if (shellMode === "hover") {
+        setShellOpen(false);
+      }
+    },
+  });
+  $effect(() => {
+    if (!$changesOpen) changesMode = "pinned";
+  });
+  $effect(() => {
+    if (!$shellOpen) shellMode = "pinned";
+  });
+  $effect(() => () => {
+    changesHover.cancel();
+    shellHover.cancel();
+  });
+
+  /** Trigger click, replacing the bits-ui toggle: closed → open pinned;
+   *  hover-open → claim the pin; pinned → close. */
+  function clickChanges() {
+    changesHover.cancel();
+    if (!$changesOpen) {
+      changesMode = "pinned";
+      setChangesOpen(true);
+    } else if (changesMode === "hover") {
+      changesMode = "pinned";
+    } else {
+      setChangesOpen(false);
+    }
+  }
+  function clickShell() {
+    shellHover.cancel();
+    if (!$shellOpen) {
+      shellMode = "pinned";
+      setShellOpen(true);
+    } else if (shellMode === "hover") {
+      shellMode = "pinned";
+    } else {
+      setShellOpen(false);
+    }
+  }
 
   const stat = $derived($activeGitStat);
   // The tab shows whenever there's anything to review: dirty files OR commits
@@ -53,6 +124,9 @@
             data-active={$changesOpen ? "" : undefined}
             aria-label="Changes"
             title="Changes & pull request"
+            onclick={clickChanges}
+            onpointerenter={() => changesHover.enter()}
+            onpointerleave={() => changesHover.leave()}
           >
             {#if hasCounts}
               {#if stat.insertions > 0}<span class="diff-add">+{stat.insertions}</span>{/if}
@@ -63,7 +137,13 @@
           </Button>
         {/snippet}
       </Popover.Trigger>
-      <Popover.Content align="end" class="w-auto p-0">
+      <Popover.Content
+        align="end"
+        sideOffset={8}
+        class={headerPopoverClass}
+        onpointerenter={() => changesHover.cancelClose()}
+        onpointerleave={() => changesHover.leave()}
+      >
         <GitPanel />
       </Popover.Content>
     </Popover.Root>
@@ -106,6 +186,9 @@
             data-active={$shellOpen ? "" : undefined}
             aria-label="Shell"
             title="Shell — a plain terminal in this worktree (the chat pane is the Claude CLI)"
+            onclick={clickShell}
+            onpointerenter={() => shellHover.enter()}
+            onpointerleave={() => shellHover.leave()}
           >
             <Terminal class="size-4.5" />
           </Button>
@@ -115,10 +198,15 @@
            zoom-in transform scales those measurements and garbles the grid. -->
       <Popover.Content
         align="end"
-        class="w-auto p-0 data-[state=open]:animate-none data-[state=closed]:animate-none"
+        sideOffset={8}
+        class="{headerPopoverClass} data-[state=open]:animate-none data-[state=closed]:animate-none"
         escapeKeydownBehavior="ignore"
+        onpointerenter={() => shellHover.cancelClose()}
+        onpointerleave={() => shellHover.leave()}
       >
-        <TerminalPane />
+        <!-- autofocus only when pinned: a hover reveal must not steal the
+             keyboard from the chat pane; the click-to-pin flip focuses it. -->
+        <TerminalPane autofocus={shellMode === "pinned"} />
       </Popover.Content>
     </Popover.Root>
   {/if}

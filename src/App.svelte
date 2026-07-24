@@ -1,8 +1,18 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import { onScriptEvent, onTermEvent, listWorktrees, worktreeStatus, homeDir } from "./lib/api";
+  import {
+    onScriptEvent,
+    onTermEvent,
+    listWorktrees,
+    worktreeStatus,
+    homeDir,
+    onWindowResized,
+    windowIsFullscreen,
+  } from "./lib/api";
   import { borderGlow } from "./lib/borderGlow";
+  import { chatSilhouette } from "./lib/chatSilhouette";
+  import { cursorTrail } from "./lib/cursorTrail";
   import { handleTermEvent } from "./lib/terminal";
   import {
     repos,
@@ -39,41 +49,30 @@
     toggleCompose,
     toggleShortcutsHelp,
     requestNewWorktree,
+    cursorTrailEnabled,
   } from "./lib/stores";
   import { handleScriptEvent } from "./lib/scriptEvents";
   import ClaudeTerminalPane from "./lib/components/ClaudeTerminalPane.svelte";
+  import ChatTabs from "./lib/components/ChatTabs.svelte";
   import CommandPalette from "./lib/components/CommandPalette.svelte";
   import Header from "./lib/components/Header.svelte";
+  import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
   import ViewToggle from "./lib/components/ViewToggle.svelte";
   import RunScripts from "./lib/components/RunScripts.svelte";
+  import SessionTicker from "./lib/components/SessionTicker.svelte";
   import RunOutput from "./lib/components/RunOutput.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import ArchivedSection from "./lib/components/ArchivedSection.svelte";
-  import Fleet from "./lib/components/Fleet.svelte";
+  import Home from "./lib/components/Home.svelte";
   import Settings from "./lib/components/Settings.svelte";
-  import Welcome from "./lib/components/Welcome.svelte";
   import ComposeDialog from "./lib/components/ComposeDialog.svelte";
   import ShortcutsHelp from "./lib/components/ShortcutsHelp.svelte";
-  import UsageIndicator from "./lib/components/UsageIndicator.svelte";
+  import Footer from "./lib/components/Footer.svelte";
   import { Button } from "./lib/components/ui/button";
   import { Toaster } from "./lib/components/ui/sonner";
   import * as Tooltip from "./lib/components/ui/tooltip";
-  import { basename } from "./lib/utils";
   import SettingsIcon from "@lucide/svelte/icons/settings";
-  import ArrowLeftToLine from "@lucide/svelte/icons/arrow-left-to-line";
-  import ArrowRightFromLine from "@lucide/svelte/icons/arrow-right-from-line";
-
-  // Header breadcrumb: `repo / branch` reads better than the raw absolute path
-  // (which survives as the tooltip). Branch comes from the worktree list.
-  const activeBranch = $derived.by(() => {
-    const sel = $selectedWorktree;
-    if (!sel) return null;
-    for (const list of Object.values($worktreesByRepo)) {
-      const w = list.find((x) => x.path === sel);
-      if (w) return w.branch ?? "(detached)";
-    }
-    return null;
-  });
+  import PanelLeft from "@lucide/svelte/icons/panel-left";
 
   // Re-probe the login when the window regains focus, but only while the
   // sign-in notice is showing — this is the "cmd-tab to a terminal, run
@@ -137,16 +136,60 @@
   // feed the new width (clamped in setSidebarWidth) live. `resizing` flips a class
   // that shows the col-resize cursor and suppresses text selection during the drag.
   let resizing = $state(false);
+  // Hover-peek: the floating sidebar overlay while collapsed (left-edge graze).
+  // Once the slide-in STARTS it always completes: close requests during the
+  // flight are queued and applied only after the open settles (and only if
+  // the pointer isn't resting on the panel by then).
+  let sidebarPeek = $state(false);
+  let peekEl = $state<HTMLElement | null>(null);
+  let peekSettled = false;
+  let peekCloseQueued = false;
+  let peekHover = false;
+  // Settle on a TIMER (slide duration + slack), not transitionend — a missed
+  // end event would leave a queued close stranded and the panel stuck open.
+  const PEEK_SETTLE_MS = 340;
+  function openPeek() {
+    peekCloseQueued = false;
+    if (sidebarPeek) return;
+    sidebarPeek = true;
+    peekSettled = false;
+    setTimeout(() => {
+      peekSettled = true;
+      if (peekCloseQueued && !peekHover) sidebarPeek = false;
+      peekCloseQueued = false;
+    }, PEEK_SETTLE_MS);
+  }
+  function requestClosePeek() {
+    if (!sidebarPeek) return;
+    if (!peekSettled) {
+      peekCloseQueued = true;
+      return;
+    }
+    sidebarPeek = false;
+  }
+  // 50px past the width clamp (stores.ts › SIDEBAR_MIN = 200) reads as intent
+  // to close, not to resize.
+  const SIDEBAR_CLOSE_AT = 150;
   function startResize(e: PointerEvent) {
     e.preventDefault();
     resizing = true;
     const startX = e.clientX;
     const startW = get(sidebarWidth);
-    const move = (ev: PointerEvent) => setSidebarWidth(startW + (ev.clientX - startX));
     const up = () => {
       resizing = false;
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+    };
+    const move = (ev: PointerEvent) => {
+      const raw = startW + (ev.clientX - startX);
+      // Dragging well past the minimum width CLOSES the sidebar (there is no
+      // collapse button) — the floating PanelLeft button reopens it.
+      if (raw < SIDEBAR_CLOSE_AT) {
+        up();
+        if (get(sidebarOpen)) toggleSidebar();
+        return;
+      }
+      setSidebarWidth(raw);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -194,6 +237,21 @@
 
   onMount(() => {
     let cancelled = false;
+
+    // Track macOS fullscreen (the traffic lights hide there — the floating
+    // expand-sidebar button re-anchors via html[data-fullscreen]).
+    const syncFullscreen = () =>
+      void windowIsFullscreen()
+        .then((fs) => {
+          if (fs) document.documentElement.dataset.fullscreen = "";
+          else delete document.documentElement.dataset.fullscreen;
+        })
+        .catch(() => {});
+    syncFullscreen();
+    let unlistenResize: (() => void) | undefined;
+    onWindowResized(syncFullscreen)
+      .then((u) => (unlistenResize = u))
+      .catch(() => {});
 
     // Populate the subscription-usage chip on launch (throttled thereafter).
     refreshUsage();
@@ -248,6 +306,7 @@
       cancelled = true;
       unlistenScripts?.();
       unlistenTerm?.();
+      unlistenResize?.();
     };
   });
 </script>
@@ -260,17 +319,20 @@
 <ComposeDialog />
 <CommandPalette />
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
-  <aside class="sidebar" class:collapsed={!$sidebarOpen}>
-    <!-- empty strip aligning the worktree list's top with the content's top bar
-         and clearing the traffic lights + floating toggle; the sidebar's right
-         border runs full-height as the only column divider. -->
-    <div class="sidebar-head" data-tauri-drag-region></div>
+  {#if !$sidebarOpen}
+    <!-- Collapsed: the one way back — a floating titlebar button just past
+         the traffic lights. -->
+    <HeaderIconButton aria-label="Expand sidebar" title="Expand sidebar" onclick={toggleSidebar}>
+      <PanelLeft />
+    </HeaderIconButton>
+  {/if}
+  {#snippet sidebarContent()}
     <div class="sidebar-list"><Worktrees /></div>
     <!-- Archived workspaces: pinned BELOW the scrolling list (its own footer
          band) so a long repo list can't push it off screen. -->
     <ArchivedSection />
-    <!-- Opens the full Settings page (appearance + global connectors) in the
-         center pane, in place of the chat. -->
+    <!-- Opens the full Settings page in the center pane, in place of the
+         chat. -->
     <div class="sidebar-foot">
       <Button
         variant="ghost"
@@ -284,86 +346,114 @@
         Settings
       </Button>
     </div>
-    <!-- drag handle straddling the right border; resizes the sidebar width -->
-    <div
-      class="sidebar-resize"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize sidebar"
-      onpointerdown={startResize}
-    ></div>
+  {/snippet}
+
+  <aside class="sidebar" class:collapsed={!$sidebarOpen}>
+    <!-- empty strip aligning the worktree list's top with the content's top bar
+         and clearing the traffic lights + floating toggle; the sidebar's right
+         border runs full-height as the only column divider. -->
+    <div class="sidebar-head" data-tauri-drag-region></div>
+    {@render sidebarContent()}
   </aside>
+
+  {#if !$sidebarOpen}
+    <!-- PEEK: with the sidebar closed, grazing the window's left edge slides
+         a floating copy of it in (the Linear pattern) — same content via the
+         snippet above, gone when the pointer leaves it. -->
+    <!-- Scrim behind the peek: fades with it; pointer-events none — purely
+         visual, the hover choreography stays on the zone/panel. -->
+    <div class="sidebar-peek-scrim" class:open={sidebarPeek}></div>
+    <div
+      class="sidebar-peek-zone"
+      role="presentation"
+      onpointerenter={openPeek}
+      onpointerleave={(e: PointerEvent) => {
+        if (!(e.relatedTarget instanceof Node) || !peekEl?.contains(e.relatedTarget))
+          requestClosePeek();
+      }}
+    ></div>
+    <div
+      bind:this={peekEl}
+      class="sidebar-peek"
+      class:open={sidebarPeek}
+      role="presentation"
+      onpointerenter={() => {
+        peekHover = true;
+        peekCloseQueued = false;
+      }}
+      onpointerleave={() => {
+        peekHover = false;
+        requestClosePeek();
+      }}
+    >
+      {@render sidebarContent()}
+    </div>
+  {/if}
 
   <main class="main">
     <!-- top bar: the workspace path sits inline in the header band. -->
     <Header>
-      {#snippet left()}
-        <!-- The breadcrumb IS the sidebar toggle (no separate floating button):
-             clicking the project/branch label collapses/expands the sidebar. -->
-        <button
-          type="button"
-          class="workspace-label"
-          onclick={toggleSidebar}
-          aria-label={$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-          title={$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-        >
-          <!-- The toggle affordance: collapse-arrow while the sidebar shows,
-               expand-arrow while hidden (replaces the ❯ prompt glyph). -->
-          {#if $sidebarOpen}
-            <ArrowLeftToLine class="ws-toggle size-3.5" />
-          {:else}
-            <ArrowRightFromLine class="ws-toggle size-3.5" />
-          {/if}
-          {#if $centerView === "settings"}
-            <span class="path">Settings</span>
-          {:else if $selectedWorktree && $selectedWorktree === $homePath}
-            <!-- The Home workspace (~) is repo-less — "Home" beats a bare "~". -->
-            <span class="path" title={$selectedWorktree}>Home</span>
-          {:else if $selectedWorktree}
-            <!-- The separator lives inside ONE expression — text at element
-                 boundaries gets whitespace-collapsed ("kosha/ main"). -->
-            <span class="path" title={$selectedWorktree}>
-              {$activeRepo ? basename($activeRepo.path) : basename($selectedWorktree)}{#if activeBranch}<span
-                  class="dim">{` / ${activeBranch}`}</span
-                >{/if}
-            </span>
-          {:else if $repos.length === 0}
-            <span class="dim">add a repository to get started</span>
-          {:else}
-            <span class="dim">select or create a worktree on the left</span>
-          {/if}
-        </button>
-      {/snippet}
       {#snippet actions()}
         <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
              nothing to act on there. -->
         {#if $centerView !== "settings" && $repos.length > 0}
-          <UsageIndicator />
+          <SessionTicker />
           <RunScripts />
           <ViewToggle />
         {/if}
       {/snippet}
     </Header>
+    <!-- The chat-session strip sits on the SHELL band, outside the terminal
+         card — shown exactly when the card below renders the chat surface
+         (the same cascade conditions as the {:else} branch inside). -->
+    {#if $centerView !== "settings" && $repos.length > 0 && $mainView !== "run" && $selectedWorktree}
+      <ChatTabs />
+    {/if}
     <div class="content" use:borderGlow>
+      {#if $sidebarOpen}
+        <!-- Sidebar drag handle, anchored to the CARD: its line overlaps the
+             terminal's left border and spans only the straight edge between
+             the corner curves (top/bottom inset by the pane radius). -->
+        <div
+          class="sidebar-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          onpointerdown={startResize}
+        ></div>
+      {/if}
+      {#if $cursorTrailEnabled && $centerView !== "settings" && $repos.length > 0 && $mainView !== "run" && $selectedWorktree}
+        <!-- ONE shared background for the whole chat surface: a single trail
+             canvas clipped to the card∪tab silhouette (chatSilhouette). The
+             tab and the terminal panes above are transparent — the chrome is
+             a mask over this surface, so the pixel wake is seamless. -->
+        <div class="chat-trail" aria-hidden="true" use:cursorTrail use:chatSilhouette></div>
+      {/if}
+      <div class="content-clip">
       {#if $centerView === "settings"}
         <Settings />
       {:else if $repos.length === 0}
-        <!-- First-run (or removed-last-repo) welcome: replaces the whole center
-             pane, composer included. Gated on repo count — state, not a flag —
-             so it reappears exactly when it's true again. -->
-        <Welcome />
+        <!-- First-run (or removed-last-repo): the homepage in its onboarding
+             state replaces the whole center pane, composer included. Gated on
+             repo count — state, not a flag — so it reappears exactly when
+             it's true again. -->
+        <Home />
       {:else if $mainView === "run"}
         <RunOutput />
       {:else if !$selectedWorktree}
-        <!-- No selection + repos exist: the fleet overview (mission control),
-             not a dead-end hint. The palette's "Fleet overview" deselects to
-             land here. -->
-        <Fleet />
+        <!-- No selection + repos exist: the homepage with the fleet grid
+             (mission control), not a dead-end hint. The palette's "Home"
+             deselects to land here. -->
+        <Home />
       {:else}
         <!-- The chat: the REAL Claude Code TUI on the worktree's claude PTY. -->
         <ClaudeTerminalPane />
       {/if}
+      </div>
     </div>
+    <!-- Status footer: usage + ambient items live UNDER the work, not in the
+         header. -->
+    <Footer />
   </main>
 </div>
 </Tooltip.Provider>

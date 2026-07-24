@@ -16,24 +16,36 @@ import {
   addRepo,
   addWorktree,
   clearUnread,
+  DEFAULT_CHAT_ID,
+  ensureDefaultChat,
+  focusedChatByWorktree,
   removeArchived,
+  removeChat,
   selectWorktree,
-  sessionStatus,
   setCenterView,
+  setChatSessionId,
+  setChatStatus,
   setStatus,
   setWorktrees,
 } from "./stores";
 // CIRCULAR-IMPORT CONTRACT: terminal.ts imports handleCliExit from this module
 // while we import its key/instance helpers — safe because every cross-module
 // access is a call-time function invocation (all hoisted declarations).
-import { claudeTermKey, getTerminal, muteCliActivity, noteCliInput } from "./terminal";
+import {
+  claudeTermKey,
+  cliBusy,
+  disposeChatTerminal,
+  getTerminal,
+  muteCliActivity,
+  noteCliInput,
+} from "./terminal";
 import { toastSuccess } from "./toast";
 import { basename } from "./utils";
 
 /** Pick a folder and open it as a repo: validate it's a git repo FIRST (so a
  *  bad pick never persists a junk entry), then add it, cache its worktrees, and
  *  activate the main worktree so the user lands in a live chat. The ONE add-repo
- *  path — the Welcome CTA and the sidebar's FolderPlus both route through here.
+ *  path — the Home CTA and the sidebar's FolderPlus both route through here.
  *  Returns false when the picker is cancelled; throws on failure so callers
  *  surface it in their local error state. */
 export async function openRepository(): Promise<boolean> {
@@ -85,27 +97,55 @@ export async function restoreWorkspace(entry: ArchivedWorkspace): Promise<void> 
   await activateWorktree(wt.path);
 }
 
-/** The session id the next open should resume: the newest `.jsonl` in the
- *  worktree's Claude session store (resume FORKS a new id, so any remembered
- *  id goes stale the moment the CLI runs — the disk scan finds the live
- *  thread). undefined when the worktree has no sessions yet or the scan fails
- *  (the CLI then starts a fresh conversation). */
+/** The session id the DEFAULT chat's first open should resume: the newest
+ *  `.jsonl` in the worktree's Claude session store — the migration path from
+ *  the single-session era, before the app stored per-chat ids. undefined when
+ *  the worktree has no sessions yet or the scan fails (fresh conversation). */
 async function resumeIdFor(worktree: string): Promise<string | undefined> {
   return (await api.latestSessionId(worktree).catch(() => null)) ?? undefined;
 }
 
-/** (Re)open the claude-slot PTY for a worktree, resuming the live session id.
- *  Idempotent (Rust no-ops while one is alive) — the pane's (re)mount path.
- *  Marks the session `ready` on success: the PTY IS the session; busy/idle
- *  then comes from the PTY's output flow (terminal.ts › noteCliActivity). */
-export async function ensureClaudeOpen(worktree: string): Promise<void> {
-  const key = claudeTermKey(worktree);
+/** (Re)open one chat's claude-slot PTY (the FOCUSED chat when unspecified).
+ *  Idempotent (Rust no-ops while one is alive) — the cell's (re)mount path.
+ *  Session identity: the chat's stored id is resumed (the modern CLI's
+ *  `--resume` KEEPS the id — `--fork-session` is opt-in); a chat with no id
+ *  yet either adopts the newest on-disk session (the default chat's migration
+ *  path) or names a brand-new one deterministically via `--session-id`.
+ *  Marks the chat `ready` on success: the PTY IS the session; busy/idle then
+ *  comes from the PTY's output flow (terminal.ts › noteCliActivity). */
+export async function ensureClaudeOpen(worktree: string, chatId?: string): Promise<void> {
+  const chats = ensureDefaultChat(worktree);
+  const id = chatId ?? get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID;
+  const chat = chats.find((c) => c.id === id) ?? chats[0];
+  if (!chat) return; // unreachable (ensureDefaultChat seeds), but typed honest
+  const key = claudeTermKey(worktree, chat.id);
   const inst = getTerminal(key);
   const { rows, cols } = inst.term;
-  const resumeId = await resumeIdFor(worktree);
+  // The chat's identity: its stored id, the newest-on-disk id (the default
+  // chat's migration path), or a fresh uuid. Resume ONLY when the transcript
+  // exists — the CLI writes it lazily on the first message, and resuming a
+  // transcript-less id errors; re-creating under the SAME `--session-id` is
+  // idempotent and keeps the identity.
+  const stored =
+    chat.sessionId ?? (chat.id === DEFAULT_CHAT_ID ? await resumeIdFor(worktree) : undefined);
+  let resumeId: string | undefined;
+  let newSessionId: string | undefined;
+  if (stored && (await api.sessionExists(worktree, stored).catch(() => false))) resumeId = stored;
+  else newSessionId = stored ?? crypto.randomUUID();
   const buf = inst.term.buffer.active;
   const untouched = buf.cursorX === 0 && buf.cursorY === 0;
-  const spawned = await api.termOpen(worktree, rows, cols, "claude", resumeId);
+  const spawned = await api.termOpen(
+    worktree,
+    rows,
+    cols,
+    "claude",
+    resumeId,
+    chat.id,
+    newSessionId,
+  );
+  // Pin the chat's transcript identity once the open sticks — resume keeps
+  // the id and a new session was named by us, so this stays the live thread.
+  if (spawned) setChatSessionId(worktree, chat.id, resumeId ?? (newSessionId as string));
   // Neither of the bursts below is a turn — don't let them light the busy
   // indicator: a fresh spawn streams the TUI's boot/resume paint for seconds;
   // the reload wiggle triggers a full repaint (see cliActivity.ts).
@@ -127,26 +167,46 @@ export async function ensureClaudeOpen(worktree: string): Promise<void> {
     await api.termResize(key, rows, cols).catch(() => {});
   }
   inst.open = true;
-  // Don't clobber an in-flight turn: re-activating a concurrently-busy worktree
-  // (tab switch, ⌘1-9) re-enters here while its PTY is mid-turn. The tracker has
-  // already announced "busy" for that burst, so it won't re-announce (see
-  // cliActivity.ts) — an unconditional "ready" would then leave the sidebar/fleet
-  // dot idle for the rest of the turn. A live "busy" always resolves via the idle
-  // timer; a crashed CLI is "stopped", never "busy", so "ready" still applies.
-  if (get(sessionStatus)[worktree] !== "busy") setStatus(worktree, "ready");
+  // Infer, don't assume: an idempotent re-open (worktree switch, pane
+  // re-attach, layout change) can land mid-turn — the tracker knows whether
+  // output is streaming RIGHT NOW. Writing a blind "ready" here used to
+  // freeze the sidebar's busy glyph for the rest of the turn (the tracker
+  // announces busy once per burst and won't re-fire).
+  setChatStatus(worktree, key, cliBusy(key) ? "busy" : "ready");
 }
 
 /** Inject a prompt into the worktree's CLI chat as keystrokes: bracketed paste
  *  (so multi-line text doesn't submit per line — the TUI treats it as one
  *  pasted block), followed by Enter when `submit` (default). `submit: false`
  *  just inserts into the TUI's input for further editing — the compose
- *  popup's "Insert" action. */
-export async function sendToCli(worktree: string, text: string, submit = true): Promise<void> {
-  await ensureClaudeOpen(worktree);
+ *  popup's "Insert" action. `chatId` targets a SPECIFIC chat (the per-cell
+ *  ChatComposer); omitted, it lands in the FOCUSED chat — same target in
+ *  both layouts (tabs: the visible one; grid: the cell owning the keyboard). */
+export async function sendToCli(
+  worktree: string,
+  text: string,
+  submit = true,
+  chatId?: string,
+): Promise<void> {
+  const id = chatId ?? get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID;
+  await ensureClaudeOpen(worktree, id);
+  const key = claudeTermKey(worktree, id);
   // Injected keystrokes are user input too — their echo must not read as a
   // turn starting (the real turn's output keeps flowing past the echo window).
-  noteCliInput(claudeTermKey(worktree));
-  await api.termWrite(claudeTermKey(worktree), `\x1b[200~${text}\x1b[201~${submit ? "\r" : ""}`);
+  noteCliInput(key);
+  await api.termWrite(key, `\x1b[200~${text}\x1b[201~${submit ? "\r" : ""}`);
+}
+
+/** Interrupt a chat's RUNNING turn: Escape to its PTY — exactly the
+ *  keystroke the TUI maps to "stop here" (the composer's stop button).
+ *  Registered as input so the interrupt's own repaint can't read as a new
+ *  turn starting. Targets like sendToCli: an explicit chat, else the
+ *  focused one. */
+export async function interruptChat(worktree: string, chatId?: string): Promise<void> {
+  const id = chatId ?? get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID;
+  const key = claudeTermKey(worktree, id);
+  noteCliInput(key);
+  await api.termWrite(key, "\u001b"); // ESC — the TUI's interrupt key
 }
 
 /** Submit a prompt to the chat via keystroke-injection into the CLI. The one
@@ -156,7 +216,8 @@ export async function sendToCli(worktree: string, text: string, submit = true): 
  *  a toast receipt so the action doesn't feel like it vanished. */
 export async function submitTurnToChat(worktree: string, text: string): Promise<void> {
   await sendToCli(worktree, text);
-  getTerminal(claudeTermKey(worktree)).term.focus();
+  const chatId = get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID;
+  getTerminal(claudeTermKey(worktree, chatId)).term.focus();
   toastSuccess("Sent to the agent");
 }
 
@@ -165,6 +226,14 @@ export async function submitTurnToChat(worktree: string, text: string): Promise<
  *  rejection channel). The terminal IS the chat — just mark the session
  *  stopped. No auto-reopen (a crash-looping CLI would respawn forever); the
  *  next keystroke or worktree re-activation revives it. */
-export function handleCliExit(worktree: string): void {
-  setStatus(worktree, "stopped");
+export function handleCliExit(worktree: string, key: string): void {
+  setChatStatus(worktree, key, "stopped");
+}
+
+/** Close one chat: kill its PTY + xterm and drop it from the list (the
+ *  transcript on disk stays — Claude Code owns session history). The ONE
+ *  close path — the tab ✕ and the grid cell ✕ both route through here. */
+export function closeChat(worktree: string, chatId: string): void {
+  disposeChatTerminal(worktree, chatId);
+  removeChat(worktree, chatId);
 }

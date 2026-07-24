@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { slide } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import {
     archivedWorkspaces,
+    forgetChats,
     removeArchived,
     restoreWorkspace,
     type ArchivedWorkspace,
@@ -41,6 +44,7 @@
   // conversation itself lives in Claude Code's own session store on disk —
   // the app never deletes that.)
   function purgeArchived(entry: ArchivedWorkspace) {
+    forgetChats(entry.path);
     removeArchived(entry.repoPath, entry.branch);
   }
 
@@ -80,6 +84,7 @@
       </Tooltip.Root>
     </div>
     {#if expanded}
+      <div transition:slide={{ duration: 220, easing: cubicOut }}>
       <div class="wt-rows archived-list" use:slidingRowHighlight>
         {#each $archivedWorkspaces as a (a.repoPath + " " + a.branch)}
           <div class="wt-row group/row archived-row">
@@ -125,6 +130,7 @@
             </Tooltip.Root>
           </div>
         {/each}
+      </div>
       </div>
     {/if}
     {#if error}<div class="error-text">{error}</div>{/if}

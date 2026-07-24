@@ -1,13 +1,14 @@
 // Per-workspace TERMINAL profiles: each worktree's terminal keeps the APP
-// THEME's background (uniform across workspaces) and gets an ANSI palette
-// DERIVED from its GLYPH PALETTE (identityGlyph.ts › paletteFor) — the same
-// family that colors the sidebar mark. The identity signal — the ACCENT that
-// IS the terminal's main text color + cursor AND the glyph left of the
-// workspace name (plus the header ❯ and fleet icons) — is that palette's
-// lightest color, so terminal ↔ sidebar mapping is exact. Assignment is
-// stable (path hash → palette). Plain TS on purpose: the palettes are data,
-// not app styling, so the design-system literal scan doesn't apply. Pure +
-// tested.
+// THEME's background (uniform across workspaces) and gets a MONOCHROMATIC
+// ANSI palette — every one of the 16 slots is a shade or tint of the
+// workspace's single identity ACCENT (the color of the 3×3 sidebar glyph,
+// the header ❯, the fleet icon, and the terminal's main text + cursor: the
+// glyph palette's lightest color, identityGlyph.ts › paletteFor). ANSI color
+// semantics (red = error, green = ok) are deliberately traded for lightness
+// steps — the whole TUI reads as one hue, so terminal ↔ sidebar mapping is
+// total, not just the accent. Assignment is stable (path hash → palette).
+// Plain TS on purpose: the palettes are data, not app styling, so the
+// design-system literal scan doesn't apply. Pure + tested.
 
 import { GLYPH_PALETTES, type GlyphPalette, paletteFor } from "./identityGlyph";
 
@@ -35,43 +36,60 @@ export interface TermProfile {
   ];
 }
 
-// Neutral anchors shared by every derived scheme — only the colored slots
-// carry the palette's identity.
-const ANSI_BLACK = "#262626";
-const ANSI_WHITE = "#d9d9d9";
-const ANSI_BRIGHT_BLACK = "#595959";
-const ANSI_BRIGHT_WHITE = "#ffffff";
+/** Linear sRGB channel mix of two #rrggbb hexes (`t` = 0 → `a`, 1 → `b`) —
+ *  the TS twin of CSS `color-mix(in srgb, …)`. Exported for tests. */
+export function mixHex(a: string, b: string, t: number): string {
+  const pa = Number.parseInt(a.slice(1), 16);
+  const pb = Number.parseInt(b.slice(1), 16);
+  const ch = (shift: number) =>
+    Math.round(((pa >> shift) & 0xff) * (1 - t) + ((pb >> shift) & 0xff) * t);
+  return `#${((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, "0")}`;
+}
 
-/** Build a full ANSI-16 from a glyph palette: the palette's 7-step ramp fills
- *  the colored slots — normals take the darker end (colors 0–5), brights the
- *  lighter end (colors 1–6) — with neutral blacks/whites as anchors. */
-function ansiFromPalette(p: GlyphPalette): TermProfile["ansi"] {
-  const c = (i: number) => p.colors[i] ?? ANSI_WHITE;
+/** Build a MONOCHROME ANSI-16 from one accent: every slot is the accent mixed
+ *  toward black (shades) or white (tints) — one hue, sixteen lightness steps.
+ *  Normal colors ramp dark→light across slots 1–6 with the PURE accent at
+ *  slot 4 (blue — the TUI's most common structural color); brights sit one
+ *  step lighter than their normal twin; blacks/whites are deep-shade/near-
+ *  white ends of the same ramp, so nothing in the terminal leaves the hue.
+ *  Exported for tests. */
+export function monoAnsi(accent: string): TermProfile["ansi"] {
+  const shade = (t: number) => mixHex(accent, "#000000", t);
+  const tint = (t: number) => mixHex(accent, "#ffffff", t);
   return [
-    ANSI_BLACK,
-    c(0), // red
-    c(1), // green
-    c(2), // yellow
-    c(3), // blue
-    c(4), // magenta
-    c(5), // cyan
-    ANSI_WHITE,
-    ANSI_BRIGHT_BLACK,
-    c(1), // bright red
-    c(2), // bright green
-    c(3), // bright yellow
-    c(4), // bright blue
-    c(5), // bright magenta
-    c(6), // bright cyan
-    ANSI_BRIGHT_WHITE,
+    shade(0.82), // 0 black
+    shade(0.45), // 1 red
+    shade(0.3), // 2 green
+    shade(0.15), // 3 yellow
+    accent, // 4 blue — the pure identity color
+    tint(0.18), // 5 magenta
+    tint(0.36), // 6 cyan
+    tint(0.55), // 7 white
+    shade(0.6), // 8 bright black
+    shade(0.3), // 9 bright red
+    shade(0.15), // 10 bright green
+    accent, // 11 bright yellow
+    tint(0.18), // 12 bright blue
+    tint(0.36), // 13 bright magenta
+    tint(0.5), // 14 bright cyan
+    tint(0.72), // 15 bright white
   ];
 }
 
-/** One terminal profile per glyph palette, same order as GLYPH_PALETTES. */
+/** The palette's identity accent: its lightest color (shared logic with
+ *  profileAccent, which resolves per-path). */
+function accentOf(p: GlyphPalette): string {
+  let best = p.colors[0] ?? "#ffffff";
+  for (const c of p.colors) if (luminance(c) > luminance(best)) best = c;
+  return best;
+}
+
+/** One terminal profile per glyph palette, same order as GLYPH_PALETTES —
+ *  each a monochrome ramp of that palette's accent. */
 export const TERM_PROFILES: TermProfile[] = GLYPH_PALETTES.map((p) => ({
   id: p.name,
   label: p.name.charAt(0).toUpperCase() + p.name.slice(1),
-  ansi: ansiFromPalette(p),
+  ansi: monoAnsi(accentOf(p)),
 }));
 
 /** The workspace's terminal profile — the one derived from its glyph
@@ -89,6 +107,48 @@ export function profileFor(path: string): TermProfile {
 function luminance(hex: string): number {
   const n = Number.parseInt(hex.slice(1), 16);
   return 0.2126 * ((n >> 16) & 0xff) + 0.7152 * ((n >> 8) & 0xff) + 0.0722 * (n & 0xff);
+}
+
+/** Standard xterm-256 RGB for an extended slot (16–255): the 6×6×6 color
+ *  cube then the 24-step grayscale ramp — the values every emitter assumes. */
+function xterm256Rgb(i: number): [number, number, number] {
+  if (i >= 232) {
+    const v = 8 + (i - 232) * 10;
+    return [v, v, v];
+  }
+  const n = i - 16;
+  const LEVELS = [0, 95, 135, 175, 215, 255] as const;
+  return [
+    LEVELS[Math.floor(n / 36) % 6] as number,
+    LEVELS[Math.floor(n / 6) % 6] as number,
+    LEVELS[n % 6] as number,
+  ];
+}
+
+const extendedCache = new Map<string, string[]>();
+
+/** The extended-palette half of the monochrome scheme: 240 entries for xterm
+ *  slots 16–255, each the accent shaded/tinted to MATCH THE LUMINANCE of the
+ *  standard entry it replaces. The TUI's 256-color syntax highlighting (the
+ *  CLI is capped below truecolor — terminal.rs strips COLORTERM from claude
+ *  PTYs) then renders with its intended lightness structure, in one hue.
+ *  Cached per accent (five palettes → five arrays); exported for tests. */
+export function monoExtended(accent: string): string[] {
+  const hit = extendedCache.get(accent);
+  if (hit) return hit;
+  const la = luminance(accent) / 255;
+  const out: string[] = [];
+  for (let i = 16; i < 256; i++) {
+    const [r, g, b] = xterm256Rgb(i);
+    const l = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    out.push(
+      l <= la
+        ? mixHex(accent, "#000000", la > 0 ? 1 - l / la : 0)
+        : mixHex(accent, "#ffffff", la < 1 ? (l - la) / (1 - la) : 1),
+    );
+  }
+  extendedCache.set(accent, out);
+  return out;
 }
 
 /** THE identity color: the terminal's MAIN TEXT + cursor, the sidebar glyph,

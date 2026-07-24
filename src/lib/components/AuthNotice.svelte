@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Ambient "sign in" notice — the ONE home for the auth banner (Welcome's
+  // Ambient "sign in" notice — the ONE home for the auth banner (Home's
   // first-run notice renders this). Feature component: reads `authState` + the
   // active provider's copy (providers.ts) and retries via refreshAuth. Renders
   // nothing unless the login is definitively missing.

@@ -9,8 +9,22 @@ import {
 } from "./persist";
 import { DEFAULT_PROVIDER_ID } from "./providers";
 import type { ReviewComment } from "./review";
+import {
+  heal,
+  isSplitNode,
+  moveLeaf,
+  type SplitNode,
+  type SplitWhere,
+  splitLeaf,
+} from "./splitTree";
 import { profileAccent } from "./termProfiles";
-import { DEFAULT_THEME, THEMES as THEME_DEFS } from "./themes";
+import {
+  DEFAULT_THEME,
+  installCustomThemes,
+  parseCustomThemes,
+  THEMES as THEME_DEFS,
+  type Theme,
+} from "./themes";
 import type { Repo, ScriptsConfig, UsageInfo, Worktree } from "./types";
 
 /** A worktree's CLI session lifecycle:
@@ -225,21 +239,82 @@ export interface ThemeOption {
   id: string;
   label: string;
 }
-/** Selectable color themes — DERIVED from the single theme config (`themes.ts`).
- *  To add/remove a theme, edit `THEMES` there; this list (and the injected CSS)
- *  follow automatically. See THEMING.md. */
-export const THEMES: ThemeOption[] = THEME_DEFS.map((t) => ({ id: t.id, label: t.label }));
+/** USER-created themes (full `Theme` objects, same shape as the built-ins).
+ *  Persisted; the parse guard drops malformed entries and built-in-id
+ *  collisions. Declared BEFORE `theme` — its validator reads this store's
+ *  loaded value. The subscriber (re)injects their CSS into a second
+ *  stylesheet: at module eval (pre-first-paint, the same window the built-ins
+ *  get via main.ts) and again on every add/edit/delete, so palette edits of
+ *  the ACTIVE theme repaint live. */
+export const customThemes = createPersisted<Theme[]>("trickshot.customThemes", [], {
+  parse: parseCustomThemes,
+});
+customThemes.subscribe((list) => installCustomThemes(list));
+
+/** Theme ids hidden from the pickers (built-in or custom). Persisted. */
+export const disabledThemes = createPersisted<string[]>("trickshot.disabledThemes", [], {
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [];
+  },
+});
+
+/** Every theme — built-ins (themes.ts) first, then the user's. The gallery's
+ *  list; the pickers use `themeOptions` (disabled ids filtered out). */
+export const allThemes: Readable<Theme[]> = derived(customThemes, ($c) => [...THEME_DEFS, ...$c]);
+
 /** Active theme id. Reflects to `<html data-theme>` (which the `--base-*`
- *  override blocks key off) and persists to localStorage. */
+ *  override blocks key off) and persists to localStorage. Validated against
+ *  built-ins + the loaded custom list — a persisted id whose custom theme was
+ *  deleted falls back to the default. */
 export const theme = createPersistedString("trickshot.theme", DEFAULT_THEME, (raw) =>
-  THEMES.some((t) => t.id === raw) ? raw : DEFAULT_THEME,
+  THEME_DEFS.some((t) => t.id === raw) || get(customThemes).some((t) => t.id === raw)
+    ? raw
+    : DEFAULT_THEME,
 );
 theme.subscribe((t) => {
   if (typeof document !== "undefined") document.documentElement.dataset.theme = t;
 });
-/** Switch the active theme (validated against THEMES by the store's parse). */
+/** Switch the active theme (validated against the known ids by the store's parse). */
 export function setTheme(id: string) {
   theme.set(id);
+}
+
+/** Picker options (the Select + command palette): hides disabled ids but
+ *  ALWAYS includes the active id, so the picker can never go empty and a
+ *  hand-tampered "disabled active" persist still has an escape hatch. */
+export const themeOptions: Readable<ThemeOption[]> = derived(
+  [allThemes, disabledThemes, theme],
+  ([$all, $off, $active]) =>
+    $all
+      .filter((t) => t.id === $active || !$off.includes(t.id))
+      .map((t) => ({ id: t.id, label: t.label })),
+);
+
+/** Add a custom theme (caller guarantees a unique slug via `uniqueThemeId`). */
+export function addCustomTheme(t: Theme) {
+  customThemes.update((list) => [...list, t]);
+}
+/** Replace a custom theme by id (the editor's save-existing path). */
+export function updateCustomTheme(t: Theme) {
+  customThemes.update((list) => list.map((x) => (x.id === t.id ? t : x)));
+}
+/** Delete a custom theme; if it was active, fall back to the default FIRST so
+ *  the UI never sits on a theme with no CSS block. Also drops a stale
+ *  disabled-list entry. */
+export function deleteCustomTheme(id: string) {
+  if (get(theme) === id) theme.set(DEFAULT_THEME);
+  customThemes.update((list) => list.filter((x) => x.id !== id));
+  disabledThemes.update((list) => (list.includes(id) ? list.filter((x) => x !== id) : list));
+}
+/** Show/hide a theme in the pickers. Disabling the ACTIVE theme is refused
+ *  (the gallery renders that switch disabled) — no surprise theme switch. */
+export function setThemeDisabled(id: string, disabled: boolean) {
+  if (disabled && get(theme) === id) return;
+  disabledThemes.update((list) => {
+    if (disabled) return list.includes(id) ? list : [...list, id];
+    return list.includes(id) ? list.filter((x) => x !== id) : list;
+  });
 }
 
 /** Which action the git panel's split commit button performs by default. */
@@ -336,8 +411,14 @@ selectedWorktree.subscribe((sel) => {
   else st.removeProperty("--ws-accent");
 });
 
+/** The most recent NON-NULL selection — survives deselecting (Home), so the
+ *  homepage composer knows which worktree's chat to drive. Persisted; "" =
+ *  never selected anything. */
+export const lastSelectedWorktree = createPersistedString("trickshot.lastSelected", "");
+
 export function selectWorktree(path: string | null) {
   selectedWorktree.set(path);
+  if (path) lastSelectedWorktree.set(path);
 }
 
 // ---- Per-worktree session status ----
@@ -346,6 +427,227 @@ export const sessionStatus = _status.store;
 export const setStatus = _status.set;
 /** Drop a worktree's status entry entirely (e.g. on removal). */
 export const clearStatus = _status.remove;
+
+// ---- Multi-chat sessions (several concurrent CLI chats per worktree) ----
+// The MODEL is "chat sessions"; tabs and the n-up grid are two RENDERINGS of
+// the same store (ClaudeTerminalPane). Each chat owns a claude-slot PTY (key =
+// terminal.ts › claudeTermKey(worktree, chat.id)) and a Claude Code session id
+// — deterministic from birth (`--session-id`) or adopted on first resume; the
+// modern CLI's `--resume` KEEPS the id (`--fork-session` is opt-in), so a
+// stored id stays the live thread across restarts.
+
+/** The default chat's id — its PTY key stays the BARE claude slot so
+ *  pre-multi-chat sessions keep working. Hand-mirrored by `DEFAULT_CHAT`
+ *  in src-tauri/src/terminal.rs. */
+export const DEFAULT_CHAT_ID = "main";
+
+export interface ChatSession {
+  id: string;
+  /** The Claude Code session id (transcript identity). Set at first open. */
+  sessionId?: string;
+  createdAt: number;
+}
+
+/** Chats per worktree (persisted — the tab set survives restarts; each chat's
+ *  conversation lives in Claude Code's own session store via its sessionId). */
+const _chats = createWorktreeMap<ChatSession[]>({
+  persistKey: "trickshot.chats",
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    if (!isPlainObject(v)) return {};
+    const out: Record<string, ChatSession[]> = {};
+    for (const [wt, list] of Object.entries(v)) {
+      if (Array.isArray(list) && list.every((c) => isPlainObject(c) && typeof c.id === "string")) {
+        out[wt] = list as ChatSession[];
+      }
+    }
+    return out;
+  },
+});
+export const chatSessionsByWorktree = _chats.store;
+
+/** Which chat owns the keyboard: the visible one in tabs layout, the focused
+ *  cell in grid layout. Persisted so re-selection lands where you left off. */
+const _focusedChat = createWorktreeMap<string>({ persistKey: "trickshot.focusedChat" });
+export const focusedChatByWorktree = _focusedChat.store;
+/** The selected worktree's focused chat id. */
+export const activeFocusedChat = _focusedChat.active<string>(DEFAULT_CHAT_ID);
+
+/** GRID mosaic per worktree: the binary split tree behind right-click →
+ *  split up/down/left/right (splitTree.ts owns the pure ops). Persisted so
+ *  the mosaic survives restarts; renders go through splitTree.heal, which
+ *  prunes leaves whose chat closed and places chats added outside a split
+ *  (tab-strip +, palette) — so this store never has to chase removeChat. */
+const _splits = createWorktreeMap<SplitNode>({
+  persistKey: "trickshot.chatSplits",
+  parse: (raw) => {
+    const v = JSON.parse(raw);
+    if (!isPlainObject(v)) return {};
+    const out: Record<string, SplitNode> = {};
+    for (const [wt, tree] of Object.entries(v)) {
+      if (isSplitNode(tree)) out[wt] = tree;
+    }
+    return out;
+  },
+});
+export const chatSplitByWorktree = _splits.store;
+
+/** Right-click → split: a NEW chat takes the chosen half of the target cell.
+ *  Splitting from tabs layout jumps to grid (that's where the halves show). */
+export function splitChat(worktree: string, targetChat: string, where: SplitWhere): ChatSession {
+  const before = (get(chatSessionsByWorktree)[worktree] ?? []).map((c) => c.id);
+  const chat = addChat(worktree);
+  _splits.update(worktree, (tree) => {
+    const healed = heal(tree, before) ?? { chat: targetChat };
+    return splitLeaf(healed, targetChat, where, chat.id);
+  });
+  setChatLayout("grid");
+  return chat;
+}
+
+/** Drag-and-drop rearrange: MOVE the dragged chat into the chosen half of
+ *  the target cell (its old slot collapses to the sibling). Heals first so
+ *  the move operates on the SAME tree the grid is rendering. */
+export function moveChat(worktree: string, source: string, target: string, where: SplitWhere) {
+  const ids = (get(chatSessionsByWorktree)[worktree] ?? []).map((c) => c.id);
+  const healed = heal(get(chatSplitByWorktree)[worktree], ids);
+  if (!healed) return; // no chats — nothing to rearrange
+  _splits.set(worktree, moveLeaf(healed, source, target, where));
+}
+
+/** How multiple chats render: a tab strip showing one, or an n-up grid
+ *  showing all. Presentation only — the chats store is layout-agnostic. */
+export type ChatLayout = "tabs" | "grid";
+export const chatLayout = createPersistedString("trickshot.chatLayout", "tabs", (raw) =>
+  raw === "tabs" || raw === "grid" ? raw : "tabs",
+);
+export function setChatLayout(v: ChatLayout) {
+  chatLayout.set(v);
+}
+
+/** Seed a worktree's chat list with the default chat if it has none; returns
+ *  the (post-seed) list. Idempotent — the surface calls it on render. */
+export function ensureDefaultChat(worktree: string): ChatSession[] {
+  const cur = get(chatSessionsByWorktree)[worktree];
+  if (cur?.length) return cur;
+  const seeded = [{ id: DEFAULT_CHAT_ID, createdAt: Date.now() }];
+  _chats.set(worktree, seeded);
+  return seeded;
+}
+
+/** Add (and focus) a fresh chat. Its session id is chosen NOW (`--session-id`
+ *  at first open), so the transcript identity is known from birth. */
+export function addChat(worktree: string): ChatSession {
+  const chat: ChatSession = {
+    id: Math.random().toString(36).slice(2, 8),
+    sessionId: crypto.randomUUID(),
+    createdAt: Date.now(),
+  };
+  _chats.update(worktree, (cur) => [...(cur ?? []), chat]);
+  focusChat(worktree, chat.id);
+  return chat;
+}
+
+/** Drop a chat from the list (the caller disposes its terminal/PTY first —
+ *  see terminal.ts › disposeChatTerminal). Refocuses a neighbor when the
+ *  focused chat closes; the last chat can't be removed (the UI hides ×). */
+export function removeChat(worktree: string, id: string) {
+  const cur = get(chatSessionsByWorktree)[worktree] ?? [];
+  if (cur.length <= 1) return;
+  const next = cur.filter((c) => c.id !== id);
+  _chats.set(worktree, next);
+  if ((get(focusedChatByWorktree)[worktree] ?? DEFAULT_CHAT_ID) === id) {
+    const last = next[next.length - 1];
+    if (last) focusChat(worktree, last.id);
+  }
+}
+
+/** Focus a chat (tabs: show it; grid: route keyboard/injected turns to it). */
+export function focusChat(worktree: string, id: string) {
+  _focusedChat.set(worktree, id);
+}
+
+/** Pending close-chat confirmation — the modal guards EVERY close path (tab
+ *  ✕, grid cell ✕, the cell context menu). null = no dialog. The dialog
+ *  itself renders in ChatTabs (mounted for the whole chat surface); the
+ *  confirmed action is session.ts › closeChat. */
+export const chatCloseRequest = writable<{ worktree: string; chatId: string } | null>(null);
+export function requestCloseChat(worktree: string, chatId: string) {
+  chatCloseRequest.set({ worktree, chatId });
+}
+export function clearChatCloseRequest() {
+  chatCloseRequest.set(null);
+}
+
+/** Record a chat's Claude session id once known (no-op when unchanged). */
+export function setChatSessionId(worktree: string, chatId: string, sessionId: string) {
+  _chats.update(worktree, (cur) =>
+    (cur ?? []).map((c) =>
+      c.id === chatId && c.sessionId !== sessionId ? { ...c, sessionId } : c,
+    ),
+  );
+}
+
+/** Drop a worktree's chats + focus + mosaic (worktree removal / archive purge). */
+export function forgetChats(worktree: string) {
+  _chats.remove(worktree);
+  _focusedChat.remove(worktree);
+  _splits.remove(worktree);
+}
+
+// Per-PTY-KEY chat status (the per-tab/per-cell dot). The worktree-level
+// `sessionStatus` above stays the AGGREGATE (busy if any chat busy) so its
+// consumers (sidebar dot, Fleet, unread gating) needed no change — the two
+// write sites below maintain it.
+export const chatStatusByKey = writable<Record<string, SessionStatus>>({});
+/** One chat's status changed: record it per key and refresh the worktree
+ *  aggregate. Keys are the claude-slot composites (`{worktree}\0claude…`), so
+ *  the aggregate scans by prefix — the NUL scheme is the hand-mirrored
+ *  terminal.ts/terminal.rs seam. */
+export function setChatStatus(worktree: string, key: string, status: SessionStatus) {
+  chatStatusByKey.update((m) => (m[key] === status ? m : { ...m, [key]: status }));
+  const m = get(chatStatusByKey);
+  const prefix = `${worktree}\u0000claude`;
+  const statuses = Object.entries(m)
+    .filter(([k]) => k.startsWith(prefix))
+    .map(([, s]) => s);
+  const agg: SessionStatus = statuses.includes("busy")
+    ? "busy"
+    : statuses.includes("ready")
+      ? "ready"
+      : "stopped";
+  setStatus(worktree, agg);
+}
+/** Drop every chat-status entry for a worktree (terminal disposal). */
+export function clearChatStatuses(worktree: string) {
+  const prefix = `${worktree}\u0000claude`;
+  chatStatusByKey.update((m) => {
+    const keys = Object.keys(m).filter((k) => k.startsWith(prefix));
+    if (keys.length === 0) return m;
+    const next = { ...m };
+    for (const k of keys) delete next[k];
+    return next;
+  });
+}
+/** Reorder the sidebar's repo list: move `path`'s repo so it sits at `index`
+ *  (a position in the CURRENT list — the drop slot the drag indicator shows).
+ *  Identity no-op when the move changes nothing (the same-map guard rule);
+ *  persisted with the list. */
+export function moveRepoTo(path: string, index: number) {
+  repos.update((list) => {
+    const from = list.findIndex((r) => r.path === path);
+    if (from < 0) return list;
+    let to = Math.max(0, Math.min(index, list.length));
+    if (from < to) to -= 1; // removing the dragged entry shifts later slots
+    if (to === from) return list;
+    const next = [...list];
+    const [moved] = next.splice(from, 1);
+    if (!moved) return list;
+    next.splice(to, 0, moved);
+    return next;
+  });
+}
+
 /** Remove a repo from trickshot's sidebar. Does NOT delete the git repo on disk —
  *  it just drops it from the app: stops any running scripts for its worktrees,
  *  removes its worktree list, and clears the selection if it pointed into the repo. */
@@ -579,7 +881,7 @@ export async function refreshUsage(force = false) {
 }
 
 // ---- Provider login presence (ambient app state, not persisted) ----
-// Drives the first-run "sign in" notice (Welcome + the composer banner, see
+// Drives the first-run "sign in" notice (Home + the composer banner, see
 // AuthNotice). Only a DEFINITIVE "no credentials anywhere" flips to `missing`;
 // ambiguous check failures (keychain/HOME errors) leave the state alone so we
 // never false-alarm.
@@ -676,14 +978,26 @@ export function setUniformType(v: boolean) {
   uniformType.set(v);
 }
 
+/** Cursor trail: the terminal-backdrop pointer effect (cursorTrail.ts). On by
+ *  default; App.svelte gates the trail node on this. Persisted. */
+export const cursorTrailEnabled = createPersisted<boolean>("trickshot.cursorTrail", true, {
+  parse: (raw) => raw === "true",
+  serialize: String,
+});
+export function setCursorTrailEnabled(v: boolean) {
+  cursorTrailEnabled.set(v);
+}
+
 // ---- Session/worktree orchestration ----
 // Opening a repo, activating a worktree's CLI chat, and handing prompts to the
 // TUI live in `session.ts` (the scriptEvents.ts precedent); re-export so
 // `import { activateWorktree } from "./stores"` keeps working.
 export {
   activateWorktree,
+  closeChat,
   ensureClaudeOpen,
   handleCliExit,
+  interruptChat,
   openRepository,
   restoreWorkspace,
   sendToCli,

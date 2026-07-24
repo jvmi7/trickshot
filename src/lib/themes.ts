@@ -89,9 +89,9 @@ export const THEMES: Theme[] = [
     label: "Terminal",
     // Matches the Claude Code TUI in the chat pane so the chrome and the
     // terminal read as ONE surface: neutral near-black, flat (surfaces barely
-    // rise off the canvas), plain light-gray text, the TUI's coral cursor as
-    // the accent, and its soft pink/amber/link-blue state hues. No glyph glow
-    // — the real TUI has none.
+    // rise off the canvas), plain light-gray text, a NEUTRAL near-white
+    // accent (fully monochrome chrome — no brand hue), and soft
+    // pink/amber/link-blue state hues. No glyph glow — the real TUI has none.
     palette: {
       bg: "#0f0f0f",
       surface: "#161616",
@@ -99,7 +99,7 @@ export const THEMES: Theme[] = [
       border: "#2e2e2e",
       text: "#e7e7e7",
       textMuted: "#8f8f8f",
-      accent: "#d97757",
+      accent: "#e7e7e7",
       onAccent: "#0f0f0f",
       danger: "#f07178",
       success: "#5fb87a",
@@ -224,24 +224,101 @@ export const DEFAULT_THEME = THEMES[0]?.id ?? "terracotta";
 /** Generate one `:root[data-theme="<id>"]` block per theme. The `:root[...]`
  *  form (specificity 0,2,0) deliberately outranks the bare `:root` default in
  *  app.css (0,1,0), so the active theme always wins regardless of source order. */
-export function themesToCss(): string {
-  return THEMES.map((t) => {
-    const decls = (Object.keys(PALETTE_VARS) as (keyof ThemePalette)[])
-      .map((key) => `  ${PALETTE_VARS[key]}: ${t.palette[key]};`)
-      .join("\n");
-    return `:root[data-theme="${t.id}"] {\n${decls}\n}`;
-  }).join("\n\n");
+export function themesToCss(themes: Theme[] = THEMES): string {
+  return themes
+    .map((t) => {
+      const decls = (Object.keys(PALETTE_VARS) as (keyof ThemePalette)[])
+        .map((key) => `  ${PALETTE_VARS[key]}: ${t.palette[key]};`)
+        .join("\n");
+      return `:root[data-theme="${t.id}"] {\n${decls}\n}`;
+    })
+    .join("\n\n");
 }
 
-/** Inject the generated theme CSS once. Call BEFORE mount (see main.ts) so the
- *  active theme is in place before first paint. Idempotent. */
-export function installThemes(): void {
+/** Write generated theme CSS into the `<style id>` element, creating it on
+ *  first use. */
+function installStyle(id: string, css: string): void {
   if (typeof document === "undefined") return;
-  let el = document.getElementById("theme-vars");
+  let el = document.getElementById(id);
   if (!el) {
     el = document.createElement("style");
-    el.id = "theme-vars";
+    el.id = id;
     document.head.appendChild(el);
   }
-  el.textContent = themesToCss();
+  el.textContent = css;
+}
+
+/** Inject the built-in theme CSS once. Call BEFORE mount (see main.ts) so the
+ *  active theme is in place before first paint. Idempotent. */
+export function installThemes(): void {
+  installStyle("theme-vars", themesToCss());
+}
+
+/** (Re)inject USER themes into a second stylesheet (`#theme-vars-custom`,
+ *  never touching the built-ins' `#theme-vars`). Called from the stores.ts
+ *  `customThemes` subscriber — at module eval (pre-first-paint) and again on
+ *  every add/edit/delete, so palette edits repaint live. */
+export function installCustomThemes(themes: Theme[]): void {
+  installStyle("theme-vars-custom", themesToCss(themes));
+}
+
+// ---- Custom-theme validation (the persisted-store shape guards) ----
+
+/** A custom theme id: a non-empty lowercase slug, so it's safe inside the
+ *  `:root[data-theme="<id>"]` selector and `<html data-theme>`. */
+const THEME_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+/** Palette values are interpolated into a stylesheet — reject anything that
+ *  could escape its declaration block. (`</style>` is already inert: the CSS
+ *  lands via `textContent`, never parsed as HTML.) */
+const CSS_VALUE_UNSAFE = /[{};]/;
+
+/** Shape guard for a persisted/imported custom theme: slug id, string label,
+ *  and EVERY palette key present as an injection-safe string. */
+export function isTheme(v: unknown): v is Theme {
+  if (typeof v !== "object" || v === null) return false;
+  const t = v as Record<string, unknown>;
+  if (typeof t.id !== "string" || !THEME_ID_RE.test(t.id)) return false;
+  if (typeof t.label !== "string" || t.label.trim() === "") return false;
+  if (typeof t.palette !== "object" || t.palette === null) return false;
+  const palette = t.palette as Record<string, unknown>;
+  return (Object.keys(PALETTE_VARS) as (keyof ThemePalette)[]).every((key) => {
+    const val = palette[key];
+    return typeof val === "string" && val.trim() !== "" && !CSS_VALUE_UNSAFE.test(val);
+  });
+}
+
+/** Parse the persisted custom-theme list: drop entries that fail the shape
+ *  guard or collide with a built-in id (the persisted-store fallback rule —
+ *  bad entries vanish, they never throw). */
+export function parseCustomThemes(raw: string): Theme[] {
+  const v = JSON.parse(raw);
+  if (!Array.isArray(v)) return [];
+  const seen = new Set(THEMES.map((t) => t.id));
+  const out: Theme[] = [];
+  for (const entry of v) {
+    if (!isTheme(entry) || seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    // Rebuild through the palette keys so unknown extra fields don't persist.
+    const palette = Object.fromEntries(
+      (Object.keys(PALETTE_VARS) as (keyof ThemePalette)[]).map((k) => [k, entry.palette[k]]),
+    ) as unknown as ThemePalette; // safe: isTheme verified every key is a string
+    out.push({ id: entry.id, label: entry.label, palette });
+  }
+  return out;
+}
+
+/** Derive a unique slug id from a label: lowercase, non-alphanumerics → `-`,
+ *  then `-2`, `-3`… on collision with `taken`. */
+export function uniqueThemeId(label: string, taken: Iterable<string>): string {
+  const base =
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "theme";
+  const used = new Set(taken);
+  if (!used.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const candidate = `${base}-${n}`;
+    if (!used.has(candidate)) return candidate;
+  }
 }
