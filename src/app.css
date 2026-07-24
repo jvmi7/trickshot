@@ -743,7 +743,7 @@ html, body {
 /* One step ABOVE the fixed .app-header (same chrome tier, later in DOM):
    the full-width drag-region header would otherwise paint over this button
    and swallow its clicks as window drags. */
-.header-icon-btn { position: absolute; top: 12px; left: 74px; z-index: calc(var(--app-z-chrome) + 1); } /* top: centers on the traffic lights (y 22 + 6 ≈ their middle) */
+.header-icon-btn { position: absolute; top: 9px; left: 74px; z-index: calc(var(--app-z-chrome) + 1); } /* top: centers on the traffic lights (y 22 + 6 ≈ their middle) */
 
 /* ---- sidebar column: full-height, right border is the sole divider ---- */
 .sidebar {
