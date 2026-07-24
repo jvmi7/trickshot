@@ -33,6 +33,9 @@
   // False once pr_status rejects (gh missing / not authed): the lifecycle
   // button degrades to plain commit-and-push instead of dead PR verbs.
   let prSupported = $state(true);
+  // Which worktree the fetches have settled for — the action button waits for
+  // BOTH probes so "Create PR" can't flash before an existing PR loads.
+  let loadedFor = $state<string | null>(null);
   let busy = $state(false);
   let error = $state("");
   let notice = $state("");
@@ -63,6 +66,7 @@
       pr = null;
       prSupported = false;
     }
+    loadedFor = w;
   }
 
   // Refetch on worktree change and on the shared refresh nonce (turn end).
@@ -79,7 +83,7 @@
 
   type ActionId = "create" | "update" | "merge" | "archive" | "sync";
   const action = $derived.by((): { id: ActionId; label: string } | null => {
-    if (!status) return null;
+    if (!status || loadedFor !== wt) return null;
     if (isMain || !prSupported) {
       // No PR lifecycle here — offer the plain sync when there's work to send.
       return dirty || unpushed ? { id: "sync", label: "Commit & push" } : null;
