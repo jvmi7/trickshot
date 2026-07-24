@@ -811,7 +811,7 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
 .sidebar-peek .sidebar-list { padding: 4px 10px 16px 10px; }
 .sidebar-head { height: 35px; flex-shrink: 0; } /* stays in step with .app-header */
 .sidebar-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 4px 16px 10px; /* slim right gutter — content runs close to the resize line */ }
-.sidebar-foot { flex-shrink: 0; padding: 8px; }
+.sidebar-foot { flex-shrink: 0; padding: 8px 4px 8px 10px; }
 /* Sidebar drag handle, anchored to the CONTENT CARD (App.svelte mounts it
    inside .content): a wide invisible grab target whose thin hover line sits
    exactly ON the card's left border, spanning only the straight edge — the
@@ -1568,7 +1568,7 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
 .wt-stat { flex-shrink: 0; display: inline-flex; gap: 3px; font-size: var(--text-2xs); }
 /* Archived footer: pinned BETWEEN .sidebar-list and .sidebar-foot (App.svelte)
    so a long repo list can't push it off screen; collapsed by default. */
-.archived-section { flex-shrink: 0; padding: 4px 4px 4px 16px; border-top: 1px solid var(--app-border); }
+.archived-section { flex-shrink: 0; padding: 4px 4px 4px 10px; border-top: 1px solid var(--app-border); }
 /* Expanded list caps at 4 rows and scrolls internally. --arch-row-h mirrors
    .wt-row's box (16px content + 2*5px padding); re-measure if the row changes. */
 .archived-list { --arch-row-h: 26px; max-height: calc(4 * var(--arch-row-h)); overflow-y: auto; }
