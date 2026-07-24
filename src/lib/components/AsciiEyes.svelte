@@ -151,8 +151,20 @@
   // line at the center carrying the eyes' full horizontal silhouette (the
   // vertical projection). Chars/colors ride along from the open grid, so the
   // art visibly compresses rather than being redrawn.
-  const BLINK_FRAMES = [0.75, 0.5, 0.28, 0, 0, 0.28, 0.5, 0.75, 1] as const;
-  const BLINK_FRAME_MS = 45;
+  // A real blink is NOT linear: the lids SNAP shut (accelerating, ~100ms),
+  // rest closed a beat, then reopen at half the speed (decelerating into
+  // fully open). Each keyframe carries its own hold time (`ms` = how long
+  // this squash shows before the next frame).
+  const BLINK_KEYFRAMES: { s: number; ms: number }[] = [
+    { s: 0.8, ms: 50 }, // the lid starts moving…
+    { s: 0.45, ms: 30 }, // …accelerating…
+    { s: 0.15, ms: 22 }, // …snapping
+    { s: 0, ms: 100 }, // shut — the hold beat
+    { s: 0.18, ms: 55 }, // reopening, quick off the line
+    { s: 0.42, ms: 70 }, // …decelerating…
+    { s: 0.68, ms: 90 },
+    { s: 0.88, ms: 115 }, // …settling into open
+  ];
   const BLINK_GAP_MIN_MS = 2600;
   const BLINK_GAP_JITTER_MS = 3800;
   let squash = $state(1);
@@ -207,14 +219,14 @@
     const play = () => {
       let i = 0;
       const step = () => {
-        const s = BLINK_FRAMES[i++];
-        if (s === undefined) {
+        const frame = BLINK_KEYFRAMES[i++];
+        if (!frame) {
           squash = 1;
           schedule();
           return;
         }
-        squash = s;
-        timer = setTimeout(step, BLINK_FRAME_MS);
+        squash = frame.s;
+        timer = setTimeout(step, frame.ms);
       };
       step();
     };
