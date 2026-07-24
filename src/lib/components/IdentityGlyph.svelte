@@ -17,8 +17,6 @@
     color,
     size = 12,
     loading = false,
-    dots = false,
-    mono = false,
   }: {
     seed: string;
     /** The identity accent — now only the currentColor fallback for collapsed
@@ -28,11 +26,6 @@
     size?: number;
     /** Morph through random glyphs (the busy indicator). */
     loading?: boolean;
-    /** Decompose every shape into single-cell DOTS (no pills) — the same
-     *  generative layout, dot-grid rendering (the sidebar trickshot mark). */
-    dots?: boolean;
-    /** One color for every element (currentColor) instead of palette fills. */
-    mono?: boolean;
   } = $props();
 
   const CELL = 4; // viewBox units per grid cell
@@ -119,24 +112,10 @@
   // a single-axis wipe; DOTS instead scale to/from 0 about their center (the
   // `sc` field). Nothing ever slides across the glyph.
   function computeSlots(glyphSeed: string): Slot[] {
-    // dots mode: every shape decomposes into its covered cells as 1×1 dots —
-    // the same seeded layout, rendered as a dot grid (pills never form).
-    const shapes = dots
-      ? glyphShapes(glyphSeed).flatMap((s) =>
-          Array.from({ length: s.w * s.h }, (_, i) => ({
-            col: s.col + (i % s.w),
-            row: s.row + Math.floor(i / s.w),
-            w: 1,
-            h: 1,
-          })),
-        )
-      : glyphShapes(glyphSeed);
+    const shapes = glyphShapes(glyphSeed);
     // Fills come from the WORKSPACE's palette (stable per `seed`) but re-roll
-    // per glyph tick, so a morphing mark also cycles its colors — unless
-    // mono, where every element rides currentColor (the parent's tone).
-    const fills = mono
-      ? shapes.map(() => "currentColor")
-      : shapeFills(glyphSeed, shapes.length, paletteFor(seed));
+    // per glyph tick, so a morphing mark also cycles its colors.
+    const fills = shapeFills(glyphSeed, shapes.length, paletteFor(seed));
     const byOrigin = new Map(shapes.map((s, i) => [`${s.row},${s.col}`, { s, fill: fills[i] ?? "currentColor" }]));
     const out: Slot[] = [];
     for (let row = 0; row < 3; row++) {

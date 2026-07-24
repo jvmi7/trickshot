@@ -46,6 +46,7 @@
   import * as Tooltip from "$lib/components/ui/tooltip";
   import * as ContextMenu from "$lib/components/ui/context-menu";
   import IconButton from "./IconButton.svelte";
+  import AsciiEyes from "./AsciiEyes.svelte";
   import IdentityGlyph from "./IdentityGlyph.svelte";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
@@ -325,11 +326,10 @@
           }
         }}
       >
-        <!-- The brand mark rendered THROUGH the workspace-glyph pipeline —
-             same 3×3 layout, but every element a DOT in one color (the row's
-             own tone), so it sits in the rows' visual language while staying
-             distinct from any workspace's colored mark. -->
-        <IdentityGlyph seed="trickshot" color="currentColor" dots mono />
+        <!-- The brand EYES as a static dot-matrix mini (AsciiEyes dotted):
+             the same sampled mark as the homepage hero, but stone-still —
+             no blink, no tracking, no shimmer — in the row's own tone. -->
+        <AsciiEyes dotted blink={false} track={false} tickMs={0} cols={14} dottedWidth={16} />
         <span class="wt-name">trickshot</span>
       </div>
     </div>

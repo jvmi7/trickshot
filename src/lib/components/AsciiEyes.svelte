@@ -16,6 +16,8 @@
     tickMs = 120,
     blink = true,
     track = true,
+    dotted = false,
+    dottedWidth = 16,
     class: className,
   }: {
     /** Grid width in characters (height follows the mark's aspect). */
@@ -32,6 +34,12 @@
      *  the two eyes take different shapes per cursor position (and converge
      *  cross-eyed when the cursor sits between them). Never translates. */
     track?: boolean;
+    /** Render the mark as an SVG DOT MATRIX (one currentColor dot per inked
+     *  cell, square cells) instead of glyph text — the sidebar's static mini
+     *  mark. Pair with blink/track/tickMs off for a stone-still version. */
+    dotted?: boolean;
+    /** Rendered width (px) of the dotted svg (height follows the aspect). */
+    dottedWidth?: number;
     class?: string;
   } = $props();
 
@@ -45,9 +53,11 @@
   ];
 
   /** A monospace cell is ~half as wide as it is tall — squash the row count
-   *  so the rendered mark keeps the SVG's aspect. */
+   *  so the rendered mark keeps the SVG's aspect. Dotted cells are SQUARE. */
   const CHAR_ASPECT = 0.5;
-  const rowCount = $derived(Math.max(4, Math.round(cols * (VIEW_H / VIEW_W) * CHAR_ASPECT)));
+  const rowCount = $derived(
+    Math.max(4, Math.round(cols * (VIEW_H / VIEW_W) * (dotted ? 1 : CHAR_ASPECT))),
+  );
 
   /** Which fraction of inked cells re-roll per tick — full re-rolls strobe;
    *  a third reads as a live shimmer. */
@@ -82,8 +92,12 @@
     const img = ctx.getImageData(0, 0, c * SS, r * SS).data;
     const out: boolean[][] = [];
     const blank = (n: number) => Array.from({ length: n }, () => false);
+    // Padding exists FOR the gaze warp; a static (non-tracking) mark skips it
+    // so the mini renders edge-to-edge in its box.
+    const padX = track ? PAD_X : 0;
+    const padY = track ? PAD_Y : 0;
     for (let y = 0; y < r; y++) {
-      const row: boolean[] = blank(PAD_X);
+      const row: boolean[] = blank(padX);
       for (let x = 0; x < c; x++) {
         let hits = 0;
         for (let sy = 0; sy < SS; sy++) {
@@ -94,14 +108,14 @@
         }
         row.push(hits / (SS * SS) >= COVERAGE);
       }
-      row.push(...blank(PAD_X));
+      row.push(...blank(padX));
       out.push(row);
     }
-    const padRow = () => blank(c + 2 * PAD_X);
+    const padRow = () => blank(c + 2 * padX);
     return [
-      ...Array.from({ length: PAD_Y }, padRow),
+      ...Array.from({ length: padY }, padRow),
       ...out,
-      ...Array.from({ length: PAD_Y }, padRow),
+      ...Array.from({ length: padY }, padRow),
     ];
   }
 
@@ -181,6 +195,7 @@
   $effect(() => {
     mask = buildMask(cols, rowCount);
     grid = roll(null);
+    if (tickMs <= 0) return; // static mark (the dotted sidebar mini) — no shimmer
     const timer = setInterval(() => {
       grid = roll(grid);
     }, tickMs);
@@ -491,14 +506,16 @@
 </script>
 
 <!-- Decorative + a click toy: cycling colors is a bonus, not a control
-     (keyboard users lose nothing) — hence the a11y ignores. -->
+     (keyboard users lose nothing) — hence the a11y ignores. The dotted mini
+     is fully inert (no click, no pointer cursor). -->
 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
 <div
   class="ascii-eyes {className ?? ''}"
+  class:is-dotted={dotted}
   aria-hidden="true"
   bind:this={wrapEl}
-  onclick={cyclePalette}
-  title="Click to cycle colors"
+  onclick={dotted ? undefined : cyclePalette}
+  title={dotted ? undefined : "Click to cycle colors"}
 >
   <!-- Two whitespace landmines, both defused here: (1) each row's cells MUST
        be one unbroken template line — Svelte keeps a single space around
@@ -508,10 +525,28 @@
        which collapsed the mask's gaps into a centered blob. (Biome doesn't
        format .svelte — the long line survives.) Colors are dynamic runtime
        values, not source literals. -->
-  {#each display as row, y (y)}
-    <!-- prettier-ignore -->
-    <div class="ascii-row">{#each row as cell, x (x)}{#if cell.ch === " "}<span>{" "}</span>{:else}<span style="color: {cell.color}">{cell.ch}</span>{/if}{/each}</div>
-  {/each}
+  {#if dotted}
+    <!-- The dot-matrix mini: one currentColor dot per inked cell, square
+         cells (the mask sampled at aspect 1). Inherits the parent's tone. -->
+    <svg
+      viewBox="0 0 {display[0]?.length ?? 1} {display.length || 1}"
+      width={dottedWidth}
+      aria-hidden="true"
+    >
+      {#each display as row, y (y)}
+        {#each row as cell, x (x)}
+          {#if cell.ch !== " "}
+            <circle cx={x + 0.5} cy={y + 0.5} r="0.34" fill="currentColor" />
+          {/if}
+        {/each}
+      {/each}
+    </svg>
+  {:else}
+    {#each display as row, y (y)}
+      <!-- prettier-ignore -->
+      <div class="ascii-row">{#each row as cell, x (x)}{#if cell.ch === " "}<span>{" "}</span>{:else}<span style="color: {cell.color}">{cell.ch}</span>{/if}{/each}</div>
+    {/each}
+  {/if}
 </div>
 
 <style>
@@ -524,6 +559,11 @@
     letter-spacing: 0;
     user-select: none;
     cursor: pointer; /* the click toy: cycle the palette */
+  }
+  .ascii-eyes.is-dotted {
+    cursor: inherit; /* the static mini is not a toy */
+    display: inline-flex;
+    align-items: center;
   }
   .ascii-row {
     white-space: pre;
