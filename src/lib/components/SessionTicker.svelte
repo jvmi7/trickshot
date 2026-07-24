@@ -30,6 +30,11 @@
         <IdentityGlyph seed={b.wt} color={profileAccent(b.wt)} size={12} loading={true} />
       </span>
     {/each}
+    <!-- The count rides the stack's fixed RIGHT edge; the digit rolls on
+         change (the swatches grow away leftward, the number stays put). -->
+    {#key busy.length}
+      <span class="stack-count">{busy.length}</span>
+    {/key}
   </div>
 {/if}
 
@@ -46,5 +51,20 @@
   }
   .stack-swatch + .stack-swatch {
     margin-left: -3px;
+  }
+  .stack-count {
+    margin-left: 6px;
+    min-width: 1ch;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--app-dim);
+    animation: count-roll 220ms var(--ease-out-soft);
+  }
+  @keyframes count-roll {
+    from {
+      transform: translateY(0.55em);
+      opacity: 0;
+    }
   }
 </style>
