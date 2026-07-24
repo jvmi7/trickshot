@@ -832,7 +832,7 @@ html, body {
   bottom: 0;
   left: 50%;
   /* 2px left of the card border — a hairline of air between line and frame. */
-  transform: translateX(calc(-50% + 4.5px)); /* lands the 1px line exactly on the card border column */
+  transform: translateX(calc(-50% + 3.5px)); /* lands the 1px line exactly on the card border column */
   width: 1px;
   opacity: 0;
   /* The line itself: neutral tint, TAPERING to transparent at both ends
@@ -840,8 +840,8 @@ html, body {
   background: linear-gradient(
     to bottom,
     transparent,
-    color-mix(in oklch, var(--app-text) 55%, var(--app-border)) 5%,
-    color-mix(in oklch, var(--app-text) 55%, var(--app-border)) 95%,
+    color-mix(in oklch, var(--app-text) 80%, var(--app-border)) 5%,
+    color-mix(in oklch, var(--app-text) 80%, var(--app-border)) 95%,
     transparent
   );
   transition: opacity var(--app-duration-fast) ease;
