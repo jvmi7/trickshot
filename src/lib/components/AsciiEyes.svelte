@@ -313,16 +313,30 @@
       if (!sameGaze(nextL, gazeL)) gazeL = nextL;
       if (!sameGaze(nextR, gazeR)) gazeR = nextR;
     };
+    // DEBOUNCE: the eyes don't chase a cursor in flight — the target commits
+    // only after the pointer rests this long, then the pursuit ease glides
+    // there (a saccade-after-settle, not continuous tracking).
+    const MOVE_DEBOUNCE_MS = 150;
+    let settle: ReturnType<typeof setTimeout> | undefined;
     const move = (e: PointerEvent) => {
-      px = e.clientX;
-      py = e.clientY;
+      const cx = e.clientX;
+      const cy = e.clientY;
       if (!seeded) {
         // First sighting: no lag on the very first pose (nothing to trail from).
         seeded = true;
-        sx = px;
-        sy = py;
+        px = cx;
+        py = cy;
+        sx = cx;
+        sy = cy;
+        if (!raf) raf = requestAnimationFrame(step);
+        return;
       }
-      if (!raf) raf = requestAnimationFrame(step);
+      clearTimeout(settle);
+      settle = setTimeout(() => {
+        px = cx;
+        py = cy;
+        if (!raf) raf = requestAnimationFrame(step);
+      }, MOVE_DEBOUNCE_MS);
     };
     const leave = () => {
       // Ease HOME rather than snapping: target the stage center (gaze = 0)
@@ -343,6 +357,7 @@
       window.removeEventListener("pointermove", move);
       document.documentElement.removeEventListener("mouseleave", leave);
       cancelAnimationFrame(raf);
+      clearTimeout(settle);
     };
   });
 
