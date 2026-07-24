@@ -622,6 +622,25 @@ export function clearChatStatuses(worktree: string) {
     return next;
   });
 }
+/** Reorder the sidebar's repo list: move `path`'s repo so it sits at `index`
+ *  (a position in the CURRENT list — the drop slot the drag indicator shows).
+ *  Identity no-op when the move changes nothing (the same-map guard rule);
+ *  persisted with the list. */
+export function moveRepoTo(path: string, index: number) {
+  repos.update((list) => {
+    const from = list.findIndex((r) => r.path === path);
+    if (from < 0) return list;
+    let to = Math.max(0, Math.min(index, list.length));
+    if (from < to) to -= 1; // removing the dragged entry shifts later slots
+    if (to === from) return list;
+    const next = [...list];
+    const [moved] = next.splice(from, 1);
+    if (!moved) return list;
+    next.splice(to, 0, moved);
+    return next;
+  });
+}
+
 /** Remove a repo from trickshot's sidebar. Does NOT delete the git repo on disk —
  *  it just drops it from the app: stops any running scripts for its worktrees,
  *  removes its worktree list, and clears the selection if it pointed into the repo. */

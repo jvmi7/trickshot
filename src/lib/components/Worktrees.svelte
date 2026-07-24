@@ -6,6 +6,7 @@
     repos,
     addRepo,
     removeRepo,
+    moveRepoTo,
     worktreesByRepo,
     openRepository,
     addWorktree,
@@ -114,6 +115,53 @@
   $effect(() => {
     for (const r of $repos) loadRepoIcon(r.path);
   });
+
+  // ---- Drag-to-reorder repos ----
+  // Threshold-started pointer drag on the repo HEADER (5px of travel begins
+  // the drag, so plain clicks still fold/unfold and hit the + button). While
+  // dragging, the pointer's y picks a drop slot between groups (an accent
+  // line marks it); release commits via moveRepoTo. Window listeners, no
+  // pointer capture — capture would retarget the header's child clicks.
+  let wtEl = $state<HTMLDivElement | null>(null);
+  let dragRepo = $state<string | null>(null);
+  let dropAt = $state<number | null>(null);
+  let dragPending: { path: string; x: number; y: number } | null = null;
+
+  function repoDragDown(e: PointerEvent, path: string) {
+    if (e.button !== 0) return;
+    dragPending = { path, x: e.clientX, y: e.clientY };
+    window.addEventListener("pointermove", repoDragMove);
+    window.addEventListener("pointerup", repoDragUp);
+  }
+  function repoDragMove(e: PointerEvent) {
+    const pending = dragPending;
+    if (!pending) return;
+    if (!dragRepo) {
+      if (Math.hypot(e.clientX - pending.x, e.clientY - pending.y) < 5) return;
+      dragRepo = pending.path;
+      document.documentElement.dataset.grabbing = ""; // the grid drag's global cursor
+    }
+    const groups = wtEl?.querySelectorAll<HTMLElement>("[data-repo]");
+    if (!groups) return;
+    let at = groups.length;
+    for (let i = 0; i < groups.length; i++) {
+      const rect = groups.item(i).getBoundingClientRect();
+      if (e.clientY < rect.top + rect.height / 2) {
+        at = i;
+        break;
+      }
+    }
+    dropAt = at;
+  }
+  function repoDragUp() {
+    if (dragRepo && dropAt != null) moveRepoTo(dragRepo, dropAt);
+    dragPending = null;
+    dragRepo = null;
+    dropAt = null;
+    delete document.documentElement.dataset.grabbing;
+    window.removeEventListener("pointermove", repoDragMove);
+    window.removeEventListener("pointerup", repoDragUp);
+  }
 
   // ⌘⇧N / the palette / the fleet ask for a new worktree via this nonce:
   // instantly create one (auto-named) for the selected worktree's repo (or the
@@ -306,7 +354,7 @@
 <!-- slidingRowHighlight is applied PER .wt-rows block (not once on the root)
      so the hover/active fill only slides between rows of the SAME repository —
      crossing into another group fades out/in instead of gliding over headers. -->
-<div class="wt">
+<div class="wt" bind:this={wtEl}>
   <!-- Home: THE Home screen (hero + composer + fleet) — the same place
        closing a worktree lands (deselected). Active whenever nothing is
        selected and the center pane isn't Settings. -->
@@ -346,12 +394,25 @@
     </Tooltip.Root>
   </div>
 
-  {#each $repos as repo (repo.path)}
-    <div class="repo-group group/repo">
+  {#each $repos as repo, ri (repo.path)}
+    <div
+      class="repo-group group/repo"
+      data-repo={repo.path}
+      data-dragging={dragRepo === repo.path ? "" : undefined}
+      data-drop={dropAt === ri
+        ? "before"
+        : dropAt === $repos.length && ri === $repos.length - 1
+          ? "after"
+          : undefined}
+    >
       <ContextMenu.Root>
         <ContextMenu.Trigger>
           {#snippet child({ props })}
-            <div {...props} class="repo-head">
+            <div
+              {...props}
+              class="repo-head"
+              onpointerdown={(e: PointerEvent) => repoDragDown(e, repo.path)}
+            >
               <button
                 class="repo-toggle"
                 title={repo.path}

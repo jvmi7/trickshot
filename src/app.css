@@ -1530,6 +1530,12 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
 .home-rows { margin-bottom: 48px; }
 .home-rows .wt-row { padding-top: 12px; padding-bottom: 12px; }
 .repo-group { margin-bottom: 12px; }
+/* Drag-to-reorder (Worktrees): the lifted group dims; the drop slot draws an
+   accent line on the group it lands before (or after the last). box-shadow,
+   not border — no layout shift while dragging. */
+.repo-group[data-dragging] { opacity: 0.45; }
+.repo-group[data-drop="before"] { box-shadow: 0 -2px 0 0 var(--app-accent); }
+.repo-group[data-drop="after"] { box-shadow: 0 2px 0 0 var(--app-accent); }
 .repo-head { display: flex; align-items: center; gap: 6px; padding: 2px; }
 /* Accordion toggle: chevron + repo name, clickable to fold/unfold the worktrees. */
 .repo-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: 0; cursor: pointer; text-align: left; }
