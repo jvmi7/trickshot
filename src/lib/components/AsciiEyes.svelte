@@ -13,6 +13,7 @@
     charset = "%#!&TRCKSHOT",
     tickMs = 120,
     blink = true,
+    track = true,
     class: className,
   }: {
     /** Grid width in characters (height follows the mark's aspect). */
@@ -23,6 +24,12 @@
     /** Blink every few seconds: the top and bottom halves close in at the
      *  same rate and meet as a single line at the vertical middle. */
     blink?: boolean;
+    /** Track the mouse: each eye deforms toward the cursor INDEPENDENTLY —
+     *  its glyph mass shifts toward the target, it hoods (partial squash)
+     *  when looking down, and the nearer eye deflects harder — so the two
+     *  eyes take different shapes per cursor position (and converge
+     *  cross-eyed when the cursor sits between them). */
+    track?: boolean;
     class?: string;
   } = $props();
 
@@ -202,8 +209,116 @@
     });
   }
 
-  /** What actually renders: the open grid, or the current blink frame. */
-  const display = $derived(squash >= 1 ? grid : squashGrid(grid, squash));
+  // ---- Cursor tracking (the gaze) ----
+  // Each eye owns a gaze: dx/dy = whole-cell shift toward the cursor, sv =
+  // vertical squash (looking DOWN hoods the eye; up stays open). Computed
+  // per eye from ITS OWN screen center with distance attenuation, so the
+  // nearer eye deflects harder — two different shapes per cursor position.
+  // Values are QUANTIZED (whole cells / 0.05 squash steps) and written only
+  // on change, so pointer motion recomputes the grid rarely, not per event.
+  interface Gaze {
+    dx: number;
+    dy: number;
+    sv: number;
+  }
+  const NEUTRAL: Gaze = { dx: 0, dy: 0, sv: 1 };
+  /** Horizontal/vertical px offsets where the gaze saturates. */
+  const GAZE_REACH_X = 260;
+  const GAZE_REACH_Y = 220;
+  const GAZE_MAX_DX = 3;
+  const GAZE_MAX_DY = 2;
+  /** How hard looking down hoods the eye (sv floor = 1 - this). */
+  const HOOD = 0.35;
+  let wrapEl = $state<HTMLDivElement | null>(null);
+  let gazeL = $state<Gaze>(NEUTRAL);
+  let gazeR = $state<Gaze>(NEUTRAL);
+
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  const sameGaze = (a: Gaze, b: Gaze) => a.dx === b.dx && a.dy === b.dy && a.sv === b.sv;
+
+  $effect(() => {
+    if (!track) {
+      gazeL = NEUTRAL;
+      gazeR = NEUTRAL;
+      return;
+    }
+    let raf = 0;
+    let px = 0;
+    let py = 0;
+    const apply = () => {
+      raf = 0;
+      const rect = wrapEl?.getBoundingClientRect();
+      if (!rect || rect.width === 0) return;
+      const cy = rect.top + rect.height / 2;
+      const eye = (cx: number): Gaze => {
+        // Nearer eye reacts harder: attenuate the deflection by distance.
+        const gain = clamp(1.15 - Math.hypot(px - cx, py - cy) / 900, 0.45, 1);
+        const nx = clamp((px - cx) / GAZE_REACH_X, -1, 1) * gain;
+        const ny = clamp((py - cy) / GAZE_REACH_Y, -1, 1) * gain;
+        return {
+          dx: Math.round(nx * GAZE_MAX_DX),
+          dy: Math.round(ny * GAZE_MAX_DY),
+          sv: ny > 0 ? Math.round((1 - HOOD * ny) * 20) / 20 : 1,
+        };
+      };
+      const nextL = eye(rect.left + rect.width * 0.25);
+      const nextR = eye(rect.left + rect.width * 0.75);
+      if (!sameGaze(nextL, gazeL)) gazeL = nextL;
+      if (!sameGaze(nextR, gazeR)) gazeR = nextR;
+    };
+    const move = (e: PointerEvent) => {
+      px = e.clientX;
+      py = e.clientY;
+      if (!raf) raf = requestAnimationFrame(apply);
+    };
+    const leave = () => {
+      gazeL = NEUTRAL;
+      gazeR = NEUTRAL;
+    };
+    window.addEventListener("pointermove", move, { passive: true });
+    document.documentElement.addEventListener("mouseleave", leave);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      document.documentElement.removeEventListener("mouseleave", leave);
+      cancelAnimationFrame(raf);
+    };
+  });
+
+  /** Whole-cell translate; vacated cells go blank, shifted-out cells clip. */
+  function shiftGrid(g: Cell[][], dx: number, dy: number): Cell[][] {
+    if (dx === 0 && dy === 0) return g;
+    return g.map((row, y) =>
+      row.map((_, x) => {
+        const src = g[y - dy]?.[x - dx];
+        return src && src.ch !== " " ? src : SPACE;
+      }),
+    );
+  }
+
+  /** Apply each eye's gaze to its half of the grid (the mark's gap sits on
+   *  the center column, so a straight split separates the eyes cleanly). */
+  function applyGaze(g: Cell[][], l: Gaze, r: Gaze): Cell[][] {
+    const width = g[0]?.length ?? 0;
+    const mid = Math.round(width / 2);
+    const transform = (half: Cell[][], gz: Gaze) =>
+      shiftGrid(gz.sv < 1 ? squashGrid(half, gz.sv) : half, gz.dx, gz.dy);
+    const left = transform(
+      g.map((row) => row.slice(0, mid)),
+      l,
+    );
+    const right = transform(
+      g.map((row) => row.slice(mid)),
+      r,
+    );
+    return g.map((_, y) => [...(left[y] ?? []), ...(right[y] ?? [])]);
+  }
+
+  /** What actually renders: base grid → per-eye gaze → the blink frame. */
+  const display = $derived.by(() => {
+    const gazed =
+      sameGaze(gazeL, NEUTRAL) && sameGaze(gazeR, NEUTRAL) ? grid : applyGaze(grid, gazeL, gazeR);
+    return squash >= 1 ? gazed : squashGrid(gazed, squash);
+  });
 
   $effect(() => {
     if (!blink) {
@@ -233,7 +348,7 @@
   });
 </script>
 
-<div class="ascii-eyes {className ?? ''}" aria-hidden="true">
+<div class="ascii-eyes {className ?? ''}" aria-hidden="true" bind:this={wrapEl}>
   <!-- Two whitespace landmines, both defused here: (1) each row's cells MUST
        be one unbroken template line — Svelte keeps a single space around
        inline elements split across source lines, which white-space: pre
