@@ -270,6 +270,14 @@ pub async fn term_open(
                 if !login_path.is_empty() {
                     c.env("PATH", login_path);
                 }
+                // The app's chats are TOP-LEVEL sessions. When the app itself
+                // was launched from inside a Claude Code session (dev flow),
+                // the CLI would inherit these markers, believe it's a child
+                // session, and DISABLE transcript saving — which breaks
+                // resume (latest_session_id/session_exists scan transcripts).
+                c.env_remove("CLAUDECODE");
+                c.env_remove("CLAUDE_CODE_CHILD_SESSION");
+                c.env_remove("CLAUDE_CODE_ENTRYPOINT");
                 c
             }
             None => {

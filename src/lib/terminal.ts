@@ -158,6 +158,28 @@ export function getTerminal(key: string): TermInstance {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    if (slot === "claude") {
+      // Shift+Enter → NEWLINE in the CLI. A plain terminal can't distinguish
+      // Shift+Enter from Enter (both are CR), and xterm.js speaks neither the
+      // kitty keyboard protocol nor CSI-u — so the TUI would submit. Send the
+      // CLI's documented newline fallback ("\" + CR) ourselves and swallow
+      // the keystroke.
+      term.attachCustomKeyEventHandler((e) => {
+        if (
+          e.type === "keydown" &&
+          e.key === "Enter" &&
+          e.shiftKey &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          !e.metaKey
+        ) {
+          noteCliInput(key);
+          api.termWrite(key, "\\\r").catch(() => {});
+          return false;
+        }
+        return true;
+      });
+    }
     // Keystrokes → PTY. If the write fails the PTY is gone (killed, or the Rust
     // core restarted under a dev rebuild — no `exit` event reaches us then), so
     // RECONNECT: reopen the PTY — as the login shell for the shell slot, as the
