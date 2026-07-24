@@ -24,11 +24,11 @@
     /** Blink every few seconds: the top and bottom halves close in at the
      *  same rate and meet as a single line at the vertical middle. */
     blink?: boolean;
-    /** Track the mouse: each eye deforms toward the cursor INDEPENDENTLY —
-     *  its glyph mass shifts toward the target, it hoods (partial squash)
-     *  when looking down, and the nearer eye deflects harder — so the two
-     *  eyes take different shapes per cursor position (and converge
-     *  cross-eyed when the cursor sits between them). */
+    /** Track the mouse: each eye DEFORMS toward the cursor independently —
+     *  it LEANS (a shear pivoting at its base), HOODS when looking down,
+     *  OPENS taller when looking up, and the nearer eye deforms harder — so
+     *  the two eyes take different shapes per cursor position (and converge
+     *  cross-eyed when the cursor sits between them). Never translates. */
     track?: boolean;
     class?: string;
   } = $props();
@@ -81,7 +81,7 @@
     const out: boolean[][] = [];
     const blank = (n: number) => Array.from({ length: n }, () => false);
     for (let y = 0; y < r; y++) {
-      const row: boolean[] = blank(GAZE_MAX_DX);
+      const row: boolean[] = blank(PAD_X);
       for (let x = 0; x < c; x++) {
         let hits = 0;
         for (let sy = 0; sy < SS; sy++) {
@@ -92,14 +92,14 @@
         }
         row.push(hits / (SS * SS) >= COVERAGE);
       }
-      row.push(...blank(GAZE_MAX_DX));
+      row.push(...blank(PAD_X));
       out.push(row);
     }
-    const padRow = () => blank(c + 2 * GAZE_MAX_DX);
+    const padRow = () => blank(c + 2 * PAD_X);
     return [
-      ...Array.from({ length: GAZE_MAX_DY }, padRow),
+      ...Array.from({ length: PAD_Y }, padRow),
       ...out,
-      ...Array.from({ length: GAZE_MAX_DY }, padRow),
+      ...Array.from({ length: PAD_Y }, padRow),
     ];
   }
 
@@ -220,31 +220,45 @@
   }
 
   // ---- Cursor tracking (the gaze) ----
-  // Each eye owns a gaze: dx/dy = whole-cell shift toward the cursor, sv =
-  // vertical squash (looking DOWN hoods the eye; up stays open). Computed
-  // per eye from ITS OWN screen center with distance attenuation, so the
-  // nearer eye deflects harder — two different shapes per cursor position.
-  // Values are QUANTIZED (whole cells / 0.05 squash steps) and written only
-  // on change, so pointer motion recomputes the grid rarely, not per event.
+  // What "looking" means for a solid wedge (no pupil, nothing to slide):
+  // the shape DEFORMS — it never translates. Each eye owns a gaze:
+  //   • lean — a horizontal SHEAR pivoting at the eye's BASE: the top edge
+  //     swings toward the cursor while the bottom stays planted (an eye
+  //     turning in its socket, not sliding across the face);
+  //   • sv   — vertical scale ANCHORED AT THE BASE: looking down hoods the
+  //     eye (lids lower), looking up opens it TALLER (the top rises into
+  //     the padded headroom).
+  // Computed per eye from ITS OWN screen center with distance attenuation,
+  // so the nearer eye deforms harder — two different shapes per cursor
+  // position, converging cross-eyed between them. Values are QUANTIZED
+  // (1/8 lean steps / 0.05 scale steps) and written only on change, so
+  // pointer motion recomputes the grid rarely, not per event.
   interface Gaze {
-    dx: number;
-    dy: number;
+    /** Signed lean toward the cursor, -1..1 (quantized to eighths). */
+    lean: number;
+    /** Vertical scale about the base: hood < 1 < open. */
     sv: number;
   }
-  const NEUTRAL: Gaze = { dx: 0, dy: 0, sv: 1 };
+  const NEUTRAL: Gaze = { lean: 0, sv: 1 };
   /** Horizontal/vertical px offsets where the gaze saturates. */
   const GAZE_REACH_X = 260;
   const GAZE_REACH_Y = 220;
-  const GAZE_MAX_DX = 3;
-  const GAZE_MAX_DY = 2;
-  /** How hard looking down hoods the eye (sv floor = 1 - this). */
-  const HOOD = 0.35;
+  /** Shear shape: every row leans at least BASE×lean; the top row adds the
+   *  full SHEAR×lean on top (the pivot is the bottom row). */
+  const LEAN_BASE = 1.5;
+  const LEAN_SHEAR = 2.5;
+  /** Looking down hoods to 1-HOOD; looking up opens to 1+OPEN. */
+  const HOOD = 0.3;
+  const OPEN = 0.12;
+  /** Mask padding so no pose clips: max lean columns; open-stretch rows. */
+  const PAD_X = 4;
+  const PAD_Y = 2;
   let wrapEl = $state<HTMLDivElement | null>(null);
   let gazeL = $state<Gaze>(NEUTRAL);
   let gazeR = $state<Gaze>(NEUTRAL);
 
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-  const sameGaze = (a: Gaze, b: Gaze) => a.dx === b.dx && a.dy === b.dy && a.sv === b.sv;
+  const sameGaze = (a: Gaze, b: Gaze) => a.lean === b.lean && a.sv === b.sv;
 
   $effect(() => {
     if (!track) {
@@ -266,9 +280,11 @@
         const nx = clamp((px - cx) / GAZE_REACH_X, -1, 1) * gain;
         const ny = clamp((py - cy) / GAZE_REACH_Y, -1, 1) * gain;
         return {
-          dx: Math.round(nx * GAZE_MAX_DX),
-          dy: Math.round(ny * GAZE_MAX_DY),
-          sv: ny > 0 ? Math.round((1 - HOOD * ny) * 20) / 20 : 1,
+          lean: Math.round(nx * 8) / 8,
+          sv:
+            ny > 0
+              ? Math.round((1 - HOOD * ny) * 20) / 20
+              : Math.round((1 + OPEN * -ny) * 20) / 20,
         };
       };
       const nextL = eye(rect.left + rect.width * 0.25);
@@ -294,30 +310,41 @@
     };
   });
 
-  /** Whole-cell translate; vacated cells go blank, shifted-out cells clip. */
-  function shiftGrid(g: Cell[][], dx: number, dy: number): Cell[][] {
-    if (dx === 0 && dy === 0) return g;
-    return g.map((row, y) =>
-      row.map((_, x) => {
-        const src = g[y - dy]?.[x - dx];
-        return src && src.ch !== " " ? src : SPACE;
-      }),
-    );
+  /** Warp one eye by its gaze — a per-cell inverse sample, no translation:
+   *  rows scale vertically about the eye's BASE (the mark's bottom edge, so
+   *  hooding lowers the top and opening raises it), and each row shears
+   *  toward the cursor with the pivot at that same base (top swings most).
+   *  Point sampling is safe both ways: compression skips source rows,
+   *  stretching repeats them — never holes. */
+  function warpEye(eye: Cell[][], gz: Gaze): Cell[][] {
+    const rows = eye.length;
+    if (rows === 0) return eye;
+    const anchor = rows - 1 - PAD_Y; // the mark's bottom edge — the pivot
+    const norm = Math.max(1, rows - 1);
+    return eye.map((row, y) => {
+      const ys = Math.round(anchor + (y - anchor) / gz.sv);
+      const srcRow = eye[ys];
+      if (!srcRow) return row.map(() => SPACE);
+      const shift = Math.round(gz.lean * (LEAN_BASE + LEAN_SHEAR * (1 - y / norm)));
+      if (shift === 0 && ys === y) return srcRow;
+      return row.map((_, x) => {
+        const c = srcRow[x - shift];
+        return c && c.ch !== " " ? c : SPACE;
+      });
+    });
   }
 
   /** Apply each eye's gaze: each eye is ISOLATED by masking the other half
-   *  (the mark's gap sits on the center column) but transformed on the
-   *  FULL-width canvas — so a convergent lean crosses the center seam and
-   *  overlaps instead of clipping at the half boundary. Left wins overlaps. */
+   *  (the mark's gap sits on the center column) but warped on the FULL-width
+   *  canvas — so a convergent lean crosses the center seam and overlaps
+   *  instead of clipping at the half boundary. Left wins overlaps. */
   function applyGaze(g: Cell[][], l: Gaze, r: Gaze): Cell[][] {
     const width = g[0]?.length ?? 0;
     const mid = Math.round(width / 2);
     const isolate = (keepLeft: boolean) =>
       g.map((row) => row.map((cell, x) => (x < mid === keepLeft ? cell : SPACE)));
-    const transform = (eye: Cell[][], gz: Gaze) =>
-      shiftGrid(gz.sv < 1 ? squashGrid(eye, gz.sv) : eye, gz.dx, gz.dy);
-    const left = transform(isolate(true), l);
-    const right = transform(isolate(false), r);
+    const left = warpEye(isolate(true), l);
+    const right = warpEye(isolate(false), r);
     return g.map((row, y) =>
       row.map((_, x) => {
         const lc = left[y]?.[x];
