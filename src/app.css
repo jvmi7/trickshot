@@ -761,14 +761,15 @@ html, body {
 .sidebar-head { height: 35px; flex-shrink: 0; } /* stays in step with .app-header */
 .sidebar-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 4px 16px 16px; /* slim right gutter — content runs close to the resize line */ }
 .sidebar-foot { flex-shrink: 0; padding: 8px; }
-/* Drag handle straddling the sidebar's right border: a wide (6px) invisible grab
-   target, but the hover highlight is just a thin accent line over the border (not
-   the full grab width). */
+/* Sidebar drag handle, anchored to the CONTENT CARD (App.svelte mounts it
+   inside .content): a wide invisible grab target whose thin hover line sits
+   exactly ON the card's left border, spanning only the straight edge — the
+   pane-radius insets stop it where the corners start curving. */
 .sidebar-resize {
   position: absolute;
-  top: 35px; /* clear the header band (stays in step with .sidebar-head/.app-header) */
-  bottom: 0;
-  right: -6px;
+  top: var(--app-pane-radius);
+  bottom: var(--app-pane-radius);
+  left: -6px; /* centers the grab zone (and its line) on the border column */
   width: 12px;
   cursor: col-resize;
   z-index: var(--app-z-chrome);
@@ -785,7 +786,6 @@ html, body {
   transition: background var(--app-duration-fast) ease;
 }
 .sidebar-resize:hover::after { background: var(--app-accent); }
-.sidebar.collapsed .sidebar-resize { display: none; } /* nothing to grab when hidden */
 /* During a drag: show the resize cursor everywhere and don't select text. */
 .layout.resizing { cursor: col-resize; user-select: none; }
 

@@ -286,14 +286,6 @@
         Settings
       </Button>
     </div>
-    <!-- drag handle straddling the right border; resizes the sidebar width -->
-    <div
-      class="sidebar-resize"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize sidebar"
-      onpointerdown={startResize}
-    ></div>
   </aside>
 
   <main class="main">
@@ -352,6 +344,18 @@
       <ChatTabs />
     {/if}
     <div class="content" use:borderGlow>
+      {#if $sidebarOpen}
+        <!-- Sidebar drag handle, anchored to the CARD: its line overlaps the
+             terminal's left border and spans only the straight edge between
+             the corner curves (top/bottom inset by the pane radius). -->
+        <div
+          class="sidebar-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          onpointerdown={startResize}
+        ></div>
+      {/if}
       {#if $centerView !== "settings" && $repos.length > 0 && $mainView !== "run" && $selectedWorktree}
         <!-- ONE shared background for the whole chat surface: a single trail
              canvas clipped to the card∪tab silhouette (chatSilhouette). The
