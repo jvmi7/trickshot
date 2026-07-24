@@ -89,9 +89,9 @@ export const THEMES: Theme[] = [
     label: "Terminal",
     // Matches the Claude Code TUI in the chat pane so the chrome and the
     // terminal read as ONE surface: neutral near-black, flat (surfaces barely
-    // rise off the canvas), plain light-gray text, the TUI's coral cursor as
-    // the accent, and its soft pink/amber/link-blue state hues. No glyph glow
-    // — the real TUI has none.
+    // rise off the canvas), plain light-gray text, a NEUTRAL near-white
+    // accent (fully monochrome chrome — no brand hue), and soft
+    // pink/amber/link-blue state hues. No glyph glow — the real TUI has none.
     palette: {
       bg: "#0f0f0f",
       surface: "#161616",
@@ -99,7 +99,7 @@ export const THEMES: Theme[] = [
       border: "#2e2e2e",
       text: "#e7e7e7",
       textMuted: "#8f8f8f",
-      accent: "#d97757",
+      accent: "#e7e7e7",
       onAccent: "#0f0f0f",
       danger: "#f07178",
       success: "#5fb87a",
