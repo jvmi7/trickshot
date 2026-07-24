@@ -448,9 +448,18 @@
           {@const unread = ($unreadByWorktree[wt.path] ?? 0) > 0 && $selectedWorktree !== wt.path}
           <ContextMenu.Root>
             <ContextMenu.Trigger>
-              {#snippet child({ props })}
+              {#snippet child({ props: menuProps })}
+              <!-- Tooltip INSIDE the context-menu trigger: both are renderless
+                   providers, so the row div stays the rows' direct child (the
+                   sliding highlight keys off that). Spread order matters —
+                   the tooltip's handlers win shared events; the menu keeps
+                   its own oncontextmenu. -->
+              <Tooltip.Root>
+                <Tooltip.Trigger>
+                  {#snippet child({ props: tipProps })}
                 <div
-                  {...props}
+                  {...menuProps}
+                  {...tipProps}
                   class="wt-row group/row"
                   class:active={$selectedWorktree === wt.path}
                   class:busy
@@ -475,7 +484,9 @@
                   {:else}
                     <IdentityGlyph seed={wt.path} color={profileAccent(wt.path)} loading={busy} />
                   {/if}
-                  <span class="wt-name">{wt.branch ?? "(detached)"}</span>
+                  <!-- Named after the WORKTREE (its directory); the branch
+                       lives in the hover details. -->
+                  <span class="wt-name">{basename(wt.path)}</span>
                   {#if ($gitStatByWorktree[wt.path]?.changed ?? 0) > 0}
                     {@const gs = $gitStatByWorktree[wt.path]}
                     <span class="wt-stat" title="{gs?.changed} changed file{gs?.changed === 1 ? '' : 's'}">
@@ -512,6 +523,39 @@
                     {/if}
                   {/if}
                 </div>
+                  {/snippet}
+                </Tooltip.Trigger>
+                <!-- High-level workspace details on hover: the PR branch, the
+                     change glance, session state, and the path — the row
+                     itself stays a name + swatch. -->
+                <Tooltip.Content side="right" align="start" class="items-stretch p-2.5">
+                  {@const gs = $gitStatByWorktree[wt.path]}
+                  <div class="wt-detail">
+                    <div class="section-label">{basename(wt.path)}</div>
+                    <div class="wt-detail-row">
+                      <span class="wt-detail-label">branch</span>
+                      <span class="wt-detail-mono">{wt.branch ?? "(detached)"}</span>
+                    </div>
+                    <div class="wt-detail-row">
+                      <span class="wt-detail-label">changes</span>
+                      {#if (gs?.changed ?? 0) > 0}
+                        <span>
+                          {gs?.changed} file{gs?.changed === 1 ? "" : "s"}
+                          {#if gs?.insertions}<span class="diff-add">+{gs.insertions}</span>{/if}
+                          {#if gs?.deletions}<span class="diff-del">−{gs.deletions}</span>{/if}
+                        </span>
+                      {:else}
+                        <span>clean</span>
+                      {/if}
+                    </div>
+                    <div class="wt-detail-row">
+                      <span class="wt-detail-label">agent</span>
+                      <span>{busy ? "working…" : ($sessionStatus[wt.path] ?? "idle")}</span>
+                    </div>
+                    <div class="wt-detail-path">{wt.path}</div>
+                  </div>
+                </Tooltip.Content>
+              </Tooltip.Root>
               {/snippet}
             </ContextMenu.Trigger>
             {#if !wt.is_main}
@@ -589,3 +633,38 @@
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>
+
+<style>
+  /* The row hover-detail card (tooltip content) — the UsageIndicator
+     .usage-detail precedent: one-component tooltip content stays scoped here
+     (Svelte's scope class rides the portaled element). */
+  .wt-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 200px;
+    max-width: 280px;
+    font-size: var(--text-sm);
+    line-height: 1.4;
+  }
+  .wt-detail-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .wt-detail-label {
+    color: var(--app-dim);
+  }
+  .wt-detail-mono {
+    font-family: var(--app-font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wt-detail-path {
+    font-size: var(--text-2xs);
+    color: var(--app-dim);
+    word-break: break-all;
+  }
+</style>
