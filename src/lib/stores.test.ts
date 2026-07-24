@@ -146,7 +146,7 @@ describe("script-run store", () => {
   });
 });
 
-import { moveRepoTo, addRepo, repos } from "./stores";
+import { moveRepoTo, repos } from "./stores";
 
 describe("moveRepoTo", () => {
   const seed = () => {
