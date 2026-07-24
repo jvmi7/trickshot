@@ -782,10 +782,19 @@ html, body {
   left: 50%;
   transform: translateX(-50%);
   width: 2px;
-  background: transparent;
-  transition: background var(--app-duration-fast) ease;
+  opacity: 0;
+  /* The line itself: neutral tint, TAPERING to transparent at both ends
+     (only opacity animates — the gradient is the line's shape). */
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in oklch, var(--app-text) 30%, var(--app-border)) 18%,
+    color-mix(in oklch, var(--app-text) 30%, var(--app-border)) 82%,
+    transparent
+  );
+  transition: opacity var(--app-duration-fast) ease;
 }
-.sidebar-resize:hover::after { background: color-mix(in oklch, var(--app-text) 30%, var(--app-border)); }
+.sidebar-resize:hover::after { opacity: 1; }
 /* During a drag: show the resize cursor everywhere and don't select text. */
 .layout.resizing { cursor: col-resize; user-select: none; }
 
