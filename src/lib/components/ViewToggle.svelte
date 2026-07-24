@@ -25,6 +25,13 @@
   import Terminal from "@lucide/svelte/icons/terminal";
   import { slidingToggle } from "../slidingHighlight";
 
+  // ONE chrome for both header popovers (Changes, Shell): the app float
+  // shadow, top-of-ladder radius, and clipped corners so the panel inside
+  // meets the ring cleanly. The panels own their size (.git-panel /
+  // .term-pane-popover); the popover shell stays w-auto p-0.
+  const headerPopoverClass =
+    "w-auto overflow-hidden rounded-xl p-0 [box-shadow:var(--app-shadow-float)]";
+
   const stat = $derived($activeGitStat);
   // The tab shows whenever there's anything to review: dirty files OR commits
   // over the default branch — a clean-but-unmerged branch must keep its
@@ -63,7 +70,7 @@
           </Button>
         {/snippet}
       </Popover.Trigger>
-      <Popover.Content align="end" class="w-auto p-0">
+      <Popover.Content align="end" sideOffset={8} class={headerPopoverClass}>
         <GitPanel />
       </Popover.Content>
     </Popover.Root>
@@ -115,7 +122,8 @@
            zoom-in transform scales those measurements and garbles the grid. -->
       <Popover.Content
         align="end"
-        class="w-auto p-0 data-[state=open]:animate-none data-[state=closed]:animate-none"
+        sideOffset={8}
+        class="{headerPopoverClass} data-[state=open]:animate-none data-[state=closed]:animate-none"
         escapeKeydownBehavior="ignore"
       >
         <TerminalPane />

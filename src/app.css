@@ -1038,7 +1038,7 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
    basis 0 and the pane collapses to nothing (only the absolute fade shows). */
 /* Radius + clip match the popover's rounded ring — the pane's square corners
    otherwise paint OVER the ring at the corners. */
-.term-pane-popover { flex: none; width: min(760px, 92vw); height: min(64vh, 700px); padding-top: 14px; border-radius: var(--radius-lg); overflow: hidden; }
+.term-pane-popover { flex: none; width: min(760px, 92vw); height: min(64vh, 700px); padding-top: 14px; border-radius: var(--radius-xl); overflow: hidden; }
 /* No top fade in the popover — that's a chat-pane reading-edge treatment; a
    small floating panel just wants its content crisp to the edge. (Double
    class: the fade rule sets content:"" LATER in the file, so this must win
