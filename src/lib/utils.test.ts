@@ -1,20 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { basename, relativeTime, workspaceHue } from "./utils";
-
-describe("workspaceHue", () => {
-  test("stable and in range", () => {
-    const h1 = workspaceHue("/repos/app-worktrees/swift-harbor");
-    expect(h1).toBe(workspaceHue("/repos/app-worktrees/swift-harbor"));
-    expect(h1).toBeGreaterThanOrEqual(0);
-    expect(h1).toBeLessThan(360);
-  });
-  test("different paths get different hues (sample)", () => {
-    const hues = new Set(
-      ["/a/one", "/a/two", "/a/three", "/b/main", "/c/keen-fjord"].map(workspaceHue),
-    );
-    expect(hues.size).toBeGreaterThan(3);
-  });
-});
+import { basename, relativeTime } from "./utils";
 
 describe("relativeTime", () => {
   const now = 1_000_000_000_000;

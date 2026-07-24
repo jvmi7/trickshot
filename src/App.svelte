@@ -44,6 +44,7 @@
     setShellOpen,
     activateWorktree,
     homePath,
+    setHomePath,
     toggleCommandPalette,
     toggleCompose,
     toggleShortcutsHelp,
@@ -249,7 +250,10 @@
     syncFullscreen();
     let unlistenResize: (() => void) | undefined;
     onWindowResized(syncFullscreen)
-      .then((u) => (unlistenResize = u))
+      .then((u) => {
+        if (cancelled) u();
+        else unlistenResize = u;
+      })
       .catch(() => {});
 
     // Populate the subscription-usage chip on launch (throttled thereafter).
@@ -280,7 +284,7 @@
     (async () => {
       // Resolve the Home workspace root FIRST (serialized, not raced) — the
       // stale-selection guard below must recognize a persisted Home selection.
-      homePath.set(await homeDir().catch(() => null));
+      setHomePath(await homeDir().catch(() => null));
       for (const repo of get(repos)) {
         try {
           const wts = await listWorktrees(repo.path);

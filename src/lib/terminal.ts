@@ -3,7 +3,7 @@
 // hops), plus the `term-event` router that feeds PTY output into them. The
 // TerminalPane component just attaches the cached instance to its container;
 // App wires `handleTermEvent` into `api.onTermEvent` (the same wiring shape as
-// agentEvents/scriptEvents).
+// scriptEvents).
 
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
@@ -239,13 +239,16 @@ export async function ensureOpen(worktree: string) {
 // flowing = busy; a real burst ending = a turn finished.
 const cliActivity = new Map<
   string,
-  { tracker: CliActivityTracker; timer: ReturnType<typeof setTimeout> | null }
+  { tracker: CliActivityTracker; timer: ReturnType<typeof setTimeout> | null; wt: string }
 >();
 
 function cliEntry(key: string) {
   let entry = cliActivity.get(key);
   if (!entry) {
-    entry = { tracker: new CliActivityTracker(), timer: null };
+    // `wt` is a pure function of `key` and the entry is keyed by `key`, so cache
+    // it once at creation — `noteCliActivity` runs per PTY chunk and must not
+    // re-run keyWorktree's substring slice on the hot path (see PERFORMANCE).
+    entry = { tracker: new CliActivityTracker(), timer: null, wt: keyWorktree(key) };
     cliActivity.set(key, entry);
   }
   return entry;
@@ -275,7 +278,7 @@ export function cliBusy(key: string): boolean {
 
 function noteCliActivity(key: string) {
   const entry = cliEntry(key);
-  const wt = keyWorktree(key);
+  const wt = entry.wt;
   if (entry.tracker.onData(Date.now()) === "busy") setChatStatus(wt, key, "busy");
   if (entry.timer) clearTimeout(entry.timer);
   entry.timer = setTimeout(() => {
@@ -304,11 +307,16 @@ function clearCliActivity(key: string) {
   cliActivity.delete(key);
 }
 
-/** Route one `term-event` into the cached xterm (creating it if the first
- *  output arrives before the pane ever mounted — e.g. a background exit).
+/** Route one `term-event` into the cached xterm. No-op when no instance exists:
+ *  a PTY is only opened via `getTerminal` (`ensureOpen`/`ensureClaudeOpen`/the
+ *  pane/the reconnect path), so an instance always precedes any event — EXCEPT
+ *  after `disposeTerminal` (worktree removed/archived) with the PTY's final
+ *  events still in flight. Recreating one here would leak an xterm that is never
+ *  re-attached (a removed worktree can't be selected) nor disposed again.
  *  `key` is the PTY key (a worktree path, or its claude-slot composite). */
 export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: string | null) {
-  const inst = getTerminal(key);
+  const inst = instances.get(key);
+  if (!inst) return;
   switch (kind) {
     case "data":
       if (data) inst.term.write(data);

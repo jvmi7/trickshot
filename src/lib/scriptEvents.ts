@@ -1,9 +1,8 @@
 // The script-event router — the reducer over the `script-event` stream (project
-// run/setup/archive scripts), the scripts sibling of agentEvents.ts. Split out of
-// App.svelte so it's plain, testable TypeScript. Output lines are coalesced per
-// worktree into ONE store write per 16ms window (batching
-// engine's batching — a chatty build log must not render per line). setTimeout,
-// not requestAnimationFrame, so backgrounded windows still flush.
+// run/setup/archive scripts). Split out of App.svelte so it's plain, testable
+// TypeScript. Output lines are coalesced per worktree into ONE store write per
+// 16ms window (a chatty build log must not render per line). setTimeout, not
+// requestAnimationFrame, so backgrounded windows still flush.
 
 import { appendScriptLines, endScriptRun, startScriptRun } from "./stores";
 import type { ScriptEnvelope } from "./types";

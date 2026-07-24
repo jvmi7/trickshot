@@ -100,6 +100,7 @@
       return;
     }
     const id = editing ? editing.id : uniqueThemeId(label, $allThemes.map((t) => t.id));
+    // safe: isTheme(candidate) validates every key below before candidate is used
     const candidate = { id, label, palette: palette as unknown as ThemePalette };
     if (!isTheme(candidate)) {
       error = "Every color needs a value (and “{ } ;” aren’t allowed).";

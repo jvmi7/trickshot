@@ -25,7 +25,6 @@
   },
   "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts"],
   // Test files import `bun:test` (Bun globals, not in the node typings); they are
-  // run + checked by `bun test`, so keep them out of this svelte-check pass
-  // (mirrors tsconfig.sidecar.json).
+  // run + checked by `bun test`, so keep them out of this svelte-check pass.
   "exclude": ["src/**/*.test.ts"]
 }

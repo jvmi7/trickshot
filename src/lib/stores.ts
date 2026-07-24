@@ -182,6 +182,9 @@ export function setComposeOpen(v: boolean) {
 export function toggleCompose() {
   composeOpen.update((v) => !v);
 }
+export function setComposeDraft(v: string) {
+  composeDraft.set(v);
+}
 
 /** Whether the ⌘/ keyboard-shortcuts overlay is open. Ephemeral, global. */
 export const shortcutsHelpOpen = writable<boolean>(false);
@@ -363,6 +366,10 @@ export function loadRepoIcon(repoPath: string) {
  *  the sidebar's Home row renders only once this is known. Not persisted —
  *  it's an OS fact, refetched each run. */
 export const homePath = writable<string | null>(null);
+/** Set the resolved Home workspace root (null when the OS lookup fails). */
+export function setHomePath(p: string | null) {
+  homePath.set(p);
+}
 
 /** Worktrees per repo path. Git is the source of truth — repopulated from
  *  `list_worktrees` on launch and after create/remove. */
@@ -648,7 +655,9 @@ export function removeRepo(repoPath: string) {
   const wts = get(worktreesByRepo)[repoPath] ?? [];
   const sel = get(selectedWorktree);
   for (const wt of wts) {
-    api.stopScript(wt.path);
+    // Fire-and-forget teardown — swallow rejection like every sibling IPC
+    // (CommandPalette's stop-run, disposeTerminal's termClose).
+    api.stopScript(wt.path).catch(() => {});
     clearStatus(wt.path);
     removeScriptRun(wt.path);
   }
@@ -860,10 +869,13 @@ export async function refreshUsage(force = false) {
     // the user is looking at); no selection falls back to the default provider.
     usageLimits.set(await api.getUsage(get(activeProvider)));
     usageError.set(null);
-    usageLastFetch = Date.now();
   } catch (e) {
     usageError.set(e instanceof Error ? e.message : String(e));
   } finally {
+    // Count a completed ATTEMPT (success or failure) toward the throttle — a
+    // rate-limited endpoint must not be hammered harder while it's failing
+    // (turn_end fires this every turn). `force` still bypasses the interval.
+    usageLastFetch = Date.now();
     usageInFlight = false;
   }
 }
@@ -874,8 +886,9 @@ export async function refreshUsage(force = false) {
 // ambiguous check failures (keychain/HOME errors) leave the state alone so we
 // never false-alarm.
 export const authState = writable<"unknown" | "ok" | "missing">("unknown");
-/** Set the ambient auth state (the one mutator — agentEvents flips it to
- *  `missing` on a recognized auth failure; refreshAuth settles it). */
+/** Set the ambient auth state (the sanctioned mutator for the
+ *  auth-failure→sign-in notice flip; `refreshAuth` settles the state on each
+ *  probe). */
 export function setAuthState(v: "unknown" | "ok" | "missing") {
   authState.set(v);
 }

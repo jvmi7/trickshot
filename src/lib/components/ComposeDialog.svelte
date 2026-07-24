@@ -9,8 +9,11 @@
   import {
     composeDraft,
     composeOpen,
+    DEFAULT_CHAT_ID,
+    focusedChatByWorktree,
     selectedWorktree,
     sendToCli,
+    setComposeDraft,
     setComposeOpen,
   } from "../stores";
   import { getTerminal, claudeTermKey } from "../terminal";
@@ -35,8 +38,12 @@
     setComposeOpen(false);
     try {
       await sendToCli(wt, text, submit);
-      composeDraft.set("");
-      getTerminal(claudeTermKey(wt)).term.focus();
+      setComposeDraft("");
+      // Focus the chat the turn actually went to — sendToCli routes to the
+      // FOCUSED chat, so focusing the bare default key would steal focus to the
+      // wrong terminal in a multi-chat worktree (matches submitTurnToChat).
+      const chatId = $focusedChatByWorktree[wt] ?? DEFAULT_CHAT_ID;
+      getTerminal(claudeTermKey(wt, chatId)).term.focus();
     } catch (e) {
       // Delivery failed — reopen with the draft intact so nothing is lost.
       toastError(String(e));

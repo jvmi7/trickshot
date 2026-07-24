@@ -180,7 +180,7 @@ fn drain_utf8(carry: &mut Vec<u8>) -> Option<String> {
 }
 
 /// Whether the user's `claude` CLI resolves on the login shell's PATH — the
-/// onboarding preflight (Welcome). Distinct from `check_auth` (credentials):
+/// onboarding preflight (Home). Distinct from `check_auth` (credentials):
 /// this answers "is the binary even installed?". Async + spawn_blocking: the
 /// first call shells the login shell (OnceLock-cached after).
 #[tauri::command]
