@@ -135,12 +135,19 @@
   let peekSettled = false;
   let peekCloseQueued = false;
   let peekHover = false;
+  // Settle on a TIMER (slide duration + slack), not transitionend — a missed
+  // end event would leave a queued close stranded and the panel stuck open.
+  const PEEK_SETTLE_MS = 340;
   function openPeek() {
     peekCloseQueued = false;
-    if (!sidebarPeek) {
-      sidebarPeek = true;
-      peekSettled = false;
-    }
+    if (sidebarPeek) return;
+    sidebarPeek = true;
+    peekSettled = false;
+    setTimeout(() => {
+      peekSettled = true;
+      if (peekCloseQueued && !peekHover) sidebarPeek = false;
+      peekCloseQueued = false;
+    }, PEEK_SETTLE_MS);
   }
   function requestClosePeek() {
     if (!sidebarPeek) return;
@@ -149,12 +156,6 @@
       return;
     }
     sidebarPeek = false;
-  }
-  function peekTransitionEnd(e: TransitionEvent) {
-    if (e.propertyName !== "translate" || !sidebarPeek) return;
-    peekSettled = true;
-    if (peekCloseQueued && !peekHover) sidebarPeek = false;
-    peekCloseQueued = false;
   }
   // 50px past the width clamp (stores.ts › SIDEBAR_MIN = 200) reads as intent
   // to close, not to resize.
@@ -355,7 +356,6 @@
         peekHover = false;
         requestClosePeek();
       }}
-      ontransitionend={peekTransitionEnd}
     >
       {@render sidebarContent()}
     </div>
