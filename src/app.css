@@ -1676,3 +1676,16 @@ select,
 summary {
   cursor: pointer;
 }
+/* The grid cells' rearrange grip: grab beats the [role=button] pointer above
+   (both unlayered; later + more specific wins). While a drag is LIVE the
+   grabbing hand holds EVERYWHERE — the pointer is captured, so per-element
+   cursors underneath are noise (!important outranks xterm's inline styles). */
+.chat-drag[role="button"] {
+  cursor: grab;
+}
+.chat-drag[role="button"]:active {
+  cursor: grabbing;
+}
+html[data-grabbing] * {
+  cursor: grabbing !important;
+}

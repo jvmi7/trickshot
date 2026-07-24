@@ -10,7 +10,6 @@
     chatLayout,
     chatSessionsByWorktree,
     chatSplitByWorktree,
-    chatStatusByKey,
     DEFAULT_CHAT_ID,
     focusChat,
     focusedChatByWorktree,
@@ -136,6 +135,7 @@
     // 3px slop so a plain click on the grip never flickers previews.
     if (!dragLive && Math.abs(e.clientX - pressAt.x) + Math.abs(e.clientY - pressAt.y) < 3) return;
     dragLive = true;
+    document.documentElement.dataset.grabbing = ""; // global grabbing cursor
     ghost = { x: e.clientX, y: e.clientY, ...grabbedSize };
     dropTarget = hitTest(e);
   }
@@ -149,6 +149,7 @@
     dragLive = false;
     pressAt = null;
     ghost = null;
+    delete document.documentElement.dataset.grabbing;
   }
 </script>
 
@@ -222,10 +223,6 @@
                   >
                     <GripVertical class="size-3.5" />
                   </span>
-                  <span
-                    class="chat-dot"
-                    data-status={$chatStatusByKey[claudeTermKey(wt, cell.chat)] ?? "stopped"}
-                  ></span>
                   {#if chats.length > 1}
                     <IconButton aria-label="Close chat" onclick={() => wt && requestCloseChat(wt, cell.chat)}>
                       <X />
