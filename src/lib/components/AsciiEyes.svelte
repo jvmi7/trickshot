@@ -278,8 +278,12 @@
      *  (top edge drops — the hood); looking UP compresses about the TOP
      *  (bottom edge rises — the lift). Mirrored moves, equal visual mass. */
     anchor: "base" | "top";
+    /** BROW rotation, -1..1: the wedge's slanted top edge pivots about the
+     *  eye's OUTER corner — positive (mouse above) raises the inner tip
+     *  (the angry slant flattens into surprise), negative deepens it. */
+    tilt: number;
   }
-  const NEUTRAL: Gaze = { lean: 0, sv: 1, anchor: "base" };
+  const NEUTRAL: Gaze = { lean: 0, sv: 1, anchor: "base", tilt: 0 };
   /** Horizontal/vertical px offsets where the gaze saturates. */
   const GAZE_REACH_X = 260;
   const GAZE_REACH_Y = 220;
@@ -293,6 +297,8 @@
    *  TOP, so the bottom edge visibly LIFTS. (A stretch "open" was tried and
    *  read as nothing: it only added thin wedge-tip rows into empty space.) */
   const LIFT = 0.3;
+  /** Max brow travel in rows at full tilt (the inner tip's excursion). */
+  const TILT_ROWS = 2.5;
   /** Position reach in PIXELS: the pair's shared shift is a continuous
    *  transform on the mover wrapper (svelte/motion spring — the platform's
    *  framer-motion), NOT a grid offset — cell-stepped position read as
@@ -312,7 +318,7 @@
 
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
   const sameGaze = (a: Gaze, b: Gaze) =>
-    a.lean === b.lean && a.sv === b.sv && a.anchor === b.anchor;
+    a.lean === b.lean && a.sv === b.sv && a.anchor === b.anchor && a.tilt === b.tilt;
 
   $effect(() => {
     if (!track) {
@@ -338,6 +344,7 @@
           lean: Math.round(nx * 8) / 8,
           sv: Math.round((1 - (ny > 0 ? HOOD * ny : LIFT * -ny)) * 20) / 20,
           anchor: ny > 0 ? ("base" as const) : ("top" as const),
+          tilt: Math.round(-ny * 8) / 8, // above → +tilt → inner tips rise
         };
       };
       const nextL = eye(rect.left + rect.width * 0.25);
@@ -385,20 +392,26 @@
    *  cursor with the pivot at that same base (top swings most). Point
    *  sampling is safe both ways: compression skips source rows, stretching
    *  repeats them — never holes. */
-  function warpEye(eye: Cell[][], gz: Gaze): Cell[][] {
+  function warpEye(eye: Cell[][], gz: Gaze, side: "left" | "right"): Cell[][] {
     const rows = eye.length;
     if (rows === 0) return eye;
+    const width = eye[0]?.length ?? 0;
+    const mid = Math.max(1, width / 2);
     // The planted edge: the mark's bottom for the hood, its top for the lift.
     const anchor = gz.anchor === "top" ? PAD_Y : rows - 1 - PAD_Y;
     const norm = Math.max(1, rows - 1);
     return eye.map((row, y) => {
-      const ys = Math.round(anchor + (y - anchor) / gz.sv);
-      const srcRow = eye[ys];
-      if (!srcRow) return row.map(() => SPACE);
       const shift = Math.round(gz.lean * (LEAN_BASE + LEAN_SHEAR * (1 - y / norm)));
-      if (shift === 0 && ys === y) return srcRow;
       return row.map((_, x) => {
-        const c = srcRow[x - shift];
+        // BROW tilt: a vertical shear pivoting at the eye's OUTER corner —
+        // innerness runs 0 at the grid's outer edge to 1 at the center seam,
+        // so the inner tip travels the full TILT_ROWS while the outer corner
+        // stays planted. Positive tilt samples LOWER rows → content rises.
+        const inner = Math.min(1, side === "left" ? x / mid : (width - 1 - x) / mid);
+        const ys = Math.round(
+          anchor + (y - anchor) / gz.sv + gz.tilt * TILT_ROWS * inner,
+        );
+        const c = eye[ys]?.[x - shift];
         return c && c.ch !== " " ? c : SPACE;
       });
     });
@@ -413,8 +426,8 @@
     const mid = Math.round(width / 2);
     const isolate = (keepLeft: boolean) =>
       g.map((row) => row.map((cell, x) => (x < mid === keepLeft ? cell : SPACE)));
-    const left = warpEye(isolate(true), l);
-    const right = warpEye(isolate(false), r);
+    const left = warpEye(isolate(true), l, "left");
+    const right = warpEye(isolate(false), r, "right");
     return g.map((row, y) =>
       row.map((_, x) => {
         const lc = left[y]?.[x];
