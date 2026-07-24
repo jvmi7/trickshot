@@ -180,7 +180,9 @@
     padding: 14px 24px 6px;
   }
   .hero-eyes {
-    margin-bottom: 12px;
+    /* Generous air around the mark — it's the hero's centerpiece, and the
+       shimmer needs quiet space to read. */
+    margin: 48px 0 40px;
     color: var(--app-accent);
   }
   .wordmark {
