@@ -1333,6 +1333,12 @@ html, body {
 /* The keyboard-owning cell tints its OWN border — the same recipe as the
    tabs-mode frame tint, scoped per cell. */
 .chat-grid-cell:has(.xterm.focus) { border-color: color-mix(in oklch, var(--app-text) 30%, var(--app-border)); }
+/* …and the OTHER cells recede: once any cell owns the keyboard, unfocused
+   terminals dim to half (their content — the shared trail wash behind stays
+   lit). Hovering a dimmed cell wakes it, so reaching for its controls or
+   text never feels like grabbing through fog. Rides the cell's existing
+   opacity transition. */
+.chat-grid:has(.xterm.focus) .chat-grid-cell:not(:has(.xterm.focus)):not(:hover) { opacity: 0.5; }
 /* Per-cell cursor-glow ring: the .content::after recipe verbatim (radial
    light at the cell's own use:borderGlow vars, xor-masked to the 1px border
    row at -1px) — no --frame-clip analogue, cells have no tab opening. */
