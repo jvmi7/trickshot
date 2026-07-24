@@ -1685,6 +1685,20 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
   background-color: var(--base-overlay);
 }
 
+/* Tokenized tooltip chrome — the generated ui/tooltip ships stock
+   rounded-md / shadow-md / ring-border, which drifted from the app's
+   floating-panel language (the radius ladder, the ONE float shadow, the
+   foreground/10 ring the popovers wear). Chrome only — layout, type, and
+   the open/close animations stay the component's. Unlayered like the
+   dialog-overlay rule above. The ring rides the box-shadow list (replacing
+   the utilities' composed --tw-* shadows wholesale). */
+[data-slot="tooltip-content"] {
+  border-radius: var(--radius-lg);
+  box-shadow:
+    var(--app-shadow-float),
+    0 0 0 1px color-mix(in oklch, var(--base-text) 10%, transparent);
+}
+
 /* Text-selection highlight: accent-colored text on the per-theme selection tone at
    20% — all from the base palette (shared tokens). */
 ::selection {
