@@ -1533,32 +1533,16 @@ html, body {
 /* ---- header breadcrumb ---- */
 /* workspace path shown inline in the content column's top bar (Header), as a
    subtle rounded chip. */
-/* Left-aligned in the header's flex flow (the first slot). A BUTTON now —
-   clicking the project/branch breadcrumb toggles the sidebar (the floating
-   toggle is gone); reset the button chrome to plain text. */
+/* Left-aligned in the header's flex flow (the first slot). A plain LABEL —
+   the sidebar closes by dragging its resize line past the minimum, and the
+   floating PanelLeft titlebar button reopens it. */
 .workspace-label {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   min-width: 0;
   overflow: hidden;
-  /* Hover-chip geometry: the padding gives the hover bg its air; the matching
-     negative margin keeps the text's REST position exactly where the plain
-     label sat. */
-  padding: 2px 5px;
-  margin: -2px -5px;
-  border-radius: var(--radius-lg);
-  border: 0;
-  background: none;
-  font: inherit;
-  text-align: left;
-  color: inherit;
-  transition: background var(--app-duration-fast) ease;
 }
-.workspace-label:hover { background: var(--app-panel-2); }
-/* Pressed: one step brighter than hover (no raised-er surface token exists —
-   mix a touch of foreground into the hover bg instead). */
-.workspace-label:active { background: color-mix(in oklch, var(--app-panel-2) 85%, var(--app-text)); }
 .workspace-label .path {
   display: inline-block;
   max-width: 100%;
@@ -1571,28 +1555,6 @@ html, body {
   /* It's a label, not selectable text. -webkit- prefix is required in WKWebView. */
   -webkit-user-select: none;
   user-select: none;
-}
-/* The text brightens on the same clock as the icon — one unit. */
-.workspace-label .path,
-.workspace-label .path .dim {
-  transition: color var(--app-duration-fast);
-}
-/* Sidebar-toggle arrow before the breadcrumb (collapse ⇤ / expand ⇥ by
-   state). Shares the label's color treatment — dim at rest, bright on hover,
-   as ONE unit with the text. flex-shrink 0 — the path text truncates, never
-   the affordance. */
-.workspace-label .ws-toggle {
-  flex-shrink: 0;
-  color: var(--app-dim);
-  transition: color var(--app-duration-fast);
-}
-/* Hover brightens the WHOLE label — icon, repo, and the dim branch suffix.
-   (Plain descendant selectors: this is a GLOBAL sheet — a Svelte-style
-   :global() wrapper here is invalid CSS and silently kills the whole rule.) */
-.workspace-label:hover .ws-toggle,
-.workspace-label:hover .path,
-.workspace-label:hover .path .dim {
-  color: var(--app-text);
 }
 .dim { color: var(--app-dim); }
 

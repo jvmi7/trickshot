@@ -46,6 +46,7 @@
   import ChatTabs from "./lib/components/ChatTabs.svelte";
   import CommandPalette from "./lib/components/CommandPalette.svelte";
   import Header from "./lib/components/Header.svelte";
+  import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
   import ViewToggle from "./lib/components/ViewToggle.svelte";
   import RunScripts from "./lib/components/RunScripts.svelte";
   import RunOutput from "./lib/components/RunOutput.svelte";
@@ -62,8 +63,7 @@
   import * as Tooltip from "./lib/components/ui/tooltip";
   import { basename } from "./lib/utils";
   import SettingsIcon from "@lucide/svelte/icons/settings";
-  import ArrowLeftToLine from "@lucide/svelte/icons/arrow-left-to-line";
-  import ArrowRightFromLine from "@lucide/svelte/icons/arrow-right-from-line";
+  import PanelLeft from "@lucide/svelte/icons/panel-left";
 
   // Header breadcrumb: `repo / branch` reads better than the raw absolute path
   // (which survives as the tooltip). Branch comes from the worktree list.
@@ -139,16 +139,29 @@
   // feed the new width (clamped in setSidebarWidth) live. `resizing` flips a class
   // that shows the col-resize cursor and suppresses text selection during the drag.
   let resizing = $state(false);
+  // 50px past the width clamp (stores.ts › SIDEBAR_MIN = 200) reads as intent
+  // to close, not to resize.
+  const SIDEBAR_CLOSE_AT = 150;
   function startResize(e: PointerEvent) {
     e.preventDefault();
     resizing = true;
     const startX = e.clientX;
     const startW = get(sidebarWidth);
-    const move = (ev: PointerEvent) => setSidebarWidth(startW + (ev.clientX - startX));
     const up = () => {
       resizing = false;
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+    };
+    const move = (ev: PointerEvent) => {
+      const raw = startW + (ev.clientX - startX);
+      // Dragging well past the minimum width CLOSES the sidebar (there is no
+      // collapse button) — the floating PanelLeft button reopens it.
+      if (raw < SIDEBAR_CLOSE_AT) {
+        up();
+        if (get(sidebarOpen)) toggleSidebar();
+        return;
+      }
+      setSidebarWidth(raw);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -262,6 +275,13 @@
 <ComposeDialog />
 <CommandPalette />
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
+  {#if !$sidebarOpen}
+    <!-- Collapsed: the one way back — a floating titlebar button just past
+         the traffic lights. -->
+    <HeaderIconButton aria-label="Expand sidebar" title="Expand sidebar" onclick={toggleSidebar}>
+      <PanelLeft />
+    </HeaderIconButton>
+  {/if}
   <aside class="sidebar" class:collapsed={!$sidebarOpen}>
     <!-- empty strip aligning the worktree list's top with the content's top bar
          and clearing the traffic lights + floating toggle; the sidebar's right
@@ -292,22 +312,10 @@
     <!-- top bar: the workspace path sits inline in the header band. -->
     <Header>
       {#snippet left()}
-        <!-- The breadcrumb IS the sidebar toggle (no separate floating button):
-             clicking the project/branch label collapses/expands the sidebar. -->
-        <button
-          type="button"
-          class="workspace-label"
-          onclick={toggleSidebar}
-          aria-label={$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-          title={$sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-        >
-          <!-- The toggle affordance: collapse-arrow while the sidebar shows,
-               expand-arrow while hidden (replaces the ❯ prompt glyph). -->
-          {#if $sidebarOpen}
-            <ArrowLeftToLine class="ws-toggle size-3.5" />
-          {:else}
-            <ArrowRightFromLine class="ws-toggle size-3.5" />
-          {/if}
+        <!-- Plain breadcrumb — no toggle here. The sidebar closes by dragging
+             its resize line past the minimum width; the floating PanelLeft
+             button (next to the traffic lights, below) brings it back. -->
+        <div class="workspace-label">
           {#if $centerView === "settings"}
             <span class="path">Settings</span>
           {:else if $selectedWorktree && $selectedWorktree === $homePath}
@@ -326,7 +334,7 @@
           {:else}
             <span class="dim">select or create a worktree on the left</span>
           {/if}
-        </button>
+        </div>
       {/snippet}
       {#snippet actions()}
         <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
