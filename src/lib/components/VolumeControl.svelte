@@ -119,4 +119,28 @@
     border: none;
     cursor: pointer;
   }
+  /* The slider reads as a minimal LINE: a full-radius track at 20% of the
+     current text color with a 50% fill inside (both follow the control's
+     dim→hover color). :global — the slot elements live inside ui/slider,
+     which never gets hand-edited; the consumer restyles its own instance
+     (the UsageIndicator badge precedent). 999px is the blessed pill radius. */
+  .volume :global([data-slot="slider-track"]) {
+    height: 4px;
+    border-radius: 999px;
+    background: color-mix(in oklch, currentColor 20%, transparent);
+  }
+  .volume :global([data-slot="slider-range"]) {
+    border-radius: 999px;
+    background: color-mix(in oklch, currentColor 50%, transparent);
+  }
+  /* Resting state is just the line — the thumb fades in when the control is
+     hovered or the thumb itself has keyboard focus. */
+  .volume :global([data-slot="slider-thumb"]) {
+    opacity: 0;
+    transition: opacity var(--app-duration-fast);
+  }
+  .volume:hover :global([data-slot="slider-thumb"]),
+  .volume :global([data-slot="slider-thumb"]:focus-visible) {
+    opacity: 1;
+  }
 </style>
