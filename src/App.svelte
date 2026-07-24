@@ -58,6 +58,7 @@
   import HeaderIconButton from "./lib/components/HeaderIconButton.svelte";
   import ViewToggle from "./lib/components/ViewToggle.svelte";
   import RunScripts from "./lib/components/RunScripts.svelte";
+  import SessionTicker from "./lib/components/SessionTicker.svelte";
   import RunOutput from "./lib/components/RunOutput.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import ArchivedSection from "./lib/components/ArchivedSection.svelte";
@@ -395,6 +396,7 @@
         <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
              nothing to act on there. -->
         {#if $centerView !== "settings" && $repos.length > 0}
+          <SessionTicker />
           <RunScripts />
           <ViewToggle />
         {/if}
