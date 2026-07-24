@@ -795,7 +795,7 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding-top: 4px;
+  padding-top: 2px;
   background: var(--app-shell);
   border: 1px solid var(--app-border);
   border-radius: var(--app-pane-radius);
@@ -807,8 +807,8 @@ html[data-fullscreen] .header-icon-btn { left: 12px; } /* top: centers on the tr
 }
 .sidebar-peek.open { translate: 0 0; }
 /* The docked list's slim right gutter exists for the resize line — the peek
-   has none, so its padding mirrors the left. */
-.sidebar-peek .sidebar-list { padding-right: 16px; }
+   has none: symmetric, tighter sides + top. */
+.sidebar-peek .sidebar-list { padding: 4px 10px 16px 10px; }
 .sidebar-head { height: 35px; flex-shrink: 0; } /* stays in step with .app-header */
 .sidebar-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 4px 16px 16px; /* slim right gutter — content runs close to the resize line */ }
 .sidebar-foot { flex-shrink: 0; padding: 8px; }
