@@ -29,6 +29,10 @@ export const pickDirectory = () => invoke<string | null>("pick_directory");
  *  inside icon-ish dirs (icons/public/static/assets/app). ≤256KB files only. */
 export const repoIcon = (repoPath: string) => invoke<string | null>("repo_icon", { repoPath });
 
+/** Open an http(s) URL in the system browser — the webview can't window.open
+ *  out of the Tauri shell (terminal ⌘-clicked links, the PR link). */
+export const openUrl = (url: string) => invoke<void>("open_url", { url });
+
 /** The user's home directory — the sidebar Home workspace root (~). */
 export const homeDir = () => invoke<string>("home_dir");
 

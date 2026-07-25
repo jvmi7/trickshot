@@ -184,7 +184,17 @@
   </button>
 
   {#if pr}
-    <a class="git-quick-pr" href={pr.url} target="_blank" rel="noreferrer" title={pr.title}>
+    <!-- Routed through open_url — target=_blank goes nowhere inside the
+         Tauri shell. -->
+    <a
+      class="git-quick-pr"
+      href={pr.url}
+      title={pr.title}
+      onclick={(e: MouseEvent) => {
+        e.preventDefault();
+        if (pr) void api.openUrl(pr.url).catch(() => {});
+      }}
+    >
       <span class="git-quick-pr-state" data-state={pr.state.toLowerCase()}
         >{pr.state.toLowerCase()}</span
       >

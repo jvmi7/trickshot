@@ -6,6 +6,7 @@
 // agentEvents/scriptEvents).
 
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { get } from "svelte/store";
@@ -164,6 +165,14 @@ export function getTerminal(key: string): TermInstance {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // ⌘-click opens URLs in the system browser (terminal muscle memory —
+    // plain clicks stay with the TUI's mouse reporting). The webview can't
+    // window.open out of the Tauri shell, so the hop is the open_url command.
+    term.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        if (event.metaKey || event.ctrlKey) void api.openUrl(uri).catch(() => {});
+      }),
+    );
     if (slot === "claude") {
       // Shift+Enter → NEWLINE in the CLI. A plain terminal can't distinguish
       // Shift+Enter from Enter (both are CR), and xterm.js speaks neither the

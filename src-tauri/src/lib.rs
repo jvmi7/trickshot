@@ -1,4 +1,5 @@
 mod agent;
+mod browse;
 mod claude_config;
 mod generate;
 mod github;
@@ -20,6 +21,7 @@ pub fn run() {
         .manage(Terminals::default())
         .invoke_handler(tauri::generate_handler![
             agent::latest_session_id,
+            browse::open_url,
             agent::session_exists,
             claude_config::claude_config_overview,
             claude_config::read_claude_file,

@@ -50,6 +50,7 @@ own — the app adds no layer on top.
 |---|---|---|---|
 | `pick_directory` | — | `string \| null` | Native folder picker |
 | `repo_icon` | `repoPath` | `string \| null` | Repo favicon as a `data:` URI (bounded walk; an icon DECLARED by an `index.html`/`app.html` `<link rel="icon">` wins, else rank `favicon.*` anywhere + `icon.png/svg` in icon-ish dirs; ≤256KB); null when absent. Sidebar repo headers only |
+| `open_url` | `url` | `void` | Opens an http(s) URL in the system browser via macOS `open` (`src-tauri/src/browse.rs`) — scheme-whitelisted so terminal escape sequences can't launch arbitrary handlers. The webview can't `window.open` out of the Tauri shell; ⌘-clicked terminal links (addon-web-links) and the PR link route here |
 | `home_dir` | — | `string` | The user's home directory (`$HOME`) — the sidebar Home workspace root |
 | `list_worktrees` | `repoPath` | `Worktree[]` | First entry is main |
 | `create_worktree` | `repoPath, branch, baseRef?` | `Worktree` | Creates branch if new; one-click primitive |
