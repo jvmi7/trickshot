@@ -606,6 +606,12 @@ export const chatStatusByKey = writable<Record<string, SessionStatus>>({});
  *  terminal.ts/terminal.rs seam. */
 export function setChatStatus(worktree: string, key: string, status: SessionStatus) {
   chatStatusByKey.update((m) => (m[key] === status ? m : { ...m, [key]: status }));
+  reaggregateChatStatus(worktree);
+}
+/** Recompute a worktree's AGGREGATE `sessionStatus` from its per-chat entries
+ *  (busy if any chat busy, else ready if any ready, else stopped). Shared by
+ *  every chatStatusByKey write so the aggregate has ONE derivation. */
+function reaggregateChatStatus(worktree: string) {
   const m = get(chatStatusByKey);
   const prefix = `${worktree}\u0000claude`;
   const statuses = Object.entries(m)
@@ -617,6 +623,20 @@ export function setChatStatus(worktree: string, key: string, status: SessionStat
       ? "ready"
       : "stopped";
   setStatus(worktree, agg);
+}
+/** Drop ONE chat's status entry (a chat closed) and refresh the aggregate —
+ *  the single-key sibling of clearChatStatuses. Without it, a chat closed while
+ *  busy/ready leaves a stale entry that pins the worktree aggregate (and the
+ *  header ticker) forever: the app-initiated close disposes the xterm before
+ *  the PTY's exit event arrives, so handleCliExit never marks that chat stopped. */
+export function clearChatStatus(worktree: string, key: string) {
+  chatStatusByKey.update((m) => {
+    if (!(key in m)) return m; // no-op keeps map identity (the same-map guard rule)
+    const next = { ...m };
+    delete next[key];
+    return next;
+  });
+  reaggregateChatStatus(worktree);
 }
 /** Drop every chat-status entry for a worktree (terminal disposal). */
 export function clearChatStatuses(worktree: string) {

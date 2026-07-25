@@ -15,6 +15,7 @@ import {
   type ArchivedWorkspace,
   addRepo,
   addWorktree,
+  clearChatStatus,
   clearUnread,
   DEFAULT_CHAT_ID,
   ensureDefaultChat,
@@ -236,4 +237,8 @@ export function handleCliExit(worktree: string, key: string): void {
 export function closeChat(worktree: string, chatId: string): void {
   disposeChatTerminal(worktree, chatId);
   removeChat(worktree, chatId);
+  // Drop the chat's status entry too: the disposal above kills the xterm before
+  // the PTY's exit event lands, so handleCliExit never marks it stopped — the
+  // stale entry would otherwise pin the worktree aggregate + ticker busy forever.
+  clearChatStatus(worktree, claudeTermKey(worktree, chatId));
 }

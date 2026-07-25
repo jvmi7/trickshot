@@ -179,3 +179,33 @@ describe("moveRepoTo", () => {
     expect(get(repos)).toBe(before);
   });
 });
+
+import { chatStatusByKey, clearChatStatus, setChatStatus } from "./stores";
+
+describe("chat-status aggregate", () => {
+  const wt = "stores-test-chatstatus";
+  const keyA = `${wt}\u0000claude:aaa`;
+  const keyB = `${wt}\u0000claude:bbb`;
+
+  test("clearChatStatus drops a closed chat so it can't pin the aggregate busy", () => {
+    // Two chats: A mid-turn (busy), B idle (ready) → aggregate is busy.
+    setChatStatus(wt, keyA, "busy");
+    setChatStatus(wt, keyB, "ready");
+    expect(get(sessionStatus)[wt]).toBe("busy");
+
+    // Close A: without clearing its stale "busy" entry, the prefix scan would
+    // keep the aggregate busy forever (the bug this fixes).
+    clearChatStatus(wt, keyA);
+    expect(keyA in get(chatStatusByKey)).toBe(false);
+    expect(get(sessionStatus)[wt]).toBe("ready"); // reflects the remaining chat
+
+    clearChatStatus(wt, keyB);
+    expect(get(sessionStatus)[wt]).toBe("stopped"); // no chats left
+  });
+
+  test("clearChatStatus on an absent key preserves map identity (the same-map guard)", () => {
+    const before = get(chatStatusByKey);
+    clearChatStatus(wt, `${wt}\u0000claude:never`);
+    expect(get(chatStatusByKey)).toBe(before);
+  });
+});
