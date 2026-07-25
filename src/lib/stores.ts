@@ -998,6 +998,7 @@ export {
   interruptChat,
   openRepository,
   restoreWorkspace,
+  saveWorktree,
   sendToCli,
   submitTurnToChat,
 } from "./session";

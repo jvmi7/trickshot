@@ -11,6 +11,7 @@
 
 import { get } from "svelte/store";
 import * as api from "./api";
+import { formatSavePrompt } from "./savePrompt";
 import {
   type ArchivedWorkspace,
   addArchived,
@@ -253,6 +254,71 @@ export async function sendToCli(
   // turn starting (the real turn's output keeps flowing past the echo window).
   noteCliInput(key);
   await api.termWrite(key, `\x1b[200~${text}\x1b[201~${submit ? "\r" : ""}`);
+}
+
+/** "Save my work": the deterministic fast path with an AGENT fallback.
+ *  Chain: stage everything → commit (AI message, plain fallback) → push
+ *  (-u covers unpublished branches); a rejected push retries once through
+ *  `git pull --rebase --autostash`. When the chain still dead-ends (real
+ *  conflicts, diverged history), the failure is formatted (savePrompt.ts)
+ *  and handed to the worktree's OWN chat via submitTurnToChat — the same
+ *  Claude the user is already talking to finishes the save, visibly, in
+ *  the terminal. Returns which path completed so the UI can say so. */
+export async function saveWorktree(worktree: string): Promise<"saved" | "escalated"> {
+  const status = await api.worktreeStatus(worktree);
+  const dirty = status.files.length > 0;
+  const unpushed = !status.has_upstream || status.ahead > 0;
+  const done: string[] = [];
+  const escalate = async (step: string, e: unknown) => {
+    await submitTurnToChat(
+      worktree,
+      formatSavePrompt({
+        branch: status.branch ?? "(detached)",
+        step,
+        error: String(e),
+        done,
+      }),
+    );
+    return "escalated" as const;
+  };
+  if (dirty) {
+    try {
+      await api.worktreeStage(worktree, []);
+      done.push("staged all changes");
+      let msg: string;
+      try {
+        msg = (await api.generateCommitMessage(worktree)).trim();
+      } catch {
+        msg = `chore: save work on ${status.branch ?? "worktree"}`;
+      }
+      await api.worktreeCommit(worktree, msg || `chore: save work`);
+      done.push("committed");
+    } catch (e) {
+      return escalate("stage/commit", e);
+    }
+  }
+  if (dirty || unpushed) {
+    try {
+      await api.worktreePush(worktree, !status.has_upstream);
+      done.push("pushed");
+    } catch (pushErr) {
+      // The screenshot case: the remote is ahead (fetch-first rejection).
+      // One deterministic retry through rebase; conflicts auto-abort and
+      // land in the escalation with the REAL error.
+      try {
+        await api.worktreePull(worktree);
+        done.push("pulled --rebase");
+        await api.worktreePush(worktree, !status.has_upstream);
+        done.push("pushed");
+      } catch (e) {
+        return escalate(
+          done.includes("pulled --rebase") ? "push (after rebase)" : "pull --rebase",
+          `push was rejected:\n${String(pushErr)}\n\nthen the retry failed:\n${String(e)}`,
+        );
+      }
+    }
+  }
+  return "saved";
 }
 
 /** Interrupt a chat's RUNNING turn: Escape to its PTY — exactly the

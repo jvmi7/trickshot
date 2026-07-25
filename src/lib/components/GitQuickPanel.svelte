@@ -13,6 +13,7 @@
     bumpGitRefresh,
     gitRefreshNonce,
     selectedWorktree,
+    saveWorktree,
     setChangesOpen,
     setReviewDialogOpen,
     worktreesByRepo,
@@ -85,8 +86,8 @@
   const action = $derived.by((): { id: ActionId; label: string } | null => {
     if (!status || loadedFor !== wt) return null;
     if (isMain || !prSupported) {
-      // No PR lifecycle here — offer the plain sync when there's work to send.
-      return dirty || unpushed ? { id: "sync", label: "Commit & push" } : null;
+      // No PR lifecycle here — offer Save when there's work to send.
+      return dirty || unpushed ? { id: "sync", label: "Save" } : null;
     }
     if (pr?.state === "MERGED") return { id: "archive", label: "Archive worktree" };
     if (pr?.state === "OPEN") {
@@ -99,20 +100,19 @@
     return { id: "create", label: "Create pull request" };
   });
 
-  /** Land local work on the remote: stage everything, commit (AI message,
-   *  falling back to a plain one), push (-u covers unpublished branches). */
-  async function syncBranch(w: string) {
-    if (dirty) {
-      await api.worktreeStage(w, []);
-      let msg: string;
-      try {
-        msg = await api.generateCommitMessage(w);
-      } catch {
-        msg = `chore: update ${status?.branch ?? "worktree"}`;
-      }
-      await api.worktreeCommit(w, msg);
+  /** Land local work on the remote — the SAVE flow (session.ts): the
+   *  deterministic stage → commit → push chain with a pull-rebase retry,
+   *  escalating to the worktree's own chat agent when git needs judgment.
+   *  Returns whether the deterministic path finished (an escalation means
+   *  the agent now owns the save — callers must not continue a lifecycle
+   *  action on top of an unsaved branch). */
+  async function syncBranch(w: string): Promise<boolean> {
+    if ((await saveWorktree(w)) === "escalated") {
+      notice = "Handed to the agent — it's finishing the save in the chat";
+      setChangesOpen(false); // the terminal is where the action is now
+      return false;
     }
-    if (dirty || unpushed) await api.worktreePush(w, true);
+    return true;
   }
 
   async function run() {
@@ -125,7 +125,7 @@
     notice = "";
     try {
       if (act.id === "create") {
-        await syncBranch(w);
+        if (!(await syncBranch(w))) return; // the agent owns the save now
         // AI title/body when available; the branch name is an honest fallback.
         let text = { title: status?.branch ?? "Update", body: "" };
         try {
@@ -136,8 +136,8 @@
         await api.prCreate(w, text.title, text.body);
         notice = "Pull request created";
       } else if (act.id === "update" || act.id === "sync") {
-        await syncBranch(w);
-        notice = act.id === "update" ? "Pull request updated" : "Committed & pushed";
+        if (!(await syncBranch(w))) return; // the agent owns the save now
+        notice = act.id === "update" ? "Pull request updated" : "Saved";
       } else if (act.id === "merge") {
         await api.prMerge(w);
         notice = "Pull request merged";
