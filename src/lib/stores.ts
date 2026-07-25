@@ -1001,6 +1001,7 @@ export {
   saveWorktree,
   sendToCli,
   submitTurnToChat,
+  syncFleet,
 } from "./session";
 
 // ---- Derived "active" views (the SELECTED worktree's value, via the factory) ----

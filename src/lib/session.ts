@@ -11,12 +11,13 @@
 
 import { get } from "svelte/store";
 import * as api from "./api";
-import { formatSavePrompt } from "./savePrompt";
+import { formatRebasePrompt, formatSavePrompt } from "./savePrompt";
 import {
   type ArchivedWorkspace,
   addArchived,
   addRepo,
   addWorktree,
+  bumpGitRefresh,
   clearStatus,
   clearUnread,
   DEFAULT_CHAT_ID,
@@ -28,11 +29,13 @@ import {
   removeWorktreeFromRepo,
   selectedWorktree,
   selectWorktree,
+  sessionStatus,
   setCenterView,
   setChatSessionId,
   setChatStatus,
   setStatus,
   setWorktrees,
+  worktreesByRepo,
 } from "./stores";
 // CIRCULAR-IMPORT CONTRACT: terminal.ts imports handleCliExit from this module
 // while we import its key/instance helpers — safe because every cross-module
@@ -46,7 +49,7 @@ import {
   muteCliActivity,
   noteCliInput,
 } from "./terminal";
-import { toastMessage, toastSuccess } from "./toast";
+import { toastError, toastMessage, toastSuccess } from "./toast";
 import type { Worktree } from "./types";
 import { basename } from "./utils";
 
@@ -256,6 +259,76 @@ export async function sendToCli(
   await api.termWrite(key, `\x1b[200~${text}\x1b[201~${submit ? "\r" : ""}`);
 }
 
+// Git agents run INVISIBLY (user call: the chat window is the user's
+// workspace; janitorial git work must not pollute it). One in-flight agent
+// per worktree; completion surfaces as a toast + a git-glance refresh.
+const gitAgentInFlight = new Set<string>();
+
+/** Whether a background git agent currently owns this worktree. */
+export function gitAgentBusy(worktree: string): boolean {
+  return gitAgentInFlight.has(worktree);
+}
+
+/** Fire-and-forget a background git agent (headless `claude -p`, git-only
+ *  tools — generate.rs). `label` names the job in the completion toast. */
+function runGitAgentBg(worktree: string, prompt: string, label: string) {
+  if (gitAgentInFlight.has(worktree)) return;
+  gitAgentInFlight.add(worktree);
+  void api
+    .runGitAgent(worktree, prompt)
+    .then((summary) => {
+      const line = summary.trim().split("\n").at(-1) ?? "done";
+      toastSuccess(`${label}: ${line}`);
+    })
+    .catch((e) => {
+      toastError(`${label} failed: ${String(e)}`);
+    })
+    .finally(() => {
+      gitAgentInFlight.delete(worktree);
+      bumpGitRefresh();
+    });
+}
+
+/** Fleet sync: rebase every worktree of a repo onto the latest default
+ *  branch, one button. Deterministic per worktree (worktree_rebase_default;
+ *  main itself just pulls); a conflicted rebase escalates to a BACKGROUND
+ *  git agent for that worktree. Worktrees whose chat is mid-turn, or whose
+ *  git agent is already working, are skipped — never move files under a
+ *  running agent. */
+export async function syncFleet(
+  repoPath: string,
+): Promise<{ rebased: number; resolving: number; skipped: number }> {
+  const wts = get(worktreesByRepo)[repoPath] ?? [];
+  const statuses = get(sessionStatus);
+  let rebased = 0;
+  let resolving = 0;
+  let skipped = 0;
+  for (const wt of wts) {
+    if (statuses[wt.path] === "busy" || gitAgentInFlight.has(wt.path)) {
+      skipped++;
+      continue;
+    }
+    try {
+      if (wt.is_main) await api.worktreePull(wt.path);
+      else await api.worktreeRebaseDefault(wt.path);
+      rebased++;
+    } catch (e) {
+      resolving++;
+      runGitAgentBg(
+        wt.path,
+        formatRebasePrompt({
+          branch: wt.branch ?? "(detached)",
+          defaultBranch: "the repo default", // the agent resolves it live
+          error: String(e),
+        }),
+        `sync ${wt.branch ?? basename(wt.path)}`,
+      );
+    }
+  }
+  bumpGitRefresh();
+  return { rebased, resolving, skipped };
+}
+
 /** "Save my work": the deterministic fast path with an AGENT fallback.
  *  Chain: stage everything → commit (AI message, plain fallback) → push
  *  (-u covers unpublished branches); a rejected push retries once through
@@ -269,8 +342,8 @@ export async function saveWorktree(worktree: string): Promise<"saved" | "escalat
   const dirty = status.files.length > 0;
   const unpushed = !status.has_upstream || status.ahead > 0;
   const done: string[] = [];
-  const escalate = async (step: string, e: unknown) => {
-    await submitTurnToChat(
+  const escalate = (step: string, e: unknown) => {
+    runGitAgentBg(
       worktree,
       formatSavePrompt({
         branch: status.branch ?? "(detached)",
@@ -278,6 +351,7 @@ export async function saveWorktree(worktree: string): Promise<"saved" | "escalat
         error: String(e),
         done,
       }),
+      `save ${status.branch ?? basename(worktree)}`,
     );
     return "escalated" as const;
   };

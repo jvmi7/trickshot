@@ -737,6 +737,30 @@ fn pick_default_branch(
 /// None only when nothing resolves. Keeping this permissive is what lets the PR
 /// UI's `ahead_of_default` gate show the Create-PR button (see `ahead_of`).
 /// pub(crate): `generate.rs` reuses it to pick a PR base when none is given.
+/// Rebase this worktree's branch onto the repo's DEFAULT branch tip (the
+/// fleet-sync primitive): fetch, then `rebase --autostash origin/<default>`.
+/// A conflicted rebase AUTO-ABORTS back to the pre-rebase state (the
+/// worktree_pull posture) and rejects with git's own message — the caller
+/// escalates to a background agent.
+#[tauri::command]
+pub async fn worktree_rebase_default(worktree_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let default =
+            default_branch(&worktree_path).ok_or("could not resolve the repo default branch")?;
+        git(&worktree_path, &["fetch", "origin"])?;
+        let target = format!("origin/{default}");
+        match git(&worktree_path, &["rebase", "--autostash", &target]) {
+            Ok(out) => Ok(out),
+            Err(e) => {
+                let _ = git(&worktree_path, &["rebase", "--abort"]);
+                Err(format!("rebase onto {target} was aborted:\n{e}"))
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 pub(crate) fn default_branch(worktree_path: &str) -> Option<String> {
     let origin_head = git(
         worktree_path,

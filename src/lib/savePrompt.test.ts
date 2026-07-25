@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatSavePrompt } from "./savePrompt";
+import { formatRebasePrompt, formatSavePrompt } from "./savePrompt";
 
 describe("formatSavePrompt", () => {
   const base = {
@@ -32,5 +32,31 @@ describe("formatSavePrompt", () => {
     const p = formatSavePrompt({ ...base, error: "x".repeat(9000) });
     expect(p).toContain("[truncated]");
     expect(p.length).toBeLessThan(3500);
+  });
+});
+
+describe("formatRebasePrompt", () => {
+  const base = {
+    branch: "auth-refactor",
+    defaultBranch: "main",
+    error: "CONFLICT (content): src/x.ts",
+  };
+
+  test("names both branches and carries the conflict", () => {
+    const p = formatRebasePrompt(base);
+    expect(p).toContain("auth-refactor");
+    expect(p).toContain("origin/main");
+    expect(p).toContain("CONFLICT (content)");
+  });
+
+  test("keeps the safety rails: no discard, lease-only force, clean abort", () => {
+    const p = formatRebasePrompt(base);
+    expect(p).toContain("never discard");
+    expect(p).toContain("--force-with-lease");
+    expect(p).toContain("abort the rebase");
+  });
+
+  test("truncates giant conflict dumps", () => {
+    expect(formatRebasePrompt({ ...base, error: "y".repeat(9000) })).toContain("[truncated]");
   });
 });

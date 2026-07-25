@@ -44,3 +44,36 @@ export function formatSavePrompt(f: SaveFailure): string {
     `When done, reply with a one-line summary of what you did.`,
   ].join("\n");
 }
+
+export interface RebaseFailure {
+  /** The worktree's branch being rebased. */
+  branch: string;
+  /** The repo default branch it must land on. */
+  defaultBranch: string;
+  /** The aborted rebase's error (git stderr), truncated like save errors. */
+  error: string;
+}
+
+/** Build the fleet-sync hand-off: the background agent re-runs the rebase
+ *  and resolves what the deterministic pass aborted on. */
+export function formatRebasePrompt(f: RebaseFailure): string {
+  const err =
+    f.error.length > MAX_ERROR_CHARS
+      ? `${f.error.slice(0, MAX_ERROR_CHARS)}\n[truncated]`
+      : f.error;
+  return [
+    `Rebase this worktree's branch (${f.branch}) onto origin/${f.defaultBranch}.`,
+    `The app already tried \`git rebase --autostash origin/${f.defaultBranch}\`; it hit conflicts and was aborted:`,
+    "```",
+    err,
+    "```",
+    ``,
+    `Guardrails:`,
+    `- Use git only, and only in this worktree.`,
+    `- Re-run the rebase and resolve the conflicts faithfully — keep BOTH sides' intent; never discard my changes to make a conflict go away.`,
+    `- No force-push unless the branch was already published and the rebase you performed requires it — then --force-with-lease only.`,
+    `- If a conflict needs product judgment you don't have, abort the rebase (leave the worktree clean) and say so.`,
+    ``,
+    `When done, reply with a one-line summary.`,
+  ].join("\n");
+}

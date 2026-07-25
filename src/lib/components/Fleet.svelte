@@ -12,14 +12,35 @@
     requestNewWorktree,
     sessionStatus,
     unreadByWorktree,
+    syncFleet,
     worktreesByRepo,
   } from "../stores";
   import { profileAccent } from "../termProfiles";
+  import { toastMessage } from "../toast";
   import { Button } from "$lib/components/ui/button";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import GitBranch from "@lucide/svelte/icons/git-branch";
   import Plus from "@lucide/svelte/icons/plus";
 
   let error = $state("");
+  let syncing = $state<string | null>(null);
+
+  /** One button: the whole fleet onto the latest default branch. */
+  async function sync(repoPath: string) {
+    syncing = repoPath;
+    try {
+      const r = await syncFleet(repoPath);
+      const parts = [`${r.rebased} rebased`];
+      if (r.resolving) parts.push(`${r.resolving} resolving in background`);
+      if (r.skipped) parts.push(`${r.skipped} skipped (busy)`);
+      toastMessage(parts.join(" · "));
+    } catch (e) {
+      error = String(e);
+    } finally {
+      syncing = null;
+    }
+  }
 
   async function open(path: string) {
     error = "";
@@ -53,7 +74,22 @@
 
   {#each $repos as repo (repo.path)}
     <div class="fleet-repo">
-      <span class="section-label">{repo.name}</span>
+      <div class="fleet-repo-head">
+        <span class="section-label">{repo.name}</span>
+        <!-- Fleet sync: every worktree rebases onto the latest default —
+             conflicts hand off to BACKGROUND git agents (toast on landing);
+             busy/agent-owned worktrees are skipped, never disturbed. -->
+        <Button
+          size="sm"
+          variant="ghost"
+          class="h-6 text-xs text-muted-foreground hover:text-foreground"
+          disabled={syncing === repo.path}
+          onclick={() => sync(repo.path)}
+        >
+          {#if syncing === repo.path}<LoaderCircle class="size-3 animate-spin" />{:else}<RefreshCw class="size-3" />{/if}
+          Sync all
+        </Button>
+      </div>
       <div class="fleet-grid">
         {#each $worktreesByRepo[repo.path] ?? [] as wt (wt.path)}
           {@const st = statusLabel(wt.path)}
@@ -106,6 +142,12 @@
   }
   .fleet-error {
     margin-bottom: 8px;
+  }
+  .fleet-repo-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
   }
   .fleet-repo {
     margin-bottom: 20px;

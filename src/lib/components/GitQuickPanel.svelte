@@ -108,8 +108,7 @@
    *  action on top of an unsaved branch). */
   async function syncBranch(w: string): Promise<boolean> {
     if ((await saveWorktree(w)) === "escalated") {
-      notice = "Handed to the agent — it's finishing the save in the chat";
-      setChangesOpen(false); // the terminal is where the action is now
+      notice = "Saving in the background — you'll get a toast when it lands";
       return false;
     }
     return true;

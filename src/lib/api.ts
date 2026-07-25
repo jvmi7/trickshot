@@ -103,6 +103,19 @@ export const worktreePull = (worktreePath: string) =>
 export const worktreeMoveToBranch = (worktreePath: string, branch: string) =>
   invoke<string>("worktree_move_to_branch", { worktreePath, branch });
 
+/** Rebase a worktree's branch onto the repo default branch tip (fetch +
+ *  `rebase --autostash origin/<default>`) — the fleet-sync primitive. A
+ *  conflicted rebase auto-aborts back to the pre-rebase state and rejects
+ *  with git's message (the caller escalates to a background agent). */
+export const worktreeRebaseDefault = (worktreePath: string) =>
+  invoke<string>("worktree_rebase_default", { worktreePath });
+
+/** Run a BACKGROUND git agent in a worktree: headless `claude -p`, tools
+ *  locked to git in Rust. Long-running — resolves with the agent's final
+ *  summary; callers fire-and-forget with a completion toast. */
+export const runGitAgent = (worktreePath: string, prompt: string) =>
+  invoke<string>("run_git_agent", { worktreePath, prompt });
+
 // ---- Project scripts (.trickshot/settings.json) ---------------------------
 
 /** A repo's scripts config (setup / named run scripts / archive / run_mode). */
