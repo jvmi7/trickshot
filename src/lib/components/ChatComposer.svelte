@@ -208,6 +208,12 @@
      shadcn ring while the input owns the keyboard. :global — the slots live
      inside ui/input-group, which never gets hand-edited; the consumer
      restyles its own instance. */
+  /* The input's type tracks the TERMINAL SIZE SETTING live — one glyph
+     size for the TUI and the box that talks to it (and the app's own md
+     scale sits at the same 13px default). */
+  .chat-composer :global([data-slot="input-group-control"]) {
+    font-size: var(--app-uniform-size);
+  }
   .chat-composer
     :global(
       [data-slot="input-group"]:has([data-slot="input-group-control"]:focus-visible)
