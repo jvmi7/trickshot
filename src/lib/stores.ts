@@ -173,6 +173,23 @@ export function setReviewDialogOpen(v: boolean) {
  *  persist across open/close (lib/terminal.ts instance cache) — the popover
  *  only re-parents the same terminal. Ephemeral. */
 export const shellOpen = writable<boolean>(false);
+/** The floating shell WINDOW's dragged position (px, viewport space).
+ *  null = the default perch (top-right under the header). Persisted. */
+export const shellWindowPos = createPersisted<{ x: number; y: number } | null>(
+  "trickshot.shellWindowPos",
+  null,
+  {
+    parse: (raw) => {
+      const v = JSON.parse(raw);
+      return isPlainObject(v) && typeof v.x === "number" && typeof v.y === "number"
+        ? { x: v.x, y: v.y }
+        : null;
+    },
+  },
+);
+export function setShellWindowPos(p: { x: number; y: number }) {
+  shellWindowPos.set(p);
+}
 export function setShellOpen(v: boolean) {
   shellOpen.set(v);
 }

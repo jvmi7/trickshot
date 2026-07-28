@@ -68,6 +68,7 @@
   import Home from "./lib/components/Home.svelte";
   import Settings from "./lib/components/Settings.svelte";
   import ComposeDialog from "./lib/components/ComposeDialog.svelte";
+  import ShellWindow from "./lib/components/ShellWindow.svelte";
   import ShortcutsHelp from "./lib/components/ShortcutsHelp.svelte";
   import Footer from "./lib/components/Footer.svelte";
   import { Button } from "./lib/components/ui/button";
@@ -336,6 +337,9 @@
 <Toaster position="bottom-right" />
 <ShortcutsHelp />
 <ComposeDialog />
+{#if $shellOpen}
+  <ShellWindow />
+{/if}
 <CommandPalette />
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
   {#if !$sidebarOpen}

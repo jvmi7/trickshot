@@ -14,12 +14,11 @@
     reviewDialogOpen,
     setReviewDialogOpen,
     shellOpen,
-    setShellOpen,
+    toggleShell,
     selectedWorktree,
   } from "../stores";
   import GitPanel from "./GitPanel.svelte";
   import GitQuickPanel from "./GitQuickPanel.svelte";
-  import TerminalPane from "./TerminalPane.svelte";
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Popover from "$lib/components/ui/popover";
   import { Button } from "$lib/components/ui/button";
@@ -43,7 +42,6 @@
   // closes it). Close resets the mode to "pinned" so externally-driven opens
   // (⌘⇧D/⌘⇧P) default sticky; the hover path claims "hover" as it opens.
   let changesMode = $state<"hover" | "pinned">("pinned");
-  let shellMode = $state<"hover" | "pinned">("pinned");
   const changesHover = createHoverIntent({
     setOpen: (v) => {
       if (v) {
@@ -54,25 +52,11 @@
       }
     },
   });
-  const shellHover = createHoverIntent({
-    setOpen: (v) => {
-      if (v) {
-        shellMode = "hover";
-        setShellOpen(true);
-      } else if (shellMode === "hover") {
-        setShellOpen(false);
-      }
-    },
-  });
   $effect(() => {
     if (!$changesOpen) changesMode = "pinned";
   });
-  $effect(() => {
-    if (!$shellOpen) shellMode = "pinned";
-  });
   $effect(() => () => {
     changesHover.cancel();
-    shellHover.cancel();
   });
 
   /** Trigger click, replacing the bits-ui toggle: closed → open pinned;
@@ -86,17 +70,6 @@
       changesMode = "pinned";
     } else {
       setChangesOpen(false);
-    }
-  }
-  function clickShell() {
-    shellHover.cancel();
-    if (!$shellOpen) {
-      shellMode = "pinned";
-      setShellOpen(true);
-    } else if (shellMode === "hover") {
-      shellMode = "pinned";
-    } else {
-      setShellOpen(false);
     }
   }
 
@@ -177,12 +150,10 @@
   {/if}
 
   {#if $selectedWorktree}
-    <!-- Shell is a POPOVER whose session PERSISTS across open/close (the PTY +
-         xterm live in the instance cache; the popover only re-parents them).
-         Esc is IGNORED so it reaches the shell — vim lives there; close by
-         clicking outside or re-clicking the trigger. -->
-    <Popover.Root open={$shellOpen} onOpenChange={setShellOpen}>
-      <Popover.Trigger>
+    <!-- Shell opens as a floating DRAGGABLE WINDOW over the chat
+         (ShellWindow, App-mounted) — the icon is a plain toggle. -->
+    <Tooltip.Root>
+      <Tooltip.Trigger>
         {#snippet child({ props })}
           <Button
             {...props}
@@ -191,30 +162,14 @@
             class="view-toggle-item size-8 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
             data-active={$shellOpen ? "" : undefined}
             aria-label="Shell"
-            title="Shell — a plain terminal in this worktree (the chat pane is the Claude CLI)"
-            onclick={clickShell}
-            onpointerenter={() => shellHover.enter()}
-            onpointerleave={() => shellHover.leave()}
+            onclick={toggleShell}
           >
             <Terminal class="size-4.5" />
           </Button>
         {/snippet}
-      </Popover.Trigger>
-      <!-- animate-none: xterm measures its glyph cells at attach; the default
-           zoom-in transform scales those measurements and garbles the grid. -->
-      <Popover.Content
-        align="end"
-        sideOffset={8}
-        class="{headerPopoverClass} data-[state=open]:animate-none data-[state=closed]:animate-none"
-        escapeKeydownBehavior="ignore"
-        onpointerenter={() => shellHover.cancelClose()}
-        onpointerleave={() => shellHover.leave()}
-      >
-        <!-- autofocus only when pinned: a hover reveal must not steal the
-             keyboard from the chat pane; the click-to-pin flip focuses it. -->
-        <TerminalPane autofocus={shellMode === "pinned"} />
-      </Popover.Content>
-    </Popover.Root>
+      </Tooltip.Trigger>
+      <Tooltip.Content>Shell — a floating terminal in this worktree (drag it anywhere)</Tooltip.Content>
+    </Tooltip.Root>
   {/if}
 </div>
 
