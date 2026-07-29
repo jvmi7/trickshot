@@ -470,8 +470,6 @@ export const chatSessionsByWorktree = _chats.store;
  *  cell in grid layout. Persisted so re-selection lands where you left off. */
 const _focusedChat = createWorktreeMap<string>({ persistKey: "trickshot.focusedChat" });
 export const focusedChatByWorktree = _focusedChat.store;
-/** The selected worktree's focused chat id. */
-export const activeFocusedChat = _focusedChat.active<string>(DEFAULT_CHAT_ID);
 
 /** GRID mosaic per worktree: the binary split tree behind right-click →
  *  split up/down/left/right (splitTree.ts owns the pure ops). Persisted so
