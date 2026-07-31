@@ -20,7 +20,7 @@
     removeScriptRun,
     centerView,
     setCenterView,
-    setMainView,
+    setRunOpen,
     unreadByWorktree,
     clearUnread,
     forgetChats,
@@ -105,7 +105,6 @@
   function selectHome() {
     selectWorktree(null);
     setCenterView("chat");
-    setMainView("chat"); // the run view outranks no-selection in the cascade
   }
 
   // Repo favicons: probe each repo once per app run (idempotent in the store).
@@ -195,12 +194,13 @@
       await select(wt);
       // Conductor-style setup script: a fresh worktree only has git-tracked
       // files, so the repo's `.trickshot/settings.json` setup script installs
-      // deps / copies .env etc. Fire-and-forget — output lands in the Run tab.
+      // deps / copies .env etc. Fire-and-forget — output lands in the run
+      // widget (RunWindow).
       try {
         const scripts = await api.getScripts(repoPath);
         if (scripts.setup) {
           await api.runScript(repoPath, wt.path, "setup");
-          setMainView("run");
+          setRunOpen(true);
         }
       } catch {
         // no/invalid settings file — a new worktree simply starts cold

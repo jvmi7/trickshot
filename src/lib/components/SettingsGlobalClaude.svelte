@@ -7,10 +7,17 @@
   // ARCHITECTURE.md Boundaries note). Feature component (calls api).
   import * as api from "../api";
   import type { ClaudeEntry, ClaudeOverview } from "../types";
-  import { listMcpServers, summarizeClaudeSettings } from "../claudeConfig";
+  import {
+    hasSingleLineDirective,
+    listMcpServers,
+    summarizeClaudeSettings,
+    withSingleLineDirective,
+  } from "../claudeConfig";
   import { relativeTime } from "$lib/utils";
   import { badgeVariants } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
+  import { Label } from "$lib/components/ui/label";
+  import { Switch } from "$lib/components/ui/switch";
   import { Textarea } from "$lib/components/ui/textarea";
   import * as Dialog from "$lib/components/ui/dialog";
   import Bot from "@lucide/svelte/icons/bot";
@@ -77,6 +84,30 @@
       saveError = String(e);
     } finally {
       saving = false;
+    }
+  }
+
+  // The single-line-replies toggle: inserts/removes a marked directive block
+  // in the global CLAUDE.md (claudeConfig.ts owns the pure text surgery).
+  // State derives from DISK — no app-side cache, consistent with the rest of
+  // this surface.
+  const singleLine = $derived(hasSingleLineDirective(overview?.claude_md ?? null));
+  let singleLineSaving = $state(false);
+  let singleLineError = $state("");
+
+  async function toggleSingleLine(on: boolean) {
+    singleLineSaving = true;
+    singleLineError = "";
+    try {
+      await api.writeClaudeFile(
+        "CLAUDE.md",
+        withSingleLineDirective(overview?.claude_md ?? null, on),
+      );
+      await refresh();
+    } catch (e) {
+      singleLineError = String(e);
+    } finally {
+      singleLineSaving = false;
     }
   }
 
@@ -163,6 +194,22 @@
 
     <!-- Global CLAUDE.md -->
     <section class="gc-section">
+      <!-- Quick directives: curated instruction blocks toggled in/out of the
+           file below (marked comments make removal lossless). -->
+      <div class="gc-toggle">
+        <Switch
+          id="gc-single-line"
+          checked={singleLine}
+          disabled={singleLineSaving || editing === "CLAUDE.md"}
+          onCheckedChange={(v: boolean) => void toggleSingleLine(v)}
+        />
+        <Label for="gc-single-line" class="font-normal text-muted-foreground">
+          Single-line replies — ask Claude to answer in one short line instead of long write-ups
+        </Label>
+      </div>
+      {#if singleLineError}
+        <p class="error-text">{singleLineError}</p>
+      {/if}
       <div class="gc-section-head">
         <span class="section-label">Global CLAUDE.md</span>
         {#if editing !== "CLAUDE.md"}
@@ -318,6 +365,11 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+  }
+  .gc-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
   .gc-count {
     font-size: var(--text-xs);

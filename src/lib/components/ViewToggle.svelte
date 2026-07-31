@@ -2,11 +2,11 @@
   // Segmented toggle for the content view: Chat (icon) | Changes (diff stat) |
   // Run (script output). A single shared background slides to the active item
   // (see slidingToggle); each item has a tooltip. Changes only appears when the
-  // worktree has changes, Run only once a script has run; clicking the active
-  // one again returns to chat.
+  // worktree has changes, Run only once a script has run; Run toggles the
+  // floating output WIDGET (RunWindow), not a page swap.
   import {
-    mainView,
-    toggleMainView,
+    runOpen,
+    toggleRun,
     activeGitStat,
     activeScriptRun,
     changesOpen,
@@ -137,9 +137,9 @@
             size="icon-sm"
             variant="ghost"
             class="view-toggle-item size-8 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
-            data-active={$mainView === "run" ? "" : undefined}
+            data-active={$runOpen ? "" : undefined}
             aria-label="Run output"
-            onclick={() => toggleMainView("run")}
+            onclick={toggleRun}
           >
             <SquareTerminal class="size-4.5 {scriptRun.status === 'running' ? 'text-[var(--base-success)]' : ''}" />
           </Button>

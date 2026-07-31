@@ -63,3 +63,38 @@ describe("listMcpServers", () => {
     ]);
   });
 });
+
+import { hasSingleLineDirective, withSingleLineDirective } from "./claudeConfig";
+
+describe("withSingleLineDirective", () => {
+  test("adds the block to an empty/absent file", () => {
+    const on = withSingleLineDirective(null, true);
+    expect(hasSingleLineDirective(on)).toBe(true);
+    expect(on.endsWith("\n")).toBe(true);
+  });
+
+  test("appends after existing instructions with one blank line", () => {
+    const on = withSingleLineDirective("My rules.\n", true);
+    expect(on.startsWith("My rules.\n\n<!-- trickshot:single-line-replies -->")).toBe(true);
+  });
+
+  test("is idempotent when already on", () => {
+    const once = withSingleLineDirective("My rules.", true);
+    expect(withSingleLineDirective(once, true)).toBe(once);
+  });
+
+  test("removal restores the original instructions", () => {
+    const on = withSingleLineDirective("My rules.\n", true);
+    expect(withSingleLineDirective(on, false)).toBe("My rules.\n");
+    expect(hasSingleLineDirective(withSingleLineDirective(on, false))).toBe(false);
+  });
+
+  test("removal of a directive-only file yields empty", () => {
+    const on = withSingleLineDirective(null, true);
+    expect(withSingleLineDirective(on, false)).toBe("");
+  });
+
+  test("removal is a no-op without the block", () => {
+    expect(withSingleLineDirective("My rules.\n", false)).toBe("My rules.\n");
+  });
+});

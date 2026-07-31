@@ -18,6 +18,7 @@ import {
   addRepo,
   addWorktree,
   bumpGitRefresh,
+  centerView,
   clearStatus,
   clearUnread,
   DEFAULT_CHAT_ID,
@@ -257,6 +258,23 @@ export async function sendToCli(
   // turn starting (the real turn's output keeps flowing past the echo window).
   noteCliInput(key);
   await api.termWrite(key, `\x1b[200~${text}\x1b[201~${submit ? "\r" : ""}`);
+}
+
+/** Shell-quote a dropped path only when it needs it (the terminal drag-drop
+ *  convention — bare paths stay readable, odd ones stay parseable). */
+function quotePath(p: string): string {
+  return /^[\w\-./~]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Files dropped onto the window: insert their paths into the SELECTED
+ *  worktree's FOCUSED chat input — quoted, NOT submitted, so the drop behaves
+ *  like dragging a file into a real terminal (Claude Code picks image paths
+ *  up as attachments when the turn is sent). No-op without a selection or
+ *  while Settings covers the chat. */
+export async function insertDroppedPaths(paths: string[]): Promise<void> {
+  const wt = get(selectedWorktree);
+  if (!wt || paths.length === 0 || get(centerView) !== "chat") return;
+  await sendToCli(wt, `${paths.map(quotePath).join(" ")} `, false);
 }
 
 // Git agents run INVISIBLY (user call: the chat window is the user's

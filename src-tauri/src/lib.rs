@@ -3,6 +3,7 @@ mod browse;
 mod claude_config;
 mod generate;
 mod github;
+mod listeners;
 mod scripts;
 mod terminal;
 mod usage;
@@ -42,7 +43,10 @@ pub fn run() {
             worktree::worktree_pull,
             worktree::worktree_rebase_default,
             worktree::worktree_move_to_branch,
+            listeners::list_listeners,
             scripts::get_scripts,
+            scripts::get_scripts_source,
+            scripts::save_scripts_source,
             scripts::run_script,
             scripts::run_script_blocking,
             scripts::stop_script,

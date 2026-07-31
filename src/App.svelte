@@ -4,6 +4,7 @@
   import {
     onScriptEvent,
     onTermEvent,
+    onFileDrop,
     listWorktrees,
     worktreeStatus,
     homeDir,
@@ -29,11 +30,12 @@
     refreshUsage,
     authState,
     refreshAuth,
-    mainView,
-    setMainView,
-    toggleMainView,
+    runOpen,
+    setRunOpen,
     gitRefreshNonce,
+    bumpGitRefresh,
     setGitStat,
+    syncWorktreeBranch,
     activeGitStat,
     activeScriptRun,
     activeRepo,
@@ -41,8 +43,8 @@
     setChangesOpen,
     toggleChanges,
     shellOpen,
-    setShellOpen,
     activateWorktree,
+    insertDroppedPaths,
     homePath,
     toggleCommandPalette,
     toggleCompose,
@@ -62,7 +64,7 @@
   import ViewToggle from "./lib/components/ViewToggle.svelte";
   import RunScripts from "./lib/components/RunScripts.svelte";
   import SessionTicker from "./lib/components/SessionTicker.svelte";
-  import RunOutput from "./lib/components/RunOutput.svelte";
+  import RunWindow from "./lib/components/RunWindow.svelte";
   import Worktrees from "./lib/components/Worktrees.svelte";
   import ArchivedSection from "./lib/components/ArchivedSection.svelte";
   import Home from "./lib/components/Home.svelte";
@@ -76,13 +78,31 @@
   import * as Tooltip from "./lib/components/ui/tooltip";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import PanelLeft from "@lucide/svelte/icons/panel-left";
+  import Folder from "@lucide/svelte/icons/folder";
 
   // Re-probe the login when the window regains focus, but only while the
   // sign-in notice is showing — this is the "cmd-tab to a terminal, run
   // `claude`, cmd-tab back" round trip clearing itself. Never on a normal
   // focus (the macOS check shells out to `security`).
+  // Git truth also lives OUTSIDE the app: coming back from a terminal/IDE
+  // where branches may have moved, re-list every repo's worktrees (branch
+  // labels) and bump the nonce (± glances + any open git panel). THROTTLED:
+  // focus can fire in quick bursts (dialogs, cmd-tab flurries), and each
+  // refresh is a git spawn per repo/worktree — unthrottled bursts contend
+  // with in-flight git work (worktree add's lock) and read as app lag.
+  const FOCUS_REFRESH_MS = 5000;
+  let lastFocusRefresh = 0;
   function onWindowFocus() {
     if (get(authState) === "missing") void refreshAuth();
+    const now = Date.now();
+    if (now - lastFocusRefresh < FOCUS_REFRESH_MS) return;
+    lastFocusRefresh = now;
+    for (const repo of get(repos)) {
+      listWorktrees(repo.path)
+        .then((wts) => setWorktrees(repo.path, wts))
+        .catch(() => {});
+    }
+    bumpGitRefresh();
   }
 
   // Global shortcuts (Conductor parity): ⌘P palette, ⌘K clear the focused
@@ -142,6 +162,16 @@
       }
     }
   }
+
+  // Workspace crumb for the COLLAPSED-sidebar header: with the sidebar (and
+  // its identity rows) gone, the header names where you are — the selected
+  // workspace's path, home-abbreviated. null with no selection.
+  const workspacePath = $derived.by(() => {
+    const sel = $selectedWorktree;
+    if (!sel) return null;
+    const home = $homePath;
+    return home && sel.startsWith(home) ? `~${sel.slice(home.length)}` : sel;
+  });
 
   // Drag-to-resize the sidebar: track the pointer from the right-edge handle and
   // feed the new width (clamped in setSidebarWidth) live. `resizing` flips a class
@@ -220,25 +250,34 @@
   // (the fleet view). Re-runs on selection and on gitRefreshNonce (bumped
   // after a turn that likely touched files); each refresh is one `git status`
   // per worktree — cheap at sidebar scale.
+  // DEBOUNCED: one trigger often arrives as a burst (a focus refresh replaces
+  // the worktree lists AND bumps the nonce back-to-back) — collapsing the
+  // burst halves the git spawns and keeps them off `git worktree add`'s lock.
   $effect(() => {
     void $selectedWorktree;
     void $gitRefreshNonce;
-    const all = $repos.flatMap((r) => $worktreesByRepo[r.path] ?? []);
-    for (const w of all) {
-      worktreeStatus(w.path)
-        .then((s) =>
-          setGitStat(w.path, {
-            changed: s.files.length,
-            insertions: s.insertions,
-            deletions: s.deletions,
-            aheadOfDefault: s.ahead_of_default,
-          }),
-        )
-        // Non-git dirs / errors → treat as no changes (Worktrees surfaces real errors).
-        .catch(() =>
-          setGitStat(w.path, { changed: 0, insertions: 0, deletions: 0, aheadOfDefault: 0 }),
-        );
-    }
+    const all = $repos.flatMap((r) => ($worktreesByRepo[r.path] ?? []).map((w) => ({ r, w })));
+    const timer = setTimeout(() => {
+      for (const { r, w } of all) {
+        worktreeStatus(w.path)
+          .then((s) => {
+            setGitStat(w.path, {
+              changed: s.files.length,
+              insertions: s.insertions,
+              deletions: s.deletions,
+              aheadOfDefault: s.ahead_of_default,
+            });
+            // The status read already knows the LIVE branch — heal any drift
+            // from checkouts made outside the app (no-op when unchanged).
+            syncWorktreeBranch(r.path, w.path, s.branch);
+          })
+          // Non-git dirs / errors → treat as no changes (Worktrees surfaces real errors).
+          .catch(() =>
+            setGitStat(w.path, { changed: 0, insertions: 0, deletions: 0, aheadOfDefault: 0 }),
+          );
+      }
+    }, 250);
+    return () => clearTimeout(timer);
   });
 
   // If the worktree on screen has nothing to review (clean AND not ahead of the
@@ -251,8 +290,8 @@
     // The Changes POPOVER closes when there's nothing left to review.
     if ($changesOpen && (gs?.changed ?? 0) === 0 && (gs?.aheadOfDefault ?? 0) === 0)
       setChangesOpen(false);
-    if ($mainView === "run" && !$activeScriptRun) setMainView("chat");
-    if ($shellOpen && !$selectedWorktree) setShellOpen(false);
+    // The run WINDOW closes when its worktree has no run to show.
+    if ($runOpen && !$activeScriptRun) setRunOpen(false);
   });
 
   onMount(() => {
@@ -296,6 +335,16 @@
       })
       .catch(() => {});
 
+    // Files dropped on the window → their paths land in the focused chat's
+    // input (session.ts › insertDroppedPaths), like dropping into a terminal.
+    let unlistenDrop: (() => void) | undefined;
+    onFileDrop((paths) => void insertDroppedPaths(paths).catch(() => {}))
+      .then((u) => {
+        if (cancelled) u();
+        else unlistenDrop = u;
+      })
+      .catch(() => {});
+
     // Rehydrate worktrees for persisted repos (git is the source of truth),
     // then drop a stale persisted selection that no longer exists on disk.
     (async () => {
@@ -326,6 +375,7 @@
       cancelled = true;
       unlistenScripts?.();
       unlistenTerm?.();
+      unlistenDrop?.();
       unlistenResize?.();
     };
   });
@@ -339,6 +389,9 @@
 <ComposeDialog />
 {#if $shellOpen}
   <ShellWindow />
+{/if}
+{#if $runOpen}
+  <RunWindow />
 {/if}
 <CommandPalette />
 <div class="layout" class:resizing style="--sidebar-width: {$sidebarWidth}px">
@@ -418,20 +471,31 @@
   <main class="main">
     <!-- top bar: the workspace path sits inline in the header band. -->
     <Header>
+      {#snippet left()}
+        <!-- Collapsed sidebar: the header carries the workspace identity —
+             folder + the workspace path (the sidebar rows' stand-in). -->
+        {#if !$sidebarOpen && workspacePath}
+          <div class="header-workspace" data-tauri-drag-region>
+            <Folder />
+            <span class="header-workspace-path">{workspacePath}</span>
+          </div>
+        {/if}
+      {/snippet}
       {#snippet actions()}
         <!-- Hidden on Settings and on the zero-repo welcome — the toggles have
              nothing to act on there. -->
         {#if $centerView !== "settings" && $repos.length > 0}
           <SessionTicker />
-          <RunScripts />
           <ViewToggle />
+          <!-- Rightmost: the Run control (Conductor's top-right Run button). -->
+          <RunScripts />
         {/if}
       {/snippet}
     </Header>
     <!-- The chat-session strip sits on the SHELL band, outside the terminal
          card — shown exactly when the card below renders the chat surface
          (the same cascade conditions as the {:else} branch inside). -->
-    {#if $centerView !== "settings" && $repos.length > 0 && $mainView !== "run" && $selectedWorktree}
+    {#if $centerView !== "settings" && $repos.length > 0 && $selectedWorktree}
       <ChatTabs />
     {/if}
     <div class="content" use:borderGlow>
@@ -447,7 +511,7 @@
           onpointerdown={startResize}
         ></div>
       {/if}
-      {#if $cursorTrailEnabled && $centerView !== "settings" && $repos.length > 0 && $mainView !== "run" && $selectedWorktree}
+      {#if $cursorTrailEnabled && $centerView !== "settings" && $repos.length > 0 && $selectedWorktree}
         <!-- ONE shared background for the whole chat surface: a single trail
              canvas clipped to the card∪tab silhouette (chatSilhouette). The
              tab and the terminal panes above are transparent — the chrome is
@@ -463,8 +527,6 @@
              repo count — state, not a flag — so it reappears exactly when
              it's true again. -->
         <Home />
-      {:else if $mainView === "run"}
-        <RunOutput />
       {:else if !$selectedWorktree}
         <!-- No selection + repos exist: the homepage with the fleet grid
              (mission control), not a dead-end hint. The palette's "Home"
@@ -475,10 +537,11 @@
         <ClaudeTerminalPane />
       {/if}
       </div>
+      <!-- Status footer: usage + ambient items live UNDER the work, not in
+           the header — a band INSIDE the card (below the panes), on the same
+           background, so floating controls can attach under the terminal. -->
+      <Footer />
     </div>
-    <!-- Status footer: usage + ambient items live UNDER the work, not in the
-         header. -->
-    <Footer />
   </main>
 </div>
 </Tooltip.Provider>

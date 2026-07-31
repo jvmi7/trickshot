@@ -7,10 +7,20 @@
   // the running shell survive open/close/drag. Position persists. Esc is
   // NOT a close key (vim lives in there) — close via the ✕ or the header
   // toggle. Feature component.
-  import { setShellOpen, setShellWindowPos, shellWindowPos } from "../stores";
+  import { get } from "svelte/store";
+  import { selectedWorktree, setShellOpen, setShellWindowPos, shellWindowPos } from "../stores";
+  import { focusTerminal } from "../terminal";
   import IconButton from "./IconButton.svelte";
   import TerminalPane from "./TerminalPane.svelte";
   import X from "@lucide/svelte/icons/x";
+
+  /** Clicking ANYWHERE in the window — title bar included — hands the
+   *  keyboard to the shell (the whole window IS the terminal). One-shot
+   *  non-reactive read: an event handler, the sanctioned get() site. */
+  function focusShell() {
+    const wt = get(selectedWorktree);
+    if (wt) focusTerminal(wt);
+  }
 
   let el = $state<HTMLDivElement | null>(null);
 
@@ -45,6 +55,9 @@
     if (e.button !== 0) return;
     const r = el?.getBoundingClientRect();
     if (!r) return;
+    // Keep the terminal's keyboard focus through a title-bar press/drag — the
+    // default pointerdown behavior would blur it (and dip the focus tint).
+    e.preventDefault();
     dragging = { dx: e.clientX - r.left, dy: e.clientY - r.top };
     window.addEventListener("pointermove", dragMove);
     window.addEventListener("pointerup", dragEnd);
@@ -64,7 +77,13 @@
   $effect(() => () => dragEnd());
 </script>
 
-<div class="shell-window" bind:this={el} style="left: {shown.x}px; top: {shown.y}px">
+<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+<div
+  class="shell-window"
+  bind:this={el}
+  style="left: {shown.x}px; top: {shown.y}px"
+  onclick={focusShell}
+>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="shell-window-bar" data-dragging={dragging ? "" : undefined} onpointerdown={dragStart}>
     <span class="section-label">Shell</span>
@@ -83,18 +102,34 @@
     z-index: var(--app-z-chrome);
     display: flex;
     flex-direction: column;
-    background: var(--base-surface);
+    /* Frosted glass: a 20%-alpha PURE-BLACK fill over a backdrop blur, so the
+       chat underneath ghosts through (black, not the grey surface tone — the
+       --app-shell black-mix precedent). The pane inside (.term-pane-popover)
+       is transparent — this surface is the ONE paint for the whole window. */
+    background: color-mix(in srgb, black 20%, transparent);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
     border: 1px solid var(--app-border);
     border-radius: var(--radius-xl);
     box-shadow: var(--app-shadow-float);
     overflow: hidden;
+    transition: background var(--app-duration-slow) var(--ease-out-soft);
   }
+  /* Focused = working in the shell: firm the glass up to 50% so the text
+     reads over busy chat output; blurring back out returns the 20% ghost.
+     Keyed off xterm's own focus class (the .content frame-ring precedent);
+     :global() because the xterm DOM is runtime-injected, invisible to the
+     Svelte scoper. */
+  .shell-window:has(:global(.xterm.focus)) {
+    background: color-mix(in srgb, black 50%, transparent);
+  }
+  /* No background and no divider of its own: the bar shares the window's one
+     frosted paint with the terminal below — one continuous sheet of glass. */
   .shell-window-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 4px 6px 4px 12px;
-    border-bottom: 1px solid var(--app-border);
     cursor: grab;
     user-select: none;
   }

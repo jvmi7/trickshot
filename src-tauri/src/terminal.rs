@@ -142,6 +142,24 @@ pub(crate) fn kill_all(state: &Terminals) {
     }
 }
 
+/// (worktree, pid) of every live PTY child (shell + claude slots) — the
+/// listener sweep's roots (listeners.rs). Composite claude keys collapse to
+/// their worktree via the NUL separator rule.
+pub(crate) fn pty_pids(state: &Terminals) -> Vec<(String, u32)> {
+    state
+        .lock()
+        .iter()
+        .filter_map(|(key, s)| {
+            let wt = key
+                .split('\u{0}')
+                .next()
+                .unwrap_or(key.as_str())
+                .to_string();
+            s.child.process_id().map(|pid| (wt, pid))
+        })
+        .collect()
+}
+
 fn size(rows: u16, cols: u16) -> PtySize {
     PtySize {
         rows,

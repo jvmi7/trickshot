@@ -83,3 +83,40 @@ export function listMcpServers(raw: string | null): McpServerRow[] {
     return { name, detail };
   });
 }
+
+// ---- The "single-line replies" directive (Settings › Global Claude toggle) ----
+// A MARKED block appended to the global CLAUDE.md so the toggle can add and
+// remove it losslessly without touching the user's own instructions. Disk is
+// the source of truth: the switch state is derived from the file text, never
+// cached app-side.
+
+const SINGLE_LINE_START = "<!-- trickshot:single-line-replies -->";
+const SINGLE_LINE_END = "<!-- /trickshot:single-line-replies -->";
+const SINGLE_LINE_BLOCK = `${SINGLE_LINE_START}
+Respond in a SINGLE LINE. One short sentence, answer first — no preamble, no headers, no bullet lists, and no code blocks unless code is explicitly requested. Expand only when explicitly asked for detail.
+${SINGLE_LINE_END}`;
+
+/** Whether the global CLAUDE.md text carries the single-line directive. */
+export function hasSingleLineDirective(md: string | null): boolean {
+  return md?.includes(SINGLE_LINE_START) ?? false;
+}
+
+/** Return the CLAUDE.md text with the directive block added (`on`) or removed
+ *  (`!on`), leaving everything else byte-identical. Idempotent both ways. */
+export function withSingleLineDirective(md: string | null, on: boolean): string {
+  const text = md ?? "";
+  if (on) {
+    if (hasSingleLineDirective(text)) return text;
+    const body = text.trimEnd();
+    return body === "" ? `${SINGLE_LINE_BLOCK}\n` : `${body}\n\n${SINGLE_LINE_BLOCK}\n`;
+  }
+  // Remove every marked block (defensive against a hand-duplicated marker),
+  // then collapse the seam it leaves behind.
+  const start = SINGLE_LINE_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const end = SINGLE_LINE_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const stripped = text
+    .replace(new RegExp(`${start}[\\s\\S]*?${end}\\n?`, "g"), "")
+    .replace(/\n{3,}/g, "\n\n");
+  const body = stripped.trim();
+  return body === "" ? "" : `${body}\n`;
+}

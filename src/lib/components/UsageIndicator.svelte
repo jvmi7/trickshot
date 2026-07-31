@@ -89,7 +89,11 @@
   /* Pill chrome comes from badgeVariants (see usageChipClass); this block keeps
      the chip passive (no hover tint, default cursor) and colors it by severity. */
   .usage-chip {
-    color: var(--app-dim);
+    /* Workspace-tinted like the footer hint beside it (--ws-accent — the
+       selected worktree's profile accent, reflected on <html> by stores.ts);
+       neutral dim when nothing is selected. The severity colors below still
+       win — warn/danger is a signal, not identity. */
+    color: var(--ws-accent, var(--app-dim));
     background: transparent;
     cursor: default;
     user-select: none;

@@ -4,10 +4,12 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   ClaudeOverview,
   GitStatus,
+  Listener,
   PrInfo,
   PrText,
   ScriptEnvelope,
@@ -35,6 +37,13 @@ export const openUrl = (url: string) => invoke<void>("open_url", { url });
 
 /** The user's home directory — the sidebar Home workspace root (~). */
 export const homeDir = () => invoke<string>("home_dir");
+
+/** All listening localhost servers rooted in trickshot-spawned processes
+ *  (run scripts + PTY children), tagged with their worktree — the header's
+ *  running-ports chips. Scoped in Rust to OUR process trees (one `ps` + at
+ *  most one narrow `lsof`), so a poll is cheap even on a busy machine.
+ *  Polled at a coarse cadence by its consumer, never on a hot path. */
+export const listListeners = () => invoke<Listener[]>("list_listeners");
 
 /** The subscription usage windows for a provider's account (for Claude: rolling
  *  5-hour + weekly). Rejects when unavailable (not logged in, token expired,
@@ -124,6 +133,10 @@ export const runGitAgent = (worktreePath: string, prompt: string) =>
 
 /** A repo's scripts config (setup / named run scripts / archive / run_mode). */
 export const getScripts = (repoPath: string) => invoke<ScriptsConfig>("get_scripts", { repoPath });
+export const getScriptsSource = (repoPath: string) =>
+  invoke<string>("get_scripts_source", { repoPath });
+export const saveScriptsSource = (repoPath: string, content: string) =>
+  invoke<ScriptsConfig>("save_scripts_source", { repoPath, content });
 
 /** Launch a script BY NAME for a worktree ("setup" / "archive" / a run-script
  *  name). The command string is read from the repo's settings file in Rust —
@@ -284,3 +297,11 @@ export const writeClaudeFile = (file: string, contents: string) =>
 export const windowIsFullscreen = () => getCurrentWindow().isFullscreen();
 /** Fires on any window resize (incl. fullscreen transitions); returns unlisten. */
 export const onWindowResized = (cb: () => void) => getCurrentWindow().onResized(cb);
+
+/** Files DROPPED onto the window. Tauri intercepts the webview's native
+ *  drag-and-drop (DOM drop events never fire), so this hook is the one way
+ *  in — it fires with the dropped files' absolute paths. */
+export const onFileDrop = (cb: (paths: string[]) => void) =>
+  getCurrentWebview().onDragDropEvent((e) => {
+    if (e.payload.type === "drop" && e.payload.paths.length > 0) cb(e.payload.paths);
+  });

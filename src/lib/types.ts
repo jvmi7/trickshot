@@ -52,6 +52,16 @@ export interface GitStatus {
   files: GitFileStatus[];
 }
 
+/** One listening localhost server attributed to a worktree (mirrors the Rust
+ *  `Listener` from `list_listeners`): a dev server, preview, etc. whose
+ *  working directory sits inside the worktree. */
+export interface Listener {
+  worktree: string;
+  pid: number;
+  port: number;
+  command: string;
+}
+
 /** One subscription usage window (mirrors the Rust `UsageWindow`). Provider-
  *  neutral: the Rust probe maps its provider-specific response into labeled
  *  windows (for Claude: "5-hour window" + "Weekly") and the UI renders whatever
