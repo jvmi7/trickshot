@@ -8,6 +8,7 @@
   // sampled ONCE per geometry from an offscreen canvas (the real SVG paths
   // via Path2D, supersampled so the wedge edges land cleanly); only the
   // character/color roll runs per tick.
+  import { spring } from "svelte/motion";
   import { GLYPH_PALETTES } from "../identityGlyph";
 
   let {
@@ -30,7 +31,10 @@
      *  it LEANS (a shear pivoting at its base), HOODS when looking down,
      *  OPENS taller when looking up, and the nearer eye deforms harder — so
      *  the two eyes take different shapes per cursor position (and converge
-     *  cross-eyed when the cursor sits between them). Never translates. */
+     *  cross-eyed when the cursor sits between them). On top of the
+     *  deformation the whole eye TRANSLATES a few cells toward the cursor
+     *  (the cartoon "eyes shift in the face" move) — small enough that the
+     *  lean still carries the look. */
     track?: boolean;
     class?: string;
   } = $props();
@@ -268,10 +272,18 @@
   interface Gaze {
     /** Signed lean toward the cursor, -1..1 (quantized to eighths). */
     lean: number;
-    /** Vertical scale about the base: hood < 1 < open. */
+    /** Vertical compression (≤ 1) about `anchor`. */
     sv: number;
+    /** Which edge stays planted: looking DOWN compresses about the base
+     *  (top edge drops — the hood); looking UP compresses about the TOP
+     *  (bottom edge rises — the lift). Mirrored moves, equal visual mass. */
+    anchor: "base" | "top";
+    /** BROW rotation, -1..1: the wedge's slanted top edge pivots about the
+     *  eye's OUTER corner — positive (mouse above) raises the inner tip
+     *  (the angry slant flattens into surprise), negative deepens it. */
+    tilt: number;
   }
-  const NEUTRAL: Gaze = { lean: 0, sv: 1 };
+  const NEUTRAL: Gaze = { lean: 0, sv: 1, anchor: "base", tilt: 0 };
   /** Horizontal/vertical px offsets where the gaze saturates. */
   const GAZE_REACH_X = 260;
   const GAZE_REACH_Y = 220;
@@ -281,49 +293,45 @@
   const LEAN_SHEAR = 2.5;
   /** Looking down hoods to 1-HOOD; looking up opens to 1+OPEN. */
   const HOOD = 0.3;
-  const OPEN = 0.12;
-  /** Mask padding so no pose clips: max lean columns; open-stretch rows. */
-  const PAD_X = 4;
-  const PAD_Y = 2;
+  /** Looking UP is the hood's mirror — the same compression anchored at the
+   *  TOP, so the bottom edge visibly LIFTS. (A stretch "open" was tried and
+   *  read as nothing: it only added thin wedge-tip rows into empty space.) */
+  const LIFT = 0.3;
+  /** Max brow travel in rows at full tilt (the inner tip's excursion). */
+  const TILT_ROWS = 2.5;
+  /** Position reach in PIXELS: the pair's shared shift is a continuous
+   *  transform on the mover wrapper (svelte/motion spring — the platform's
+   *  framer-motion), NOT a grid offset — cell-stepped position read as
+   *  chunky. Kept small; the lean stays the dominant cue. */
+  const SHIFT_PX_X = 14;
+  const SHIFT_PX_Y = 10;
+  /** Mask padding so no pose clips: max lean columns + the translate shift;
+   *  open-stretch rows + the translate row. */
+  const PAD_X = 6;
+  const PAD_Y = 3;
   let wrapEl = $state<HTMLDivElement | null>(null);
   let gazeL = $state<Gaze>(NEUTRAL);
   let gazeR = $state<Gaze>(NEUTRAL);
+  /** The pair's position, springing continuously toward its target — the
+   *  face GLIDES as one unit while the grid handles shape only. */
+  const shiftSpring = spring({ x: 0, y: 0 }, { stiffness: 0.18, damping: 0.55 });
 
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-  const sameGaze = (a: Gaze, b: Gaze) => a.lean === b.lean && a.sv === b.sv;
+  const sameGaze = (a: Gaze, b: Gaze) =>
+    a.lean === b.lean && a.sv === b.sv && a.anchor === b.anchor && a.tilt === b.tilt;
 
   $effect(() => {
     if (!track) {
       gazeL = NEUTRAL;
       gazeR = NEUTRAL;
+      shiftSpring.set({ x: 0, y: 0 }, { hard: true });
       return;
     }
     let raf = 0;
-    let px = 0; // target (the real cursor)
-    let py = 0;
-    let sx = 0; // smoothed pursuit point — the eyes follow THIS
-    let sy = 0;
-    let seeded = false;
-    let last = 0;
-    /** Pursuit lag: the smoothed point closes the gap with ~this time
-     *  constant — the eyes trail the cursor by a beat instead of snapping. */
-    const PURSUIT_TAU_MS = 140;
-    const step = (now: number) => {
-      raf = 0;
-      const dt = last ? Math.min(64, now - last) : 16;
-      last = now;
-      const alpha = 1 - Math.exp(-dt / PURSUIT_TAU_MS);
-      sx += (px - sx) * alpha;
-      sy += (py - sy) * alpha;
-      apply();
-      // Keep chasing until the pursuit point has effectively arrived.
-      if (Math.abs(px - sx) + Math.abs(py - sy) > 1.5) {
-        raf = requestAnimationFrame(step);
-      } else {
-        last = 0;
-      }
-    };
+    let sx = 0; // the cursor, raw — the eyes follow it DIRECTLY (no lag:
+    let sy = 0; // pursuit smoothing/velocity gating read as delay; removed)
     const apply = () => {
+      raf = 0;
       const rect = wrapEl?.getBoundingClientRect();
       if (!rect || rect.width === 0) return;
       const cy = rect.top + rect.height / 2;
@@ -334,75 +342,38 @@
         const ny = clamp((sy - cy) / GAZE_REACH_Y, -1, 1) * gain;
         return {
           lean: Math.round(nx * 8) / 8,
-          sv:
-            ny > 0
-              ? Math.round((1 - HOOD * ny) * 20) / 20
-              : Math.round((1 + OPEN * -ny) * 20) / 20,
+          sv: Math.round((1 - (ny > 0 ? HOOD * ny : LIFT * -ny)) * 20) / 20,
+          anchor: ny > 0 ? ("base" as const) : ("top" as const),
+          tilt: Math.round(-ny * 8) / 8, // above → +tilt → inner tips rise
         };
       };
       const nextL = eye(rect.left + rect.width * 0.25);
       const nextR = eye(rect.left + rect.width * 0.75);
       if (!sameGaze(nextL, gazeL)) gazeL = nextL;
       if (!sameGaze(nextR, gazeR)) gazeR = nextR;
+      // ONE shift for the pair, from the pair's own center — continuous px,
+      // the spring supplies the glide (no quantization needed).
+      const nxc = clamp((sx - (rect.left + rect.width / 2)) / GAZE_REACH_X, -1, 1);
+      const nyc = clamp((sy - cy) / GAZE_REACH_Y, -1, 1);
+      shiftSpring.set({ x: nxc * SHIFT_PX_X, y: nyc * SHIFT_PX_Y });
     };
-    // VELOCITY GATE, not a debounce: at a reasonable cursor speed the eyes
-    // track continuously (the pursuit ease above IS the reaction time), but
-    // a cursor FLYING across the screen isn't followed frame by frame — the
-    // gaze holds until the smoothed velocity drops back under the gate. A
-    // short stopped-timer catches the case where a fast flight simply ends
-    // (no slow samples ever arrive) so the eyes still land on the rest point.
-    const V_TRACK = 1.0; // px/ms — above this the cursor is "flying"
-    const V_SMOOTH = 0.35; // EMA weight per sample (raw dt jitter is noisy)
-    const STOP_COMMIT_MS = 90;
-    let settle: ReturnType<typeof setTimeout> | undefined;
-    let lastMoveAt = 0;
-    let lastMx = 0;
-    let lastMy = 0;
-    let vAvg = 0;
-    const commit = (cx: number, cy: number) => {
-      px = cx;
-      py = cy;
-      if (!raf) raf = requestAnimationFrame(step);
-    };
+    // rAF-coalesced only — one recompute per frame at most; quantization
+    // already keeps grid rebuilds to actual pose changes.
     const move = (e: PointerEvent) => {
-      const cx = e.clientX;
-      const cy = e.clientY;
-      const now = e.timeStamp;
-      if (!seeded) {
-        // First sighting: no lag on the very first pose (nothing to trail from).
-        seeded = true;
-        sx = cx;
-        sy = cy;
-        lastMoveAt = now;
-        lastMx = cx;
-        lastMy = cy;
-        commit(cx, cy);
-        return;
-      }
-      const dt = Math.max(1, now - lastMoveAt);
-      const v = Math.hypot(cx - lastMx, cy - lastMy) / dt;
-      vAvg += (v - vAvg) * V_SMOOTH;
-      lastMoveAt = now;
-      lastMx = cx;
-      lastMy = cy;
-      if (vAvg <= V_TRACK) commit(cx, cy);
-      clearTimeout(settle);
-      settle = setTimeout(() => {
-        vAvg = 0; // events ceased — the cursor is at rest
-        commit(cx, cy);
-      }, STOP_COMMIT_MS);
+      sx = e.clientX;
+      sy = e.clientY;
+      if (!raf) raf = requestAnimationFrame(apply);
     };
     const leave = () => {
-      // Ease HOME rather than snapping: target the stage center (gaze = 0)
-      // and let the pursuit loop carry the eyes back.
       const rect = wrapEl?.getBoundingClientRect();
       if (rect && rect.width > 0) {
-        px = rect.left + rect.width / 2;
-        py = rect.top + rect.height / 2;
-        if (!raf) raf = requestAnimationFrame(step);
+        sx = rect.left + rect.width / 2;
+        sy = rect.top + rect.height / 2;
+        if (!raf) raf = requestAnimationFrame(apply);
       } else {
         gazeL = NEUTRAL;
         gazeR = NEUTRAL;
+        shiftSpring.set({ x: 0, y: 0 });
       }
     };
     window.addEventListener("pointermove", move, { passive: true });
@@ -411,29 +382,36 @@
       window.removeEventListener("pointermove", move);
       document.documentElement.removeEventListener("mouseleave", leave);
       cancelAnimationFrame(raf);
-      clearTimeout(settle);
     };
   });
 
-  /** Warp one eye by its gaze — a per-cell inverse sample, no translation:
-   *  rows scale vertically about the eye's BASE (the mark's bottom edge, so
-   *  hooding lowers the top and opening raises it), and each row shears
-   *  toward the cursor with the pivot at that same base (top swings most).
-   *  Point sampling is safe both ways: compression skips source rows,
-   *  stretching repeats them — never holes. */
-  function warpEye(eye: Cell[][], gz: Gaze): Cell[][] {
+  /** Warp one eye by its gaze — a per-cell inverse sample, DEFORMATION only
+   *  (position is the pair's, applied after the merge): rows scale
+   *  vertically about the eye's BASE (the mark's bottom edge, so hooding
+   *  lowers the top and opening raises it), and each row shears toward the
+   *  cursor with the pivot at that same base (top swings most). Point
+   *  sampling is safe both ways: compression skips source rows, stretching
+   *  repeats them — never holes. */
+  function warpEye(eye: Cell[][], gz: Gaze, side: "left" | "right"): Cell[][] {
     const rows = eye.length;
     if (rows === 0) return eye;
-    const anchor = rows - 1 - PAD_Y; // the mark's bottom edge — the pivot
+    const width = eye[0]?.length ?? 0;
+    const mid = Math.max(1, width / 2);
+    // The planted edge: the mark's bottom for the hood, its top for the lift.
+    const anchor = gz.anchor === "top" ? PAD_Y : rows - 1 - PAD_Y;
     const norm = Math.max(1, rows - 1);
     return eye.map((row, y) => {
-      const ys = Math.round(anchor + (y - anchor) / gz.sv);
-      const srcRow = eye[ys];
-      if (!srcRow) return row.map(() => SPACE);
       const shift = Math.round(gz.lean * (LEAN_BASE + LEAN_SHEAR * (1 - y / norm)));
-      if (shift === 0 && ys === y) return srcRow;
       return row.map((_, x) => {
-        const c = srcRow[x - shift];
+        // BROW tilt: a vertical shear pivoting at the eye's OUTER corner —
+        // innerness runs 0 at the grid's outer edge to 1 at the center seam,
+        // so the inner tip travels the full TILT_ROWS while the outer corner
+        // stays planted. Positive tilt samples LOWER rows → content rises.
+        const inner = Math.min(1, side === "left" ? x / mid : (width - 1 - x) / mid);
+        const ys = Math.round(
+          anchor + (y - anchor) / gz.sv + gz.tilt * TILT_ROWS * inner,
+        );
+        const c = eye[ys]?.[x - shift];
         return c && c.ch !== " " ? c : SPACE;
       });
     });
@@ -448,8 +426,8 @@
     const mid = Math.round(width / 2);
     const isolate = (keepLeft: boolean) =>
       g.map((row) => row.map((cell, x) => (x < mid === keepLeft ? cell : SPACE)));
-    const left = warpEye(isolate(true), l);
-    const right = warpEye(isolate(false), r);
+    const left = warpEye(isolate(true), l, "left");
+    const right = warpEye(isolate(false), r, "right");
     return g.map((row, y) =>
       row.map((_, x) => {
         const lc = left[y]?.[x];
@@ -513,10 +491,16 @@
        which collapsed the mask's gaps into a centered blob. (Biome doesn't
        format .svelte — the long line survives.) Colors are dynamic runtime
        values, not source literals. -->
-  {#each display as row, y (y)}
-    <!-- prettier-ignore -->
-    <div class="ascii-row">{#each row as cell, x (x)}{#if cell.ch === " "}<span>{" "}</span>{:else}<span style="color: {cell.color}">{cell.ch}</span>{/if}{/each}</div>
-  {/each}
+  <!-- The mover: position rides a spring transform HERE (continuous px),
+       while the grid inside only ever changes shape. Inner element on
+       purpose — the gaze math measures the OUTER rect, which a transform
+       on the same node would displace. -->
+  <div class="eyes-mover" style="translate: {$shiftSpring.x}px {$shiftSpring.y}px">
+    {#each display as row, y (y)}
+      <!-- prettier-ignore -->
+      <div class="ascii-row">{#each row as cell, x (x)}{#if cell.ch === " "}<span>{" "}</span>{:else}<span style="color: {cell.color}">{cell.ch}</span>{/if}{/each}</div>
+    {/each}
+  </div>
 </div>
 
 <style>
@@ -529,6 +513,9 @@
     letter-spacing: 0;
     user-select: none;
     cursor: pointer; /* the click toy: cycle the palette */
+  }
+  .eyes-mover {
+    will-change: translate;
   }
   .ascii-row {
     white-space: pre;

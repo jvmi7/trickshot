@@ -20,23 +20,21 @@
     removeScriptRun,
     centerView,
     setCenterView,
-    setMainView,
+    setRunOpen,
     unreadByWorktree,
     clearUnread,
     forgetChats,
     archivedWorkspaces,
-    addArchived,
-    restoreWorkspace,
+    archiveWorkspace,
+    ArchiveHookError,
     gitStatByWorktree,
     homePath,
     repoIconByRepo,
     loadRepoIcon,
-    type ArchivedWorkspace,
   } from "../stores";
   import * as api from "../api";
   import { generateWorktreeName } from "../branchNames";
   import { slidingRowHighlight } from "../slidingHighlight";
-  import { toastMessage } from "../toast";
   import { disposeTerminal } from "../terminal";
   import { profileAccent } from "../termProfiles";
   import { basename } from "../utils";
@@ -50,7 +48,6 @@
   import IdentityGlyph from "./IdentityGlyph.svelte";
   import TrickshotMark from "./TrickshotMark.svelte";
   import FolderPlus from "@lucide/svelte/icons/folder-plus";
-  import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
   import Plus from "@lucide/svelte/icons/plus";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -108,7 +105,6 @@
   function selectHome() {
     selectWorktree(null);
     setCenterView("chat");
-    setMainView("chat"); // the run view outranks no-selection in the cascade
   }
 
   // Repo favicons: probe each repo once per app run (idempotent in the store).
@@ -198,12 +194,13 @@
       await select(wt);
       // Conductor-style setup script: a fresh worktree only has git-tracked
       // files, so the repo's `.trickshot/settings.json` setup script installs
-      // deps / copies .env etc. Fire-and-forget — output lands in the Run tab.
+      // deps / copies .env etc. Fire-and-forget — output lands in the run
+      // widget (RunWindow).
       try {
         const scripts = await api.getScripts(repoPath);
         if (scripts.setup) {
           await api.runScript(repoPath, wt.path, "setup");
-          setMainView("run");
+          setRunOpen(true);
         }
       } catch {
         // no/invalid settings file — a new worktree simply starts cold
@@ -278,56 +275,22 @@
     }
   }
 
-  // Archive: remove the worktree DIR (branch kept). Claude Code's own session
-  // store is keyed by the worktree path, so restoring the branch recreates the
-  // same path and the conversation resumes on restore (see stores.ts ›
-  // archivedWorkspaces). The repo's archive script (if any) runs to completion
-  // FIRST, while the worktree still exists.
+  // Archive: remove the worktree DIR (branch kept) — the shared
+  // session.ts › archiveWorkspace does the work (the changes popover's
+  // lifecycle button routes through the same path). This wrapper owns the
+  // sidebar's confirm surface: a failing archive hook must not dead-end the
+  // flow (archive is the only exit for a branched workspace), so it
+  // re-prompts "archive anyway" (skipHook) instead of just erroring.
   async function doArchive(repoPath: string, wt: Worktree, skipHook = false) {
     error = "";
     if (!wt.branch) return; // restore needs a branch; detached HEAD can't archive
     try {
-      let archiveCmd: string | null = null;
-      if (!skipHook) {
-        try {
-          archiveCmd = (await api.getScripts(repoPath)).archive;
-        } catch {
-          // unreadable settings file — archive proceeds without a hook
-        }
-      }
-      // A failing archive script must not dead-end the flow: archive is the
-      // only exit for a branched workspace, so offer "archive anyway" (the
-      // hook exists to clean up resources — the user decides whether leaking
-      // them beats being stuck with an unarchivable workspace).
-      if (archiveCmd) {
-        try {
-          await api.runScriptBlocking(repoPath, wt.path, "archive");
-        } catch (err) {
-          confirmAction = { kind: "archive-skip-hook", repoPath, wt, scriptError: String(err) };
-          return;
-        }
-      }
-      await api.stopScript(wt.path);
-      disposeTerminal(wt.path);
-      await api.removeWorktree(repoPath, wt.path, true);
-      clearStatus(wt.path);
-      removeScriptRun(wt.path);
-      removeWorktreeFromRepo(repoPath, wt.path);
-      const entry: ArchivedWorkspace = {
-        repoPath,
-        repoName: basename(repoPath),
-        branch: wt.branch,
-        path: wt.path,
-        archivedAt: Date.now(),
-      };
-      addArchived(entry);
-      if ($selectedWorktree === wt.path) selectWorktree(null);
-      // Archiving is lossless (restore revives chat + context) — offer the
-      // instant round-trip instead of making the action feel scary.
-      toastMessage(`Archived ${wt.branch}`, {
-        action: { label: "Undo", onClick: () => void restoreWorkspace(entry).catch(() => {}) },
-      });
+      await archiveWorkspace(repoPath, wt, skipHook);
     } catch (err) {
+      if (err instanceof ArchiveHookError) {
+        confirmAction = { kind: "archive-skip-hook", repoPath, wt, scriptError: err.message };
+        return;
+      }
       error = String(err);
     }
   }
@@ -423,7 +386,11 @@
                 {#if $repoIconByRepo[repo.path]}
                   <img class="repo-favicon" src={$repoIconByRepo[repo.path]} alt="" />
                 {:else}
-                  <FolderGit2 class="repo-favicon" />
+                  <!-- No favicon: a letter medallion (the repo's initial) —
+                       reads as an identity mark, not a generic folder. -->
+                  <span class="repo-favicon repo-letter" aria-hidden="true">
+                    {repo.name.charAt(0).toUpperCase()}
+                  </span>
                 {/if}
                 <span class="repo-name section-label">{repo.name}</span>
               </button>
@@ -481,9 +448,18 @@
           {@const unread = ($unreadByWorktree[wt.path] ?? 0) > 0 && $selectedWorktree !== wt.path}
           <ContextMenu.Root>
             <ContextMenu.Trigger>
-              {#snippet child({ props })}
+              {#snippet child({ props: menuProps })}
+              <!-- Tooltip INSIDE the context-menu trigger: both are renderless
+                   providers, so the row div stays the rows' direct child (the
+                   sliding highlight keys off that). Spread order matters —
+                   the tooltip's handlers win shared events; the menu keeps
+                   its own oncontextmenu. -->
+              <Tooltip.Root>
+                <Tooltip.Trigger>
+                  {#snippet child({ props: tipProps })}
                 <div
-                  {...props}
+                  {...menuProps}
+                  {...tipProps}
                   class="wt-row group/row"
                   class:active={$selectedWorktree === wt.path}
                   class:busy
@@ -508,7 +484,9 @@
                   {:else}
                     <IdentityGlyph seed={wt.path} color={profileAccent(wt.path)} loading={busy} />
                   {/if}
-                  <span class="wt-name">{wt.branch ?? "(detached)"}</span>
+                  <!-- Named after the WORKTREE (its directory); the branch
+                       lives in the hover details. -->
+                  <span class="wt-name">{basename(wt.path)}</span>
                   {#if ($gitStatByWorktree[wt.path]?.changed ?? 0) > 0}
                     {@const gs = $gitStatByWorktree[wt.path]}
                     <span class="wt-stat" title="{gs?.changed} changed file{gs?.changed === 1 ? '' : 's'}">
@@ -545,6 +523,39 @@
                     {/if}
                   {/if}
                 </div>
+                  {/snippet}
+                </Tooltip.Trigger>
+                <!-- High-level workspace details on hover: the PR branch, the
+                     change glance, session state, and the path — the row
+                     itself stays a name + swatch. -->
+                <Tooltip.Content side="right" align="start" class="items-stretch p-2.5">
+                  {@const gs = $gitStatByWorktree[wt.path]}
+                  <div class="wt-detail">
+                    <div class="section-label">{basename(wt.path)}</div>
+                    <div class="wt-detail-row">
+                      <span class="wt-detail-label">branch</span>
+                      <span class="wt-detail-mono">{wt.branch ?? "(detached)"}</span>
+                    </div>
+                    <div class="wt-detail-row">
+                      <span class="wt-detail-label">changes</span>
+                      {#if (gs?.changed ?? 0) > 0}
+                        <span>
+                          {gs?.changed} file{gs?.changed === 1 ? "" : "s"}
+                          {#if gs?.insertions}<span class="diff-add">+{gs.insertions}</span>{/if}
+                          {#if gs?.deletions}<span class="diff-del">−{gs.deletions}</span>{/if}
+                        </span>
+                      {:else}
+                        <span>clean</span>
+                      {/if}
+                    </div>
+                    <div class="wt-detail-row">
+                      <span class="wt-detail-label">agent</span>
+                      <span>{busy ? "working…" : ($sessionStatus[wt.path] ?? "idle")}</span>
+                    </div>
+                    <div class="wt-detail-path">{wt.path}</div>
+                  </div>
+                </Tooltip.Content>
+              </Tooltip.Root>
               {/snippet}
             </ContextMenu.Trigger>
             {#if !wt.is_main}
@@ -622,3 +633,38 @@
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>
+
+<style>
+  /* The row hover-detail card (tooltip content) — the UsageIndicator
+     .usage-detail precedent: one-component tooltip content stays scoped here
+     (Svelte's scope class rides the portaled element). */
+  .wt-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 200px;
+    max-width: 280px;
+    font-size: var(--text-sm);
+    line-height: 1.4;
+  }
+  .wt-detail-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .wt-detail-label {
+    color: var(--app-dim);
+  }
+  .wt-detail-mono {
+    font-family: var(--app-font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wt-detail-path {
+    font-size: var(--text-2xs);
+    color: var(--app-dim);
+    word-break: break-all;
+  }
+</style>

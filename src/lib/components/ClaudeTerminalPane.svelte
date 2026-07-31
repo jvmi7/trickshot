@@ -230,14 +230,7 @@
                 use:borderGlow
                 onfocusin={() => focusChat(wt, cell.chat)}
               >
-                <!-- Grid shows ONE composer — the focused cell's. Clicking an
-                     unfocused cell's terminal focuses xterm → focusin →
-                     focusChat → its composer mounts (already autofocused). -->
-                <ClaudeTerminalCell
-                  worktree={wt}
-                  chatId={cell.chat}
-                  showComposer={cell.chat === focusedId}
-                />
+                <ClaudeTerminalCell worktree={wt} chatId={cell.chat} />
                 <!-- data-busy keeps the pill surfaced while the chat runs —
                      the SWATCH's loading morph is the cell's busy signal
                      (the tab/sidebar twin), so it can't be hover-gated. -->

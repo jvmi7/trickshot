@@ -2,21 +2,24 @@
   // Segmented toggle for the content view: Chat (icon) | Changes (diff stat) |
   // Run (script output). A single shared background slides to the active item
   // (see slidingToggle); each item has a tooltip. Changes only appears when the
-  // worktree has changes, Run only once a script has run; clicking the active
-  // one again returns to chat.
+  // worktree has changes, Run only once a script has run; Run toggles the
+  // floating output WIDGET (RunWindow), not a page swap.
   import {
-    mainView,
-    toggleMainView,
+    runOpen,
+    toggleRun,
     activeGitStat,
     activeScriptRun,
     changesOpen,
     setChangesOpen,
+    reviewDialogOpen,
+    setReviewDialogOpen,
     shellOpen,
-    setShellOpen,
+    toggleShell,
     selectedWorktree,
   } from "../stores";
   import GitPanel from "./GitPanel.svelte";
-  import TerminalPane from "./TerminalPane.svelte";
+  import GitQuickPanel from "./GitQuickPanel.svelte";
+  import * as Dialog from "$lib/components/ui/dialog";
   import * as Popover from "$lib/components/ui/popover";
   import { Button } from "$lib/components/ui/button";
   import * as Tooltip from "$lib/components/ui/tooltip";
@@ -26,12 +29,12 @@
   import { slidingToggle } from "../slidingHighlight";
   import { createHoverIntent } from "../hoverIntent";
 
-  // ONE chrome for both header popovers (Changes, Shell): the app float
-  // shadow, top-of-ladder radius, and clipped corners so the panel inside
-  // meets the ring cleanly. The panels own their size (.git-panel /
-  // .term-pane-popover); the popover shell stays w-auto p-0.
-  const headerPopoverClass =
-    "w-auto overflow-hidden rounded-xl p-0 [box-shadow:var(--app-shadow-float)]";
+  // ONE chrome for both header popovers (Changes, Shell): radius/fill/shadow
+  // come from the global [data-slot="popover-content"] override (app.css) —
+  // the tooltip-matched floating-panel chrome. Here: clipped corners so the
+  // panel inside meets the ring cleanly, and the panels own their size
+  // (.git-panel / .term-pane-popover) so the shell stays w-auto p-0.
+  const headerPopoverClass = "w-auto overflow-hidden p-0";
 
   // HOVER = reveal, CLICK = pin. Each popover has a mode: "hover" (opened by
   // dwell; pointer leave closes it) or "pinned" (opened/claimed by click,
@@ -39,7 +42,6 @@
   // closes it). Close resets the mode to "pinned" so externally-driven opens
   // (⌘⇧D/⌘⇧P) default sticky; the hover path claims "hover" as it opens.
   let changesMode = $state<"hover" | "pinned">("pinned");
-  let shellMode = $state<"hover" | "pinned">("pinned");
   const changesHover = createHoverIntent({
     setOpen: (v) => {
       if (v) {
@@ -50,25 +52,11 @@
       }
     },
   });
-  const shellHover = createHoverIntent({
-    setOpen: (v) => {
-      if (v) {
-        shellMode = "hover";
-        setShellOpen(true);
-      } else if (shellMode === "hover") {
-        setShellOpen(false);
-      }
-    },
-  });
   $effect(() => {
     if (!$changesOpen) changesMode = "pinned";
   });
-  $effect(() => {
-    if (!$shellOpen) shellMode = "pinned";
-  });
   $effect(() => () => {
     changesHover.cancel();
-    shellHover.cancel();
   });
 
   /** Trigger click, replacing the bits-ui toggle: closed → open pinned;
@@ -82,17 +70,6 @@
       changesMode = "pinned";
     } else {
       setChangesOpen(false);
-    }
-  }
-  function clickShell() {
-    shellHover.cancel();
-    if (!$shellOpen) {
-      shellMode = "pinned";
-      setShellOpen(true);
-    } else if (shellMode === "hover") {
-      shellMode = "pinned";
-    } else {
-      setShellOpen(false);
     }
   }
 
@@ -137,6 +114,8 @@
           </Button>
         {/snippet}
       </Popover.Trigger>
+      <!-- The COMPACT lifecycle menu (file count + one stateful action);
+           the full review surface opens from its files row (dialog below). -->
       <Popover.Content
         align="end"
         sideOffset={8}
@@ -144,7 +123,7 @@
         onpointerenter={() => changesHover.cancelClose()}
         onpointerleave={() => changesHover.leave()}
       >
-        <GitPanel />
+        <GitQuickPanel />
       </Popover.Content>
     </Popover.Root>
   {/if}
@@ -158,9 +137,9 @@
             size="icon-sm"
             variant="ghost"
             class="view-toggle-item size-8 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
-            data-active={$mainView === "run" ? "" : undefined}
+            data-active={$runOpen ? "" : undefined}
             aria-label="Run output"
-            onclick={() => toggleMainView("run")}
+            onclick={toggleRun}
           >
             <SquareTerminal class="size-4.5 {scriptRun.status === 'running' ? 'text-[var(--base-success)]' : ''}" />
           </Button>
@@ -171,12 +150,10 @@
   {/if}
 
   {#if $selectedWorktree}
-    <!-- Shell is a POPOVER whose session PERSISTS across open/close (the PTY +
-         xterm live in the instance cache; the popover only re-parents them).
-         Esc is IGNORED so it reaches the shell — vim lives there; close by
-         clicking outside or re-clicking the trigger. -->
-    <Popover.Root open={$shellOpen} onOpenChange={setShellOpen}>
-      <Popover.Trigger>
+    <!-- Shell opens as a floating DRAGGABLE WINDOW over the chat
+         (ShellWindow, App-mounted) — the icon is a plain toggle. -->
+    <Tooltip.Root>
+      <Tooltip.Trigger>
         {#snippet child({ props })}
           <Button
             {...props}
@@ -185,32 +162,25 @@
             class="view-toggle-item size-8 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent hover:text-foreground data-[active]:text-foreground"
             data-active={$shellOpen ? "" : undefined}
             aria-label="Shell"
-            title="Shell — a plain terminal in this worktree (the chat pane is the Claude CLI)"
-            onclick={clickShell}
-            onpointerenter={() => shellHover.enter()}
-            onpointerleave={() => shellHover.leave()}
+            onclick={toggleShell}
           >
             <Terminal class="size-4.5" />
           </Button>
         {/snippet}
-      </Popover.Trigger>
-      <!-- animate-none: xterm measures its glyph cells at attach; the default
-           zoom-in transform scales those measurements and garbles the grid. -->
-      <Popover.Content
-        align="end"
-        sideOffset={8}
-        class="{headerPopoverClass} data-[state=open]:animate-none data-[state=closed]:animate-none"
-        escapeKeydownBehavior="ignore"
-        onpointerenter={() => shellHover.cancelClose()}
-        onpointerleave={() => shellHover.leave()}
-      >
-        <!-- autofocus only when pinned: a hover reveal must not steal the
-             keyboard from the chat pane; the click-to-pin flip focuses it. -->
-        <TerminalPane autofocus={shellMode === "pinned"} />
-      </Popover.Content>
-    </Popover.Root>
+      </Tooltip.Trigger>
+      <Tooltip.Content>Shell — a floating terminal in this worktree (drag it anywhere)</Tooltip.Content>
+    </Tooltip.Root>
   {/if}
 </div>
+
+<!-- The FULL git review surface (GitPanel: per-file diffs, stage/commit, the
+     review queue) as a modal — opened from GitQuickPanel's files row. Mounted
+     HERE, outside the popover, so it survives the popover closing. -->
+<Dialog.Root open={$reviewDialogOpen} onOpenChange={setReviewDialogOpen}>
+  <Dialog.Content class="w-auto max-w-none p-0 sm:max-w-none" showCloseButton={false}>
+    <GitPanel />
+  </Dialog.Content>
+</Dialog.Root>
 
 <style>
   /* Segmented view toggle: items sit above the sliding highlight (slidingToggle

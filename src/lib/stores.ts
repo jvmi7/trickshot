@@ -25,7 +25,7 @@ import {
   THEMES as THEME_DEFS,
   type Theme,
 } from "./themes";
-import type { Repo, ScriptsConfig, UsageInfo, Worktree } from "./types";
+import type { Listener, Repo, ScriptsConfig, UsageInfo, Worktree } from "./types";
 
 /** A worktree's CLI session lifecycle:
  *  - `ready`   — the claude PTY is alive and idle, awaiting input
@@ -135,40 +135,106 @@ export function setSidebarWidth(w: number) {
   sidebarWidth.set(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(w))));
 }
 
-/** Which view the main pane shows for the selected worktree: the chat
- *  terminal or the script "run" output. (Git changes AND the shell terminal
- *  are header POPOVERS — `changesOpen`/`shellOpen` below — not pages.)
- *  Ephemeral UI state. */
-export type MainView = "chat" | "run";
-export const mainView = writable<MainView>("chat");
-/** Set the main pane's view (the one mutator — see the store-mutator rule). */
-export function setMainView(v: MainView) {
-  mainView.set(v);
-}
-/** Toggle between a view and the chat (the header tabs' click behavior). */
-export function toggleMainView(v: Exclude<MainView, "chat">) {
-  mainView.update((cur) => (cur === v ? "chat" : v));
-}
+// ---- Per-worktree window flags ----
+// The open/closed state of every window over the workspace (the Changes
+// popover, the review dialog, the floating shell) is CONTEXTUAL, not global:
+// each worktree remembers its own, and switching worktrees restores it (with
+// no selection they all read closed). The mutators keep the boolean signature
+// their call sites always had — they act on the SELECTED worktree (a no-op
+// when none is selected, since none of these windows render then). Ephemeral.
 
 /** Whether the git Changes POPOVER (header ± trigger) is open — a dropdown
- *  panel over the terminal, not a page swap. Ephemeral. */
-export const changesOpen = writable<boolean>(false);
+ *  panel over the terminal, not a page swap. Per-worktree (see above). */
+const _changesOpen = createWorktreeMap<boolean>();
+export const changesOpenByWorktree = _changesOpen.store;
+export const changesOpen = _changesOpen.active(false);
 export function setChangesOpen(v: boolean) {
-  changesOpen.set(v);
+  const wt = get(selectedWorktree);
+  if (wt) _changesOpen.set(wt, v);
 }
 export function toggleChanges() {
-  changesOpen.update((v) => !v);
+  const wt = get(selectedWorktree);
+  if (wt) _changesOpen.update(wt, (cur) => !cur);
 }
 
-/** Whether the SHELL terminal popover is open. The PTY + xterm scrollback
- *  persist across open/close (lib/terminal.ts instance cache) — the popover
- *  only re-parents the same terminal. Ephemeral. */
-export const shellOpen = writable<boolean>(false);
+/** Whether the FULL git review dialog (per-file diffs, stage/commit, the
+ *  review queue — GitPanel in a modal) is open. Lives beside `changesOpen`
+ *  but OUTSIDE the popover (ViewToggle mounts the dialog): a popover child
+ *  would unmount with it on the dialog's own backdrop click. Per-worktree. */
+const _reviewDialogOpen = createWorktreeMap<boolean>();
+export const reviewDialogOpenByWorktree = _reviewDialogOpen.store;
+export const reviewDialogOpen = _reviewDialogOpen.active(false);
+export function setReviewDialogOpen(v: boolean) {
+  const wt = get(selectedWorktree);
+  if (wt) _reviewDialogOpen.set(wt, v);
+}
+
+/** Whether the RUN OUTPUT window is open — the script log as a floating
+ *  widget over the chat (RunWindow, App-mounted), NOT a page swap. The run
+ *  itself keeps streaming into `scriptRunByWorktree` regardless. */
+const _runOpen = createWorktreeMap<boolean>();
+export const runOpenByWorktree = _runOpen.store;
+export const runOpen = _runOpen.active(false);
+export function setRunOpen(v: boolean) {
+  const wt = get(selectedWorktree);
+  if (wt) _runOpen.set(wt, v);
+}
+export function toggleRun() {
+  const wt = get(selectedWorktree);
+  if (wt) _runOpen.update(wt, (cur) => !cur);
+}
+
+/** Whether the SHELL terminal window is open. The PTY + xterm scrollback
+ *  persist across open/close (lib/terminal.ts instance cache) — the window
+ *  only re-parents the same terminal. Per-worktree (see above); the dragged
+ *  POSITION below stays global on purpose — it's a screen concern, not a
+ *  workspace one. */
+const _shellOpen = createWorktreeMap<boolean>();
+export const shellOpenByWorktree = _shellOpen.store;
+export const shellOpen = _shellOpen.active(false);
+/** The floating shell WINDOW's dragged position (px, viewport space).
+ *  null = the default perch (top-right under the header). Persisted. */
+export const shellWindowPos = createPersisted<{ x: number; y: number } | null>(
+  "trickshot.shellWindowPos",
+  null,
+  {
+    parse: (raw) => {
+      const v = JSON.parse(raw);
+      return isPlainObject(v) && typeof v.x === "number" && typeof v.y === "number"
+        ? { x: v.x, y: v.y }
+        : null;
+    },
+  },
+);
+export function setShellWindowPos(p: { x: number; y: number }) {
+  shellWindowPos.set(p);
+}
+/** The floating run WINDOW's dragged position (px, viewport space).
+ *  null = the default perch (top-right under the header). Persisted —
+ *  same template as shellWindowPos. */
+export const runWindowPos = createPersisted<{ x: number; y: number } | null>(
+  "trickshot.runWindowPos",
+  null,
+  {
+    parse: (raw) => {
+      const v = JSON.parse(raw);
+      return isPlainObject(v) && typeof v.x === "number" && typeof v.y === "number"
+        ? { x: v.x, y: v.y }
+        : null;
+    },
+  },
+);
+export function setRunWindowPos(p: { x: number; y: number }) {
+  runWindowPos.set(p);
+}
+
 export function setShellOpen(v: boolean) {
-  shellOpen.set(v);
+  const wt = get(selectedWorktree);
+  if (wt) _shellOpen.set(wt, v);
 }
 export function toggleShell() {
-  shellOpen.update((v) => !v);
+  const wt = get(selectedWorktree);
+  if (wt) _shellOpen.update(wt, (cur) => !cur);
 }
 
 /** Whether the ⌘E compose popup is open (a full editor for long prompts,
@@ -199,7 +265,7 @@ export function bumpGitRefresh() {
   gitRefreshNonce.update((n) => n + 1);
 }
 
-/** Whether the ⌘K command palette is open. Ephemeral, global (App owns the
+/** Whether the ⌘P command palette is open. Ephemeral, global (App owns the
  *  shortcut, CommandPalette renders). */
 export const commandPaletteOpen = writable<boolean>(false);
 export function toggleCommandPalette() {
@@ -230,6 +296,17 @@ export interface GitStat {
 const _gitStat = createWorktreeMap<GitStat>();
 export const gitStatByWorktree = _gitStat.store;
 export const setGitStat = _gitStat.set;
+
+/** Listening localhost servers per worktree (from `list_listeners`), replaced
+ *  wholesale each poll — the header's running-ports chips read the SELECTED
+ *  worktree's slice via `activeListeners` below. Ephemeral. */
+const _listeners = createWorktreeMap<Listener[]>();
+export const listenersByWorktree = _listeners.store;
+export function setAllListeners(rows: Listener[]) {
+  const grouped: Record<string, Listener[]> = {};
+  for (const l of rows) (grouped[l.worktree] ??= []).push(l);
+  _listeners.store.set(grouped);
+}
 
 // ---- Theme ----
 export interface ThemeOption {
@@ -375,6 +452,21 @@ export function setWorktrees(repoPath: string, list: Worktree[]) {
 export function addWorktree(repoPath: string, wt: Worktree) {
   worktreesByRepo.update((m) => ({ ...m, [repoPath]: [...(m[repoPath] ?? []), wt] }));
 }
+/** Sync one worktree's branch label to what git actually reports (a checkout
+ *  made in a terminal/IDE drifts the launch-time snapshot). No-op — SAME map
+ *  identity — when nothing changed, so the per-status-refresh call is free. */
+export function syncWorktreeBranch(repoPath: string, worktreePath: string, branch: string | null) {
+  worktreesByRepo.update((m) => {
+    const list = m[repoPath];
+    const idx = list?.findIndex((w) => w.path === worktreePath) ?? -1;
+    const cur = list?.[idx];
+    if (!list || !cur || cur.branch === branch) return m;
+    const next = [...list];
+    next[idx] = { ...cur, branch };
+    return { ...m, [repoPath]: next };
+  });
+}
+
 /** Remove a worktree (by path) from a repo's list. */
 export function removeWorktreeFromRepo(repoPath: string, worktreePath: string) {
   worktreesByRepo.update((m) => ({
@@ -980,20 +1072,27 @@ export function setCursorTrailEnabled(v: boolean) {
 // TUI live in `session.ts` (the scriptEvents.ts precedent); re-export so
 // `import { activateWorktree } from "./stores"` keeps working.
 export {
+  ArchiveHookError,
   activateWorktree,
+  archiveWorkspace,
   closeChat,
   ensureClaudeOpen,
   handleCliExit,
+  insertDroppedPaths,
   interruptChat,
   openRepository,
   restoreWorkspace,
+  saveWorktree,
   sendToCli,
   submitTurnToChat,
+  syncFleet,
 } from "./session";
 
 // ---- Derived "active" views (the SELECTED worktree's value, via the factory) ----
 /** The selected worktree's change summary (null until fetched / when none). */
 export const activeGitStat = _gitStat.active(null);
+/** The selected worktree's live localhost servers (empty until polled). */
+export const activeListeners = _listeners.active<Listener[]>([]);
 /** The selected worktree's script run (null until one is launched). */
 export const activeScriptRun = _scriptRun.active(null);
 /** The owning repo's scripts config (null until fetched / no repo). */

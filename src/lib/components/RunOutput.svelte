@@ -1,9 +1,10 @@
 <script lang="ts">
-  // The Run view: live output of the selected worktree's script (the ViewToggle
-  // "run" tab). Renders the bounded tail kept in `scriptRunByWorktree` and
-  // auto-follows unless the user scrolled up. Feature component (reads stores),
-  // sibling of GitPanel in the mainView switch.
+  // The Run view: live output of the selected worktree's script, hosted by
+  // the floating RunWindow widget. Renders the bounded tail kept in
+  // `scriptRunByWorktree` and auto-follows unless the user scrolled up.
+  // Feature component (reads stores).
   import { activeScriptRun } from "../stores";
+  import * as api from "../api";
   import AnsiText from "./AnsiText.svelte";
 
   const run = $derived($activeScriptRun);
@@ -50,7 +51,16 @@
         </span>
       {/if}
       {#if serverUrl && run.status === "running"}
-        <a class="run-url" href={serverUrl} target="_blank" rel="noreferrer">{serverUrl} ↗</a>
+        <!-- target=_blank is a no-op inside the Tauri webview — the hop to the
+             system browser is the open_url command (the terminal ⌘-click path). -->
+        <a
+          class="run-url"
+          href={serverUrl}
+          onclick={(e: MouseEvent) => {
+            e.preventDefault();
+            if (serverUrl) void api.openUrl(serverUrl).catch(() => {});
+          }}>{serverUrl} ↗</a
+        >
       {/if}
     </div>
     <div class="run-body" bind:this={pane} onscroll={onScroll}>
@@ -64,7 +74,7 @@
 
 <style>
   .run-pane {
-    /* .content is a flex ROW — claim the full pane (same as .term-pane). */
+    /* The host (RunWindow's body) is a flex box — claim all of it. */
     flex: 1;
     min-width: 0;
     display: flex;

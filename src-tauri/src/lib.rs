@@ -1,11 +1,12 @@
 mod agent;
+mod browse;
 mod claude_config;
 mod generate;
 mod github;
+mod listeners;
 mod scripts;
 mod terminal;
 mod usage;
-mod volume;
 mod worktree;
 mod worktree_map;
 
@@ -21,6 +22,7 @@ pub fn run() {
         .manage(Terminals::default())
         .invoke_handler(tauri::generate_handler![
             agent::latest_session_id,
+            browse::open_url,
             agent::session_exists,
             claude_config::claude_config_overview,
             claude_config::read_claude_file,
@@ -39,8 +41,12 @@ pub fn run() {
             worktree::worktree_push,
             worktree::worktree_merge,
             worktree::worktree_pull,
+            worktree::worktree_rebase_default,
             worktree::worktree_move_to_branch,
+            listeners::list_listeners,
             scripts::get_scripts,
+            scripts::get_scripts_source,
+            scripts::save_scripts_source,
             scripts::run_script,
             scripts::run_script_blocking,
             scripts::stop_script,
@@ -50,16 +56,15 @@ pub fn run() {
             generate::generate_commit_message,
             generate::generate_pr_text,
             generate::generate_branch_name,
+            generate::run_git_agent,
             terminal::check_cli,
+            terminal::save_attachment,
             terminal::term_open,
             terminal::term_write,
             terminal::term_resize,
             terminal::term_close,
             usage::get_usage,
             usage::check_auth,
-            volume::get_volume,
-            volume::set_volume,
-            volume::set_muted,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

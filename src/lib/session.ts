@@ -11,22 +11,32 @@
 
 import { get } from "svelte/store";
 import * as api from "./api";
+import { formatRebasePrompt, formatSavePrompt } from "./savePrompt";
 import {
   type ArchivedWorkspace,
+  addArchived,
   addRepo,
   addWorktree,
+  bumpGitRefresh,
+  centerView,
+  clearStatus,
   clearUnread,
   DEFAULT_CHAT_ID,
   ensureDefaultChat,
   focusedChatByWorktree,
   removeArchived,
   removeChat,
+  removeScriptRun,
+  removeWorktreeFromRepo,
+  selectedWorktree,
   selectWorktree,
+  sessionStatus,
   setCenterView,
   setChatSessionId,
   setChatStatus,
   setStatus,
   setWorktrees,
+  worktreesByRepo,
 } from "./stores";
 // CIRCULAR-IMPORT CONTRACT: terminal.ts imports handleCliExit from this module
 // while we import its key/instance helpers — safe because every cross-module
@@ -35,11 +45,13 @@ import {
   claudeTermKey,
   cliBusy,
   disposeChatTerminal,
+  disposeTerminal,
   getTerminal,
   muteCliActivity,
   noteCliInput,
 } from "./terminal";
-import { toastSuccess } from "./toast";
+import { toastError, toastMessage, toastSuccess } from "./toast";
+import type { Worktree } from "./types";
 import { basename } from "./utils";
 
 /** Pick a folder and open it as a repo: validate it's a git repo FIRST (so a
@@ -95,6 +107,57 @@ export async function restoreWorkspace(entry: ArchivedWorkspace): Promise<void> 
   addWorktree(entry.repoPath, wt);
   removeArchived(entry.repoPath, entry.branch);
   await activateWorktree(wt.path);
+}
+
+/** The repo's archive cleanup script failed — a DECISION, not a dead end:
+ *  callers catch this to offer "archive anyway" (re-run with skipHook). */
+export class ArchiveHookError extends Error {}
+
+/** Archive a workspace: run the repo's archive script (unless `skipHook`),
+ *  kill its processes, remove the worktree DIR (branch kept — Claude Code's
+ *  path-keyed session store makes restore resume the chat), record the
+ *  archive entry, and raise the Undo toast. The ONE archive path — the
+ *  sidebar row and the changes popover's lifecycle button both route through
+ *  here; callers own their confirm surfaces (dirty trees, hook failures) and
+ *  their local error state. */
+export async function archiveWorkspace(repoPath: string, wt: Worktree, skipHook = false) {
+  if (!wt.branch)
+    throw new Error("a detached-HEAD worktree can't archive (restore needs a branch)");
+  let archiveCmd: string | null = null;
+  if (!skipHook) {
+    try {
+      archiveCmd = (await api.getScripts(repoPath)).archive;
+    } catch {
+      // unreadable settings file — archive proceeds without a hook
+    }
+  }
+  if (archiveCmd) {
+    try {
+      await api.runScriptBlocking(repoPath, wt.path, "archive");
+    } catch (err) {
+      throw new ArchiveHookError(String(err));
+    }
+  }
+  await api.stopScript(wt.path);
+  disposeTerminal(wt.path);
+  await api.removeWorktree(repoPath, wt.path, true);
+  clearStatus(wt.path);
+  removeScriptRun(wt.path);
+  removeWorktreeFromRepo(repoPath, wt.path);
+  const entry: ArchivedWorkspace = {
+    repoPath,
+    repoName: basename(repoPath),
+    branch: wt.branch,
+    path: wt.path,
+    archivedAt: Date.now(),
+  };
+  addArchived(entry);
+  if (get(selectedWorktree) === wt.path) selectWorktree(null);
+  // Archiving is lossless (restore revives chat + context) — offer the
+  // instant round-trip instead of making the action feel scary.
+  toastMessage(`Archived ${wt.branch}`, {
+    action: { label: "Undo", onClick: () => void restoreWorkspace(entry).catch(() => {}) },
+  });
 }
 
 /** The session id the DEFAULT chat's first open should resume: the newest
@@ -195,6 +258,159 @@ export async function sendToCli(
   // turn starting (the real turn's output keeps flowing past the echo window).
   noteCliInput(key);
   await api.termWrite(key, `\x1b[200~${text}\x1b[201~${submit ? "\r" : ""}`);
+}
+
+/** Shell-quote a dropped path only when it needs it (the terminal drag-drop
+ *  convention — bare paths stay readable, odd ones stay parseable). */
+function quotePath(p: string): string {
+  return /^[\w\-./~]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Files dropped onto the window: insert their paths into the SELECTED
+ *  worktree's FOCUSED chat input — quoted, NOT submitted, so the drop behaves
+ *  like dragging a file into a real terminal (Claude Code picks image paths
+ *  up as attachments when the turn is sent). No-op without a selection or
+ *  while Settings covers the chat. */
+export async function insertDroppedPaths(paths: string[]): Promise<void> {
+  const wt = get(selectedWorktree);
+  if (!wt || paths.length === 0 || get(centerView) !== "chat") return;
+  await sendToCli(wt, `${paths.map(quotePath).join(" ")} `, false);
+}
+
+// Git agents run INVISIBLY (user call: the chat window is the user's
+// workspace; janitorial git work must not pollute it). One in-flight agent
+// per worktree; completion surfaces as a toast + a git-glance refresh.
+const gitAgentInFlight = new Set<string>();
+
+/** Whether a background git agent currently owns this worktree. */
+export function gitAgentBusy(worktree: string): boolean {
+  return gitAgentInFlight.has(worktree);
+}
+
+/** Fire-and-forget a background git agent (headless `claude -p`, git-only
+ *  tools — generate.rs). `label` names the job in the completion toast. */
+function runGitAgentBg(worktree: string, prompt: string, label: string) {
+  if (gitAgentInFlight.has(worktree)) return;
+  gitAgentInFlight.add(worktree);
+  void api
+    .runGitAgent(worktree, prompt)
+    .then((summary) => {
+      const line = summary.trim().split("\n").at(-1) ?? "done";
+      toastSuccess(`${label}: ${line}`);
+    })
+    .catch((e) => {
+      toastError(`${label} failed: ${String(e)}`);
+    })
+    .finally(() => {
+      gitAgentInFlight.delete(worktree);
+      bumpGitRefresh();
+    });
+}
+
+/** Fleet sync: rebase every worktree of a repo onto the latest default
+ *  branch, one button. Deterministic per worktree (worktree_rebase_default;
+ *  main itself just pulls); a conflicted rebase escalates to a BACKGROUND
+ *  git agent for that worktree. Worktrees whose chat is mid-turn, or whose
+ *  git agent is already working, are skipped — never move files under a
+ *  running agent. */
+export async function syncFleet(
+  repoPath: string,
+): Promise<{ rebased: number; resolving: number; skipped: number }> {
+  const wts = get(worktreesByRepo)[repoPath] ?? [];
+  const statuses = get(sessionStatus);
+  let rebased = 0;
+  let resolving = 0;
+  let skipped = 0;
+  for (const wt of wts) {
+    if (statuses[wt.path] === "busy" || gitAgentInFlight.has(wt.path)) {
+      skipped++;
+      continue;
+    }
+    try {
+      if (wt.is_main) await api.worktreePull(wt.path);
+      else await api.worktreeRebaseDefault(wt.path);
+      rebased++;
+    } catch (e) {
+      resolving++;
+      runGitAgentBg(
+        wt.path,
+        formatRebasePrompt({
+          branch: wt.branch ?? "(detached)",
+          defaultBranch: "the repo default", // the agent resolves it live
+          error: String(e),
+        }),
+        `sync ${wt.branch ?? basename(wt.path)}`,
+      );
+    }
+  }
+  bumpGitRefresh();
+  return { rebased, resolving, skipped };
+}
+
+/** "Save my work": the deterministic fast path with an AGENT fallback.
+ *  Chain: stage everything → commit (AI message, plain fallback) → push
+ *  (-u covers unpublished branches); a rejected push retries once through
+ *  `git pull --rebase --autostash`. When the chain still dead-ends (real
+ *  conflicts, diverged history), the failure is formatted (savePrompt.ts)
+ *  and handed to the worktree's OWN chat via submitTurnToChat — the same
+ *  Claude the user is already talking to finishes the save, visibly, in
+ *  the terminal. Returns which path completed so the UI can say so. */
+export async function saveWorktree(worktree: string): Promise<"saved" | "escalated"> {
+  const status = await api.worktreeStatus(worktree);
+  const dirty = status.files.length > 0;
+  const unpushed = !status.has_upstream || status.ahead > 0;
+  const done: string[] = [];
+  const escalate = (step: string, e: unknown) => {
+    runGitAgentBg(
+      worktree,
+      formatSavePrompt({
+        branch: status.branch ?? "(detached)",
+        step,
+        error: String(e),
+        done,
+      }),
+      `save ${status.branch ?? basename(worktree)}`,
+    );
+    return "escalated" as const;
+  };
+  if (dirty) {
+    try {
+      await api.worktreeStage(worktree, []);
+      done.push("staged all changes");
+      let msg: string;
+      try {
+        msg = (await api.generateCommitMessage(worktree)).trim();
+      } catch {
+        msg = `chore: save work on ${status.branch ?? "worktree"}`;
+      }
+      await api.worktreeCommit(worktree, msg || `chore: save work`);
+      done.push("committed");
+    } catch (e) {
+      return escalate("stage/commit", e);
+    }
+  }
+  if (dirty || unpushed) {
+    try {
+      await api.worktreePush(worktree, !status.has_upstream);
+      done.push("pushed");
+    } catch (pushErr) {
+      // The screenshot case: the remote is ahead (fetch-first rejection).
+      // One deterministic retry through rebase; conflicts auto-abort and
+      // land in the escalation with the REAL error.
+      try {
+        await api.worktreePull(worktree);
+        done.push("pulled --rebase");
+        await api.worktreePush(worktree, !status.has_upstream);
+        done.push("pushed");
+      } catch (e) {
+        return escalate(
+          done.includes("pulled --rebase") ? "push (after rebase)" : "pull --rebase",
+          `push was rejected:\n${String(pushErr)}\n\nthen the retry failed:\n${String(e)}`,
+        );
+      }
+    }
+  }
+  return "saved";
 }
 
 /** Interrupt a chat's RUNNING turn: Escape to its PTY — exactly the

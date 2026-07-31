@@ -4,17 +4,18 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   ClaudeOverview,
   GitStatus,
+  Listener,
   PrInfo,
   PrText,
   ScriptEnvelope,
   ScriptsConfig,
   TermEnvelope,
   UsageInfo,
-  VolumeInfo,
   Worktree,
 } from "./types";
 
@@ -30,8 +31,19 @@ export const pickDirectory = () => invoke<string | null>("pick_directory");
  *  inside icon-ish dirs (icons/public/static/assets/app). ≤256KB files only. */
 export const repoIcon = (repoPath: string) => invoke<string | null>("repo_icon", { repoPath });
 
+/** Open an http(s) URL in the system browser — the webview can't window.open
+ *  out of the Tauri shell (terminal ⌘-clicked links, the PR link). */
+export const openUrl = (url: string) => invoke<void>("open_url", { url });
+
 /** The user's home directory — the sidebar Home workspace root (~). */
 export const homeDir = () => invoke<string>("home_dir");
+
+/** All listening localhost servers rooted in trickshot-spawned processes
+ *  (run scripts + PTY children), tagged with their worktree — the header's
+ *  running-ports chips. Scoped in Rust to OUR process trees (one `ps` + at
+ *  most one narrow `lsof`), so a poll is cheap even on a busy machine.
+ *  Polled at a coarse cadence by its consumer, never on a hot path. */
+export const listListeners = () => invoke<Listener[]>("list_listeners");
 
 /** The subscription usage windows for a provider's account (for Claude: rolling
  *  5-hour + weekly). Rejects when unavailable (not logged in, token expired,
@@ -104,10 +116,27 @@ export const worktreePull = (worktreePath: string) =>
 export const worktreeMoveToBranch = (worktreePath: string, branch: string) =>
   invoke<string>("worktree_move_to_branch", { worktreePath, branch });
 
+/** Rebase a worktree's branch onto the repo default branch tip (fetch +
+ *  `rebase --autostash origin/<default>`) — the fleet-sync primitive. A
+ *  conflicted rebase auto-aborts back to the pre-rebase state and rejects
+ *  with git's message (the caller escalates to a background agent). */
+export const worktreeRebaseDefault = (worktreePath: string) =>
+  invoke<string>("worktree_rebase_default", { worktreePath });
+
+/** Run a BACKGROUND git agent in a worktree: headless `claude -p`, tools
+ *  locked to git in Rust. Long-running — resolves with the agent's final
+ *  summary; callers fire-and-forget with a completion toast. */
+export const runGitAgent = (worktreePath: string, prompt: string) =>
+  invoke<string>("run_git_agent", { worktreePath, prompt });
+
 // ---- Project scripts (.trickshot/settings.json) ---------------------------
 
 /** A repo's scripts config (setup / named run scripts / archive / run_mode). */
 export const getScripts = (repoPath: string) => invoke<ScriptsConfig>("get_scripts", { repoPath });
+export const getScriptsSource = (repoPath: string) =>
+  invoke<string>("get_scripts_source", { repoPath });
+export const saveScriptsSource = (repoPath: string, content: string) =>
+  invoke<ScriptsConfig>("save_scripts_source", { repoPath, content });
 
 /** Launch a script BY NAME for a worktree ("setup" / "archive" / a run-script
  *  name). The command string is read from the repo's settings file in Rust —
@@ -215,6 +244,12 @@ export const termResize = (worktree: string, rows: number, cols: number) =>
 /** Kill a worktree's PTY (no-op if none). */
 export const termClose = (worktree: string) => invoke<void>("term_close", { worktree });
 
+/** Persist a pasted attachment (base64 bytes from the clipboard) to a temp
+ *  file and return its absolute path — the composer inserts the path into the
+ *  prompt so the CLI can read the file (a PTY carries only text). */
+export const saveAttachment = (data: string, ext: string) =>
+  invoke<string>("save_attachment", { data, ext });
+
 /** Subscribe to PTY output across ALL worktrees (`data` chunks + the final
  *  `exit`). Returns an unlisten function. */
 export function onTermEvent(
@@ -257,22 +292,16 @@ export const readClaudeFile = (file: string) => invoke<string>("read_claude_file
 export const writeClaudeFile = (file: string, contents: string) =>
   invoke<void>("write_claude_file", { file, contents });
 
-// ---- System volume (macOS `osascript`; the footer's volume slider) --------
-
-/** The system output volume + mute state. Rejects on platforms without
- *  `osascript` or on output devices with no software volume (AirPlay, some
- *  DACs) — the control hides itself on a failed probe. */
-export const getVolume = () => invoke<VolumeInfo>("get_volume");
-
-/** Set the system output volume (0–100, clamped in Rust). Also unmutes —
- *  matching the OS volume keys' behavior. */
-export const setVolume = (volume: number) => invoke<void>("set_volume", { volume });
-
-/** Mute/unmute the system output. */
-export const setMuted = (muted: boolean) => invoke<void>("set_muted", { muted });
-
 // ---- window state (macOS fullscreen hides the native traffic lights; the
 // floating expand-sidebar button re-anchors off html[data-fullscreen]) ----
 export const windowIsFullscreen = () => getCurrentWindow().isFullscreen();
 /** Fires on any window resize (incl. fullscreen transitions); returns unlisten. */
 export const onWindowResized = (cb: () => void) => getCurrentWindow().onResized(cb);
+
+/** Files DROPPED onto the window. Tauri intercepts the webview's native
+ *  drag-and-drop (DOM drop events never fire), so this hook is the one way
+ *  in — it fires with the dropped files' absolute paths. */
+export const onFileDrop = (cb: (paths: string[]) => void) =>
+  getCurrentWebview().onDragDropEvent((e) => {
+    if (e.payload.type === "drop" && e.payload.paths.length > 0) cb(e.payload.paths);
+  });

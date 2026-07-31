@@ -44,6 +44,81 @@ export const GLYPH_PALETTES: GlyphPalette[] = [
     name: "violet",
     colors: ["#5f00db", "#7900ea", "#9500f8", "#b108ff", "#c817ff", "#de25ff", "#f134ff"],
   },
+  // red -> warm orange
+  {
+    name: "ember",
+    colors: ["#d61a00", "#e62e00", "#f54200", "#ff5610", "#ff6a26", "#ff7e3c", "#ff9252"],
+  },
+  // deep rose -> pink
+  {
+    name: "rose",
+    colors: ["#d10045", "#e00d5c", "#ef1a73", "#ff278a", "#ff3ba1", "#ff4fb8", "#ff63cf"],
+  },
+  // blood red -> coral
+  {
+    name: "coral",
+    colors: ["#c41230", "#d3243c", "#e23648", "#f14854", "#ff5a60", "#ff6c6c", "#ff7e78"],
+  },
+  // amber -> gold
+  {
+    name: "gold",
+    colors: ["#c77400", "#d68200", "#e59000", "#f49e00", "#ffac0f", "#ffba2e", "#ffc84d"],
+  },
+  // chartreuse -> lemon
+  {
+    name: "citrus",
+    colors: ["#7fbf00", "#93cc00", "#a7d900", "#bbe600", "#cff300", "#e3ff0f", "#f7ff3d"],
+  },
+  // deep green -> mint
+  {
+    name: "mint",
+    colors: ["#00a05a", "#00b26b", "#00c47c", "#00d68d", "#0fe89e", "#2effb5", "#5cffc9"],
+  },
+  // forest -> spring green
+  {
+    name: "spring",
+    colors: ["#0f9e00", "#23ad0f", "#37bc1e", "#4bcb2d", "#5fda3c", "#73e94b", "#87f85a"],
+  },
+  // teal -> aqua
+  {
+    name: "aqua",
+    colors: ["#008c8c", "#009e9e", "#00b0b0", "#00c2c2", "#00d4d4", "#0fe6e6", "#3df8f0"],
+  },
+  // ocean blue -> sky
+  {
+    name: "sky",
+    colors: ["#0064c8", "#0f76d7", "#1e88e6", "#2d9af5", "#3cacff", "#5cbeff", "#7ad0ff"],
+  },
+  // glacier -> pale ice blue
+  {
+    name: "ice",
+    colors: ["#4dc3ff", "#61cbff", "#75d3ff", "#89dbff", "#9de3ff", "#b1ebff", "#c5f3ff"],
+  },
+  // midnight -> periwinkle
+  {
+    name: "peri",
+    colors: ["#2e3cff", "#4350ff", "#5864ff", "#6d78ff", "#828cff", "#97a0ff", "#acb4ff"],
+  },
+  // indigo -> lavender
+  {
+    name: "lavender",
+    colors: ["#6a2eff", "#7d43ff", "#9058ff", "#a36dff", "#b682ff", "#c997ff", "#dcacff"],
+  },
+  // electric fuchsia -> orchid pink
+  {
+    name: "fuchsia",
+    colors: ["#b400c8", "#c80ed7", "#dc1ce6", "#f02af5", "#ff38ff", "#ff52ff", "#ff6cff"],
+  },
+  // salmon -> peach
+  {
+    name: "peach",
+    colors: ["#ff5a3c", "#ff6a4a", "#ff7a58", "#ff8a66", "#ff9a74", "#ffaa82", "#ffba90"],
+  },
+  // bronze -> sand
+  {
+    name: "sand",
+    colors: ["#b98a2e", "#c69a3c", "#d3aa4a", "#e0ba58", "#edca66", "#fada74", "#ffea8c"],
+  },
 ];
 
 /** Deterministic 32-bit string hash (same scheme seededRand uses). */

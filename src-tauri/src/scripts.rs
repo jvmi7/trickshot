@@ -113,6 +113,47 @@ pub fn get_scripts(repo_path: String) -> Result<ScriptsConfig, String> {
     load_scripts(&repo_path)
 }
 
+/// Starter settings offered by the in-app editor when the repo has no
+/// `.trickshot/settings.json` yet — an editable BUFFER, nothing touches disk
+/// until the user saves. Must stay `parse_scripts`-valid (unit-tested).
+const SCRIPTS_TEMPLATE: &str = r#"{
+  "scripts": {
+    "setup": "bun install",
+    "run": {
+      "dev": "bun run dev --port $TRICKSHOT_PORT"
+    }
+  }
+}
+"#;
+
+/// Raw text of the repo's `.trickshot/settings.json` for the in-app scripts
+/// editor — or the starter template when the file doesn't exist yet. The
+/// webview edits TEXT; `save_scripts_source` validates before writing.
+#[tauri::command]
+pub fn get_scripts_source(repo_path: String) -> Result<String, String> {
+    let path = Path::new(&repo_path)
+        .join(".trickshot")
+        .join("settings.json");
+    match std::fs::read_to_string(&path) {
+        Ok(raw) => Ok(raw),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(SCRIPTS_TEMPLATE.to_string()),
+        Err(e) => Err(format!("failed to read {}: {e}", path.display())),
+    }
+}
+
+/// Validate + write the repo's `.trickshot/settings.json` (creating the dir on
+/// first save) and return the parsed config so the UI refreshes in one trip.
+/// Invalid JSON is rejected BEFORE anything hits disk — the file on disk is
+/// always loadable.
+#[tauri::command]
+pub fn save_scripts_source(repo_path: String, content: String) -> Result<ScriptsConfig, String> {
+    let cfg = parse_scripts(&content)?;
+    let dir = Path::new(&repo_path).join(".trickshot");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("settings.json"), content).map_err(|e| e.to_string())?;
+    Ok(cfg)
+}
+
 /// FNV-1a (64-bit), inlined. `DefaultHasher`'s algorithm is explicitly NOT
 /// guaranteed stable across Rust releases, and "same worktree path → same
 /// port" must survive a toolchain bump — so hash with a spec-fixed function.
@@ -192,6 +233,17 @@ fn script_command(repo_path: &str, worktree: &str, command: &str) -> Command {
 /// end state. Blocks up to the brief SIGTERM grace, so call it off the main
 /// thread. pub(crate): the lib.rs exit handler drains ScriptProcs through
 /// this too (via kill_all).
+/// (worktree, pid) of every live script process — the listener sweep's roots
+/// (listeners.rs). The pid doubles as the process-GROUP id (scripts spawn in
+/// their own group), which the sweep uses to catch reparented children.
+pub(crate) fn script_pids(procs: &ScriptProcs) -> Vec<(String, u32)> {
+    procs
+        .lock()
+        .iter()
+        .map(|(wt, e)| (wt.clone(), e.child.id()))
+        .collect()
+}
+
 pub(crate) fn kill_script(mut child: Child) {
     #[cfg(unix)]
     {
@@ -455,6 +507,15 @@ mod tests {
     #[test]
     fn invalid_json_is_an_error() {
         assert!(parse_scripts("not json").is_err());
+    }
+
+    #[test]
+    fn the_editor_template_parses_with_a_run_script() {
+        // The in-app editor's starter buffer must always be save-able as-is.
+        let cfg = parse_scripts(super::SCRIPTS_TEMPLATE).unwrap();
+        assert_eq!(cfg.run.len(), 1);
+        assert_eq!(cfg.run[0].name, "dev");
+        assert_eq!(cfg.setup.as_deref(), Some("bun install"));
     }
 
     // ---- resolve_script (the reserved-name / named-run 3-way branch) ----

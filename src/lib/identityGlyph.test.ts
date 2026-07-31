@@ -46,6 +46,15 @@ describe("palettes", () => {
     expect(GLYPH_PALETTES).toContain(p);
   });
 
+  test("the registry holds 20 well-formed palettes with unique names", () => {
+    expect(GLYPH_PALETTES.length).toBe(20);
+    expect(new Set(GLYPH_PALETTES.map((p) => p.name)).size).toBe(GLYPH_PALETTES.length);
+    for (const p of GLYPH_PALETTES) {
+      expect(p.colors.length).toBe(7);
+      for (const c of p.colors) expect(c).toMatch(/^#[0-9a-f]{6}$/i);
+    }
+  });
+
   test("shapeFills returns one in-palette color per shape", () => {
     for (const palette of GLYPH_PALETTES) {
       const fills = shapeFills("seed#3", 7, palette);

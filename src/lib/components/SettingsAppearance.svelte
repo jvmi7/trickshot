@@ -252,7 +252,9 @@
     gap: 8px;
   }
   :global(.theme-card[data-active]) {
-    border-color: color-mix(in oklch, var(--app-accent) 55%, var(--app-border));
+    /* The focus-tint recipe (text-mix, not accent) — stronger than a hover
+       so "active" still reads, but never a random accent hue. */
+    border-color: color-mix(in oklch, var(--app-text) 45%, var(--app-border));
   }
   .theme-card-apply {
     display: flex;

@@ -6,6 +6,7 @@
 // agentEvents/scriptEvents).
 
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { get } from "svelte/store";
@@ -164,6 +165,14 @@ export function getTerminal(key: string): TermInstance {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // ⌘-click opens URLs in the system browser (terminal muscle memory —
+    // plain clicks stay with the TUI's mouse reporting). The webview can't
+    // window.open out of the Tauri shell, so the hop is the open_url command.
+    term.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        if (event.metaKey || event.ctrlKey) void api.openUrl(uri).catch(() => {});
+      }),
+    );
     if (slot === "claude") {
       // Shift+Enter → NEWLINE in the CLI. A plain terminal can't distinguish
       // Shift+Enter from Enter (both are CR), and xterm.js speaks neither the
@@ -321,11 +330,7 @@ export function handleTermEvent(key: string, kind: TermEnvelope["kind"], data: s
         // The CLI ended (/exit, crash, or our own termClose): session.ts marks
         // the session stopped (type-to-revive). Call-time import per the
         // CIRCULAR-IMPORT CONTRACT.
-        // The chat cell blocks direct typing (composer-only input) — point at
-        // the surfaces that actually revive it.
-        inst.term.write(
-          "\r\n\x1b[2m[claude exited — send a message or use Restart to start it again]\x1b[0m\r\n",
-        );
+        inst.term.write("\r\n\x1b[2m[claude exited — type here to restart it]\x1b[0m\r\n");
         handleCliExit(keyWorktree(key), key);
       } else {
         // Typing revives it (the onData reconnect path) — say so.
@@ -366,6 +371,33 @@ export function applyTerminalFontSize(px: number) {
  *  the instance doesn't exist yet — attach handles first focus. */
 export function focusTerminal(key: string) {
   instances.get(key)?.term.focus();
+}
+
+/** Clear a terminal for ⌘K (terminal muscle memory). Resolution order:
+ *  (1) whichever cached terminal owns keyboard focus — DOM containment,
+ *  xterm parks focus on its hidden textarea (the shell popover case);
+ *  (2) `fallbackKey`'s instance — the VISIBLE chat, because under the
+ *  composer-only input policy the composer owns focus, so a chat terminal
+ *  is almost never the activeElement itself. Returns whether anything
+ *  cleared (nothing to clear = no-op, safe to fire from anywhere). */
+export function clearFocusedTerminal(fallbackKey?: string): boolean {
+  const active = document.activeElement;
+  if (active) {
+    for (const inst of instances.values()) {
+      if (inst.term.element?.contains(active)) {
+        inst.term.clear();
+        return true;
+      }
+    }
+  }
+  if (fallbackKey) {
+    const inst = instances.get(fallbackKey);
+    if (inst) {
+      inst.term.clear();
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Kill ONE PTY and drop its cached xterm. */
@@ -417,12 +449,6 @@ export function attachTerminal(
     onOpen: () => Promise<void>;
     onError?: (e: unknown) => void;
     focus?: boolean;
-    /** Swallow EVERY keyboard event the terminal would handle and call this
-     *  instead (per keydown) — the chat cells' composer-only input policy:
-     *  a focused xterm must not accept blind typing into the TUI's cropped
-     *  input box; keystrokes bounce focus to the composer. Mouse reporting
-     *  and text selection are untouched. Omit = normal typing (the shell). */
-    blockKeys?: () => void;
   },
 ): () => void {
   const inst = getTerminal(key);
@@ -445,19 +471,6 @@ export function attachTerminal(
   // focus: false = a passive reveal (the hover-opened shell popover) — the
   // chat pane keeps the keyboard; the caller focuses explicitly on intent.
   if (opts.focus !== false) inst.term.focus();
-  // Keyboard policy per attach (ONE handler per xterm — the latest attach
-  // owns it): blockKeys swallows everything and bounces to the composer;
-  // otherwise restore normal typing (a cached instance may carry a stale
-  // handler from a previous surface).
-  if (opts.blockKeys) {
-    const bounce = opts.blockKeys;
-    inst.term.attachCustomKeyEventHandler((ev) => {
-      if (ev.type === "keydown") bounce();
-      return false;
-    });
-  } else {
-    inst.term.attachCustomKeyEventHandler(() => true);
-  }
 
   // Fit AFTER layout settles, coalesced to one rAF per burst. Fitting
   // synchronously inside the ResizeObserver callback mutates layout and

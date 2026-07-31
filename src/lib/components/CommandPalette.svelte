@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ⌘K command palette: fuzzy-jump to any workspace + the core actions (new
+  // ⌘P command palette: fuzzy-jump to any workspace + the core actions (new
   // worktree, views, run scripts, settings). Feature component — App owns the
   // shortcut; this renders the shadcn Command dialog over the stores.
   import {
@@ -16,7 +16,7 @@
     restoreWorkspace,
     setChatLayout,
     setChangesOpen,
-    setMainView,
+    setRunOpen,
     toggleShell,
     setTheme,
     repos,
@@ -73,8 +73,8 @@
     const repo = $activeRepo;
     const w = $selectedWorktree;
     if (!repo || !w) return;
-    // Errors surface in the Run tab's header control; the palette is fire-and-forget.
-    api.runScript(repo.path, w, name).then(() => setMainView("run"), () => {});
+    // Errors surface in the Run header control; the palette is fire-and-forget.
+    api.runScript(repo.path, w, name).then(() => setRunOpen(true), () => {});
   }
 </script>
 
@@ -123,13 +123,13 @@
         </Command.Item>
       {/if}
       {#if $selectedWorktree}
-        <Command.Item value="chat view" onSelect={() => pick(() => { setCenterView("chat"); setMainView("chat"); })}>
+        <Command.Item value="chat view" onSelect={() => pick(() => setCenterView("chat"))}>
           <MessageSquare class="size-3.5" />
           Go to chat
         </Command.Item>
         <Command.Item
           value="new chat session"
-          onSelect={() => pick(() => { setCenterView("chat"); setMainView("chat"); addChat($selectedWorktree ?? ""); })}
+          onSelect={() => pick(() => { setCenterView("chat"); addChat($selectedWorktree ?? ""); })}
         >
           <Plus class="size-3.5" />
           New chat
@@ -137,7 +137,7 @@
         {#if multiChat}
           <Command.Item
             value="chat layout grid tabs toggle"
-            onSelect={() => pick(() => { setCenterView("chat"); setMainView("chat"); setChatLayout($chatLayout === "grid" ? "tabs" : "grid"); })}
+            onSelect={() => pick(() => { setCenterView("chat"); setChatLayout($chatLayout === "grid" ? "tabs" : "grid"); })}
           >
             <LayoutGrid class="size-3.5" />
             {$chatLayout === "grid" ? "Chat tabs layout" : "Chat grid layout"}

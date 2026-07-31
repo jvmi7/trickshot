@@ -42,9 +42,28 @@ fn cap_context(text: &str) -> String {
 /// keep it non-interactive and confined to reasoning over the piped context (no
 /// file reads, no network). Returns trimmed stdout.
 fn run_claude(worktree_path: &str, prompt: &str) -> Result<String, String> {
+    run_claude_with(worktree_path, prompt, "")
+}
+
+/// `claude -p` with an explicit tool allowlist — the GENERIC one-shot the
+/// text generators (no tools) and the background git agent (git only) share.
+/// The allowlist is FIXED HERE per caller, never from the webview: the
+/// webview supplies prompts, Rust decides capabilities (the run_script
+/// posture applied to agents).
+fn run_claude_with(
+    worktree_path: &str,
+    prompt: &str,
+    allowed_tools: &str,
+) -> Result<String, String> {
     let (bin, path) = claude_cli()?;
     let mut child = Command::new(&bin)
-        .args(["-p", "--output-format", "text", "--allowedTools", ""])
+        .args([
+            "-p",
+            "--output-format",
+            "text",
+            "--allowedTools",
+            allowed_tools,
+        ])
         .current_dir(worktree_path)
         .env("PATH", &path)
         .stdin(Stdio::piped())
@@ -345,4 +364,18 @@ mod tests {
         // A small input is returned verbatim (no marker).
         assert_eq!(cap_context("a\nb"), "a\nb");
     }
+}
+
+/// Run a BACKGROUND git agent in a worktree: a headless `claude -p` whose
+/// tools are locked to git (`Bash(git:*)` — fixed here, not by the caller).
+/// The webview hands it a task prompt (save recovery, rebase resolution) and
+/// fires-and-forgets; the returned text is the agent's final summary. Runs
+/// invisibly — no PTY, no chat session, no transcript in the app.
+#[tauri::command]
+pub async fn run_git_agent(worktree_path: String, prompt: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_claude_with(&worktree_path, &prompt, "Bash(git:*)")
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
