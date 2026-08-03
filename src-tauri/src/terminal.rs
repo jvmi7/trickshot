@@ -82,11 +82,30 @@ fn is_valid_session_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
-/// Resolve the user's `claude` CLI (absolute path) + the login shell's $PATH,
-/// once per app run. Finder-launched apps inherit a minimal PATH, so we ask the
-/// LOGIN shell with fixed strings (no interpolation — nothing user-controlled
-/// enters these commands). The PATH is exported into the CLI's PTY so claude's
-/// own subprocesses (its Bash tool) see the user's real environment.
+/// The last non-empty line of a shell's stdout — interactive rc files may
+/// print banners before our probe's own output, so the probe's answer is
+/// always the LAST line. Pure, unit-tested.
+fn last_nonempty_line(s: &str) -> Option<String> {
+    s.lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_string)
+}
+
+/// Resolve the user's `claude` CLI (absolute path) + the $PATH to export into
+/// its PTY, once per app run. Fixed strings only (no interpolation — nothing
+/// user-controlled enters these commands). Three tiers, because a
+/// Finder-launched app inherits launchd's minimal PATH:
+///   1. `$SHELL -lc` — login shell; works when the PATH entry lives in
+///      ~/.zprofile (or the app was launched from a terminal, as in dev).
+///   2. `$SHELL -lic` — INTERACTIVE login shell; PATH additions and the
+///      installer's alias commonly live in ~/.zshrc, which only interactive
+///      shells source.
+///   3. Well-known install locations, PATH-composed from the hit's own dir
+///      (a native claude needs nothing else; an npm-installed one keeps node
+///      beside it).
+///
 /// pub(crate): `generate.rs` reuses it to run one-shot `claude -p` generations
 /// rather than re-resolving the binary.
 pub(crate) fn claude_cli() -> Result<(String, String), String> {
@@ -100,21 +119,52 @@ pub(crate) fn claude_cli() -> Result<(String, String), String> {
         RESOLVED
             .get_or_init(|| {
                 let shell = default_shell();
-                let run = |script: &str| -> Result<String, String> {
-                    let out = std::process::Command::new(&shell)
-                        .args(["-lc", script])
-                        .output()
-                        .map_err(|e| format!("failed to run login shell: {e}"))?;
-                    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+                let probe = |flag: &str| -> Option<(String, String)> {
+                    let sh = |script: &str| -> Option<String> {
+                        let out = std::process::Command::new(&shell)
+                            .args([flag, script])
+                            .stdin(std::process::Stdio::null()) // an rc must not wait on input
+                            .output()
+                            .ok()?;
+                        last_nonempty_line(&String::from_utf8_lossy(&out.stdout))
+                    };
+                    let bin = sh("command -v claude")?;
+                    // Reject alias definitions / garbage: the answer must be a
+                    // real file on disk.
+                    if !std::path::Path::new(&bin).is_file() {
+                        return None;
+                    }
+                    // The leading \n pins $PATH to its own (last) line even if
+                    // an rc printed without a trailing newline.
+                    let path = sh("printf '\\n%s' \"$PATH\"").unwrap_or_default();
+                    Some((bin, path))
                 };
-                let bin = run("command -v claude")?;
-                if bin.is_empty() {
-                    return Err(
+                let fixed = || -> Option<(String, String)> {
+                    let home = std::env::var("HOME").unwrap_or_default();
+                    let candidates = [
+                        format!("{home}/.claude/local/claude"),
+                        format!("{home}/.local/bin/claude"),
+                        "/opt/homebrew/bin/claude".to_string(),
+                        "/usr/local/bin/claude".to_string(),
+                        format!("{home}/.bun/bin/claude"),
+                        format!("{home}/bin/claude"),
+                    ];
+                    let bin = candidates
+                        .into_iter()
+                        .find(|p| std::path::Path::new(p).is_file())?;
+                    let dir = std::path::Path::new(&bin)
+                        .parent()?
+                        .to_string_lossy()
+                        .to_string();
+                    let inherited = std::env::var("PATH").unwrap_or_default();
+                    Some((bin, format!("{dir}:{inherited}")))
+                };
+                probe("-lc")
+                    .or_else(|| probe("-lic"))
+                    .or_else(fixed)
+                    .ok_or_else(|| {
                         "claude CLI not found on PATH — is Claude Code installed?".to_string()
-                    );
-                }
-                let path = run("printf %s \"$PATH\"").unwrap_or_default();
-                Ok((bin, path))
+                    })
             })
             .clone()
     }
@@ -474,9 +524,22 @@ pub fn term_close(worktree: String, state: State<'_, Terminals>) -> Result<(), S
 
 #[cfg(test)]
 mod tests {
-    use super::{claude_key, drain_utf8, is_valid_session_id, parse_launch, Launch, CLAUDE_SLOT};
+    use super::{
+        claude_key, drain_utf8, is_valid_session_id, last_nonempty_line, parse_launch, Launch,
+        CLAUDE_SLOT,
+    };
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::io::{Read, Write};
+
+    #[test]
+    fn last_nonempty_line_skips_rc_banners_and_blanks() {
+        assert_eq!(
+            last_nonempty_line("welcome banner\n/Users/x/.local/bin/claude\n\n").as_deref(),
+            Some("/Users/x/.local/bin/claude"),
+        );
+        assert_eq!(last_nonempty_line("  \n\n"), None);
+        assert_eq!(last_nonempty_line(""), None);
+    }
 
     #[test]
     fn launch_whitelist_accepts_only_known_targets() {
