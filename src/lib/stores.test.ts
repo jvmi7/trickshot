@@ -179,3 +179,46 @@ describe("moveRepoTo", () => {
     expect(get(repos)).toBe(before);
   });
 });
+
+import { moveWorktreeTo, orderWorktrees, setWorktrees, worktreeOrderByRepo } from "./stores";
+import type { Worktree } from "./types";
+
+describe("worktree ordering (the reorder-drag overlay)", () => {
+  const wt = (path: string): Worktree =>
+    ({ path, branch: path, is_main: false, is_bare: false }) as Worktree;
+
+  test("orderWorktrees: no saved order → git order untouched", () => {
+    const list = [wt("/m"), wt("/a")];
+    expect(orderWorktrees(list, undefined)).toBe(list);
+    expect(orderWorktrees(list, [])).toBe(list);
+  });
+
+  test("orderWorktrees: knowns sort by saved index, unknowns append in git order", () => {
+    const list = [wt("/m"), wt("/a"), wt("/new1"), wt("/new2")];
+    const out = orderWorktrees(list, ["/a", "/m"]).map((w) => w.path);
+    expect(out).toEqual(["/a", "/m", "/new1", "/new2"]);
+  });
+
+  test("orderWorktrees: stale saved paths are ignored", () => {
+    const out = orderWorktrees([wt("/m")], ["/gone", "/m"]).map((w) => w.path);
+    expect(out).toEqual(["/m"]);
+  });
+
+  test("moveWorktreeTo uses drop-slot semantics over the DISPLAYED order", () => {
+    setWorktrees("/repo", [wt("/m"), wt("/a"), wt("/b")]);
+    worktreeOrderByRepo.set({});
+    moveWorktreeTo("/repo", "/m", 3); // drop after the last
+    expect(get(worktreeOrderByRepo)["/repo"]).toEqual(["/a", "/b", "/m"]);
+    moveWorktreeTo("/repo", "/b", 0); // to the front of the NEW order
+    expect(get(worktreeOrderByRepo)["/repo"]).toEqual(["/b", "/a", "/m"]);
+  });
+
+  test("moveWorktreeTo no-ops on own-slot drops and unknown paths", () => {
+    setWorktrees("/repo", [wt("/m"), wt("/a")]);
+    worktreeOrderByRepo.set({});
+    moveWorktreeTo("/repo", "/m", 0); // its own slot
+    moveWorktreeTo("/repo", "/m", 1); // the slot just below itself
+    moveWorktreeTo("/repo", "/missing", 0);
+    expect(get(worktreeOrderByRepo)["/repo"]).toBeUndefined();
+  });
+});

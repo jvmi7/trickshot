@@ -7,6 +7,9 @@
     addRepo,
     removeRepo,
     moveRepoTo,
+    moveWorktreeTo,
+    orderWorktrees,
+    worktreeOrderByRepo,
     worktreesByRepo,
     openRepository,
     addWorktree,
@@ -157,6 +160,54 @@
     delete document.documentElement.dataset.grabbing;
     window.removeEventListener("pointermove", repoDragMove);
     window.removeEventListener("pointerup", repoDragUp);
+  }
+
+  // ---- Drag-to-reorder worktrees WITHIN a repo ----
+  // The repo drag's row-level sibling: same threshold start (plain clicks
+  // still select), same window-listener pattern, but the drop slot is picked
+  // among the OWNING repo's rows only — a worktree can't leave its repo.
+  // Release commits via moveWorktreeTo (a persisted order OVERLAY — git
+  // keeps owning which worktrees exist).
+  let dragWt = $state<{ repo: string; path: string } | null>(null);
+  let wtDropAt = $state<number | null>(null);
+  let wtDragPending: { repo: string; path: string; x: number; y: number } | null = null;
+
+  function wtDragDown(e: PointerEvent, repo: string, path: string) {
+    if (e.button !== 0) return;
+    wtDragPending = { repo, path, x: e.clientX, y: e.clientY };
+    window.addEventListener("pointermove", wtDragMove);
+    window.addEventListener("pointerup", wtDragUp);
+  }
+  function wtDragMove(e: PointerEvent) {
+    const pending = wtDragPending;
+    if (!pending) return;
+    if (!dragWt) {
+      if (Math.hypot(e.clientX - pending.x, e.clientY - pending.y) < 5) return;
+      dragWt = { repo: pending.repo, path: pending.path };
+      document.documentElement.dataset.grabbing = "";
+    }
+    const rows = wtEl?.querySelectorAll<HTMLElement>(
+      `[data-repo="${CSS.escape(pending.repo)}"] [data-wt]`,
+    );
+    if (!rows) return;
+    let at = rows.length;
+    for (let i = 0; i < rows.length; i++) {
+      const rect = rows.item(i).getBoundingClientRect();
+      if (e.clientY < rect.top + rect.height / 2) {
+        at = i;
+        break;
+      }
+    }
+    wtDropAt = at;
+  }
+  function wtDragUp() {
+    if (dragWt && wtDropAt != null) moveWorktreeTo(dragWt.repo, dragWt.path, wtDropAt);
+    wtDragPending = null;
+    dragWt = null;
+    wtDropAt = null;
+    delete document.documentElement.dataset.grabbing;
+    window.removeEventListener("pointermove", wtDragMove);
+    window.removeEventListener("pointerup", wtDragUp);
   }
 
   // ⌘⇧N / the palette / the fleet ask for a new worktree via this nonce:
@@ -422,6 +473,9 @@
       </ContextMenu.Root>
 
       {#if !collapsed[repo.path]}
+        <!-- The DISPLAYED row list: git truth + the persisted reorder overlay
+             (hoisted so the drag markup can reference the slot count). -->
+        {@const rows = orderWorktrees($worktreesByRepo[repo.path] ?? [], $worktreeOrderByRepo[repo.path])}
         <!-- transition:slide = the smooth accordion height (JS-driven, so no
              fixed-height CSS hacks; params exempt from the CSS duration scan). -->
         <div transition:slide={{ duration: 220, easing: cubicOut }}>
@@ -441,7 +495,7 @@
         {/if}
 
         <div class="wt-rows" use:slidingRowHighlight>
-          {#each $worktreesByRepo[repo.path] ?? [] as wt (wt.path)}
+          {#each rows as wt, wi (wt.path)}
           <!-- busy also drives the row class: a greyed glyph must color back in
                while its session's loading morph plays (see app.css). -->
           {@const busy = $sessionStatus[wt.path] === "busy"}
@@ -463,8 +517,16 @@
                   class="wt-row group/row"
                   class:active={$selectedWorktree === wt.path}
                   class:busy
+                  data-wt={wt.path}
+                  data-dragging={dragWt?.path === wt.path ? "" : undefined}
+                  data-drop={dragWt?.repo === repo.path && wtDropAt === wi
+                    ? "before"
+                    : dragWt?.repo === repo.path && wtDropAt === rows.length && wi === rows.length - 1
+                      ? "after"
+                      : undefined}
                   role="button"
                   tabindex="0"
+                  onpointerdown={(e: PointerEvent) => wtDragDown(e, repo.path, wt.path)}
                   onclick={() => select(wt)}
                   onkeydown={(e) => {
                     // Only act on keys aimed at the row itself — Enter/Space on the
