@@ -475,6 +475,59 @@ export function removeWorktreeFromRepo(repoPath: string, worktreePath: string) {
   }));
 }
 
+/** User-chosen worktree order per repo (path lists, persisted). Git stays the
+ *  source of truth for WHICH worktrees exist (lists repopulate on launch /
+ *  focus / create); this overlay only ORDERS a repo's rows. Applied at render
+ *  via `orderWorktrees` — stale paths are ignored and new ones append in git
+ *  order, so with no saved entry it degrades to plain git order. */
+export const worktreeOrderByRepo = createPersisted<Record<string, string[]>>(
+  "trickshot.worktreeOrder",
+  {},
+  {
+    parse: (raw) => {
+      const v = JSON.parse(raw);
+      if (!isPlainObject(v)) return {};
+      const out: Record<string, string[]> = {};
+      for (const [k, arr] of Object.entries(v)) {
+        if (Array.isArray(arr) && arr.every((p) => typeof p === "string")) out[k] = arr;
+      }
+      return out;
+    },
+  },
+);
+
+/** Apply a saved order to a git-truth list: known paths sort by their saved
+ *  index, unknown ones append in git order. Pure (unit-tested). */
+export function orderWorktrees(list: Worktree[], order: string[] | undefined): Worktree[] {
+  if (!order || order.length === 0) return list;
+  const idx = new Map(order.map((p, i) => [p, i]));
+  const known = list
+    .filter((w) => idx.has(w.path))
+    .sort((a, b) => (idx.get(a.path) ?? 0) - (idx.get(b.path) ?? 0));
+  const unknown = list.filter((w) => !idx.has(w.path));
+  return [...known, ...unknown];
+}
+
+/** Reorder a repo's worktree rows: move `path` to `index` (a slot in the
+ *  repo's CURRENT displayed order — the drag indicator's position), then
+ *  persist the whole order. The moveRepoTo sibling. */
+export function moveWorktreeTo(repoPath: string, path: string, index: number) {
+  const displayed = orderWorktrees(
+    get(worktreesByRepo)[repoPath] ?? [],
+    get(worktreeOrderByRepo)[repoPath],
+  ).map((w) => w.path);
+  const from = displayed.indexOf(path);
+  if (from < 0) return;
+  let to = Math.max(0, Math.min(index, displayed.length));
+  if (from < to) to -= 1; // removing the dragged entry shifts later slots
+  if (to === from) return;
+  const next = [...displayed];
+  const [moved] = next.splice(from, 1);
+  if (!moved) return;
+  next.splice(to, 0, moved);
+  worktreeOrderByRepo.update((m) => ({ ...m, [repoPath]: next }));
+}
+
 // ---- Selection (persisted) ----
 // Routed through the standard persisted template like every other persisted store;
 // an empty string round-trips as "no selection" (`null`), the template's stand-in
