@@ -186,10 +186,23 @@
     );
   }
 
+  // Occlusion pause: WKWebView maps a covered/minimized window to
+  // document.hidden — an unwatched hero must cost nothing (the shimmer was
+  // measurably the app's whole idle CPU, see the perf notes in the effect
+  // below). Visible-but-unfocused keeps animating: the brand stays alive.
+  let pageVisible = $state(typeof document === "undefined" || !document.hidden);
+
+  $effect(() => {
+    const onVis = () => (pageVisible = !document.hidden);
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  });
+
   $effect(() => {
     mask = buildMask(cols, rowCount);
     grid = roll(null);
     if (tickMs <= 0) return; // static mark (the dotted sidebar mini) — no shimmer
+    if (!pageVisible) return; // hidden window — hold the current frame
     const timer = setInterval(() => {
       grid = roll(grid);
     }, tickMs);
@@ -450,6 +463,7 @@
       squash = 1;
       return;
     }
+    if (!pageVisible) return; // hidden window — no one to blink at
     let timer: ReturnType<typeof setTimeout>;
     const schedule = () => {
       timer = setTimeout(play, BLINK_GAP_MIN_MS + Math.random() * BLINK_GAP_JITTER_MS);
@@ -513,6 +527,14 @@
     letter-spacing: 0;
     user-select: none;
     cursor: pointer; /* the click toy: cycle the palette */
+    /* PERFORMANCE (measured, not speculative): every shimmer tick re-rolls
+       ~a third of the glyph cells, and those text mutations were re-laying
+       the WHOLE page's flex tree ~8×/s — profiled at ~15% combined CPU with
+       the app idle on Home. Containment traps both layout and paint inside
+       this box (its size is a fixed mono grid, so nothing upstream ever
+       needs to react); with the occlusion pause above, this took idle CPU
+       to ~0. Don't remove one without re-measuring. */
+    contain: layout paint;
   }
   .eyes-mover {
     will-change: translate;

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>trickshot</title>
+    <meta name="description" content="trickshot — the extensible harness for coding agents." />
+    <!--
+      The marketing site: ONE self-contained file, no build step, no assets.
+      Palette mirrors the app's default theme (app.css --base-*): monochrome
+      terminal — near-black canvas, light-gray text, no color anywhere.
+      Deploy by pointing any static host at this folder.
+    -->
+    <style>
+      :root {
+        --bg: #0f0f0f;
+        --text: #e7e7e7;
+        --muted: #8f8f8f;
+        --border: #2e2e2e;
+        --surface: #161616;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        display: grid;
+        place-items: center;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-monospace, Menlo, monospace;
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 24px;
+        text-align: center;
+        animation: rise 0.6s ease-out both;
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+      }
+      .eyes {
+        font-size: 22px;
+        letter-spacing: 0.35em;
+        margin-left: 0.35em; /* recenters after the trailing letter-space */
+        user-select: none;
+      }
+      h1 {
+        margin: 0;
+        font-size: 34px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      .tagline {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .download {
+        margin-top: 26px;
+        display: inline-block;
+        padding: 12px 26px;
+        border: 1px solid var(--text);
+        border-radius: 8px;
+        background: var(--text);
+        color: var(--bg);
+        font: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+        transition:
+          background 120ms ease,
+          color 120ms ease;
+      }
+      .download:hover {
+        background: transparent;
+        color: var(--text);
+      }
+      .download:focus-visible {
+        outline: 1px solid var(--text);
+        outline-offset: 3px;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .meta a {
+        color: inherit;
+      }
+      .meta a:hover {
+        color: var(--text);
+      }
+      footer {
+        position: fixed;
+        bottom: 18px;
+        left: 0;
+        right: 0;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="eyes" aria-hidden="true">◉◉</div>
+      <h1>trickshot</h1>
+      <p class="tagline">the extensible harness for coding agents</p>
+      <a class="download" href="https://github.com/jvmi7/trickshot/releases/latest/download/trickshot.dmg">
+        Download for macOS
+      </a>
+      <p class="meta">Apple silicon · unsigned build — right-click&nbsp;→&nbsp;Open on first launch</p>
+    </main>
+    <footer>
+      <p class="meta"><a href="https://github.com/jvmi7/trickshot">github.com/jvmi7/trickshot</a></p>
+    </footer>
+  </body>
+</html>
